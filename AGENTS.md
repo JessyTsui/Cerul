@@ -1,0 +1,216 @@
+# Repository Guidelines
+
+## Communication & Language
+When collaborating in issues, reviews, or direct agent/user conversations, reply to the repository owner in Chinese by default.
+
+Unless explicitly requested otherwise:
+
+- code should be written in English
+- public-facing docs should be written in English
+- `README.md` content should be written in English
+- identifiers, comments, commit messages, and API field names should be written in English
+
+If a document is clearly internal-only and not intended for the public repository, Chinese is acceptable when that is more practical.
+
+## Project Principles
+Cerul is an open-core project. The codebase is public; the core moat is not.
+
+Treat these as baseline project rules:
+
+1. Data, indexes, prompts, internal evaluation assets, and model weights are not part of the public repository.
+2. Public code should stay reusable and infrastructure-oriented.
+3. Avoid adding stack changes unless there is a clear project-level decision to do so.
+4. Prefer simple, maintainable building blocks over framework churn.
+5. Keep the API layer thin and push heavy processing into workers.
+
+## Product & Architecture Guardrails
+Cerul has two tracks, `broll` and `knowledge`, but they should share one platform backbone.
+
+Default architectural assumptions:
+
+- frontend: Next.js
+- backend: FastAPI
+- database: Neon PostgreSQL with pgvector
+- auth: Better Auth
+- heavy ingestion and media processing: Python workers
+
+Do not introduce a second primary backend stack, ORM stack, or deployment platform without an explicit decision. In particular, do not casually pivot the project toward TanStack Start, Cloudflare D1, or Drizzle as the default foundation.
+
+Keep these boundaries intact:
+
+- `apps/api` handles request orchestration, auth, usage, and API responses
+- `workers/` handles ingestion, indexing, and media-heavy processing
+- `core/` holds reusable shared logic
+- frontend pages should not become the primary business logic layer
+
+Worker-side ingestion should continue to follow a shared step-pipeline approach:
+
+- keep ingestion flows step-based and composable
+- prefer shared context over ad hoc cross-step state passing
+- keep idempotency in mind for every pipeline step
+- avoid embedding heavy media logic directly inside API handlers
+
+## Open Source Boundary
+Assume everything inside this repository may become public.
+
+Do not commit:
+
+- internal strategy memos
+- fundraising materials
+- internal prompts
+- internal benchmark sets
+- production data exports
+- proprietary ranking parameters
+- secrets, local dumps, or ad hoc research files
+
+If material is useful internally but not suitable for the repository, keep it under the local private workspace rather than adding it here.
+
+## Project Structure & Module Organization
+Cerul is organized as a bootstrap monorepo. Put product-facing code in `apps/`: `apps/web` is the Next.js frontend (`app/`, `components/`, `lib/`) and `apps/api` is the FastAPI backend (`routers/`, `services/`, `middleware/`). Shared Python logic belongs in `core/` (`auth/`, `db/`, `embedding/`, `pipeline/`, `search/`, `telemetry/`). Track-specific indexing flows live in `workers/broll_indexer` and `workers/knowledge_indexer`. Keep reusable client code in `sdk/javascript` and `sdk/python`, MCP server code in `mcp/`, config files in `config/`, and experiments in `training/`.
+
+## Build, Test, and Development Commands
+This repository is still scaffold-first: no root `package.json`, `pyproject.toml`, or `Makefile` is committed yet. Today, the main setup command is:
+
+```sh
+cp .env.example .env
+```
+
+Use it to seed local secrets and service URLs before running any new app code. When you add runnable modules, expose explicit commands close to that module and document them in both `README.md` and this file (for example, `pnpm --dir apps/web dev` or `pytest apps/api`).
+
+## Coding Style & Naming Conventions
+Match the target stack. Use `snake_case` for Python modules, functions, and worker steps (`knowledge_indexer`, `scene_threshold`), and `PascalCase` for React components with `camelCase` helpers. Prefer 4-space indentation in Python and 2 spaces in TypeScript, JSON, and YAML. Keep files narrowly scoped: API routing stays in `apps/api/routers`, shared retrieval logic stays in `core/search`, and app-only utilities stay inside the owning app.
+
+Additional Cerul-specific expectations:
+
+- keep architecture and internal planning docs out of version control unless explicitly meant to be public
+- prefer English schema names, table names, env vars, and API payloads
+- avoid placeholder-heavy code; create real module boundaries only when they are about to be used
+- default to ASCII unless an existing file already uses non-ASCII text for a clear reason
+
+## Testing Guidelines
+No repo-wide test runner is defined yet, so add tests with each new module. Name Python tests `test_*.py`; name web tests `*.test.ts` or `*.test.tsx`. Cover happy paths and one failure case for new routers, pipeline steps, and shared search logic. If a PR ships without tests, explain the gap clearly.
+
+For this project specifically, prioritize tests around:
+
+- search request validation
+- usage and credit accounting
+- pipeline step idempotency
+- vector retrieval helpers
+- API authentication paths
+
+## Branch, Commit, PR, and Issue Workflow
+
+### Branches
+Use `main` as the only long-lived integration branch.
+
+Branch rules:
+
+- start new work from the latest `main`
+- keep branches short-lived
+- delete merged branches
+- do not commit directly to `main`
+
+For agent-created branches, use the `codex/` prefix.
+
+Recommended branch patterns:
+
+- `codex/feature-search-api`
+- `codex/fix-api-key-auth`
+- `codex/docs-readme-refresh`
+- `codex/chore-repo-bootstrap`
+- `codex/refactor-broll-pipeline`
+
+Keep branch names:
+
+- lowercase
+- English
+- hyphenated
+- scoped to one clear objective
+
+### Commits
+Commit messages should be short, imperative, and in English.
+
+Good patterns:
+
+- `Add initial FastAPI entrypoint`
+- `Fix API key hash lookup`
+- `Document public repo scope`
+- `Refactor pipeline context handling`
+- `Scaffold worker module structure`
+
+Commit rules:
+
+- one logical concern per commit
+- avoid mixed commits that combine docs, refactors, and features unless tightly related
+- do not use vague subjects such as `update`, `misc`, or `wip`
+- prefer clean history over high commit volume
+
+### Pull Requests
+Every merge to `main` should go through a PR.
+
+PR title rules:
+
+- write titles in English
+- use concise, outcome-focused wording
+- match the main change, not the implementation detail
+
+Recommended PR title patterns:
+
+- `Add API key management skeleton`
+- `Implement initial broll indexing flow`
+- `Rewrite README for public repo`
+- `Scaffold public repo structure`
+
+PR body should include:
+
+- summary of the change
+- affected directories
+- new env vars or configuration changes
+- testing status
+- screenshots for UI changes
+- request/response examples for API changes
+
+PR process rules:
+
+- keep PRs focused and reviewable
+- separate public repo cleanup from product logic when possible
+- if architecture changes, explain the decision and tradeoffs explicitly
+- if tests are missing, say why
+
+Preferred merge rule:
+
+- prefer squash merge for routine work to keep `main` readable
+- keep multiple commits only when the sequence itself is meaningful
+
+### Issues
+Use issues for work that should be tracked publicly or discussed before implementation.
+
+Open an issue when:
+
+- adding a feature
+- fixing a user-visible bug
+- changing architecture or infrastructure direction
+- introducing a new dependency or platform decision
+- documenting a non-trivial follow-up task
+
+An issue is not required for every tiny cleanup.
+
+Recommended issue title patterns:
+
+- `[Feature] Add broll search API`
+- `[Bug] Usage endpoint returns wrong remaining credits`
+- `[Docs] Clarify open-source scope`
+- `[Infra] Add Neon migration workflow`
+- `[Decision] Define ingestion queue strategy`
+
+Issue rules:
+
+- titles should be in English
+- keep titles short and searchable
+- describe the expected outcome, not just the symptom
+- include acceptance criteria when the task is implementation-driven
+
+## Security & Configuration Tips
+Never commit `.env`, provider credentials, or generated artifacts. Use `.env.example` as the source of truth for required variables such as `OPENAI_API_KEY`, `DATABASE_URL`, and content API keys.
+
+If a change affects public docs or repository metadata, ensure the result still matches the intended open-source boundary of the project.
