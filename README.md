@@ -1,38 +1,107 @@
-# Cerul.ai
+<div align="center">
+  <h1>Cerul.ai</h1>
+  <p><strong>Video understanding search infrastructure for AI agents.</strong></p>
+  <p>Search what is shown in videos, not just what is said.</p>
+  <p>
+    <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache_2.0-1f6feb" /></a>
+    <img alt="Status" src="https://img.shields.io/badge/status-bootstrap-111827" />
+    <img alt="Model" src="https://img.shields.io/badge/model-open--core-0f766e" />
+  </p>
+</div>
 
-Cerul.ai 是一个面向 AI agents 的视频理解搜索 API。
+---
 
-项目当前处于早期搭建阶段，目标是先把公开视频搜索的基础能力跑通，再逐步扩展到更完整的视频理解与检索能力。
+> Cerul is being built for a part of the web that agents still struggle to use well: video.
 
-## Scope
+## Overview
 
-- `broll`: 用免费素材做低成本的视觉搜索 showcase
-- `knowledge`: 面向演讲、播客、发布会等知识类视频的主线搜索能力
+Cerul.ai is an early-stage open-source project focused on video understanding for AI agents.
 
-## Repo Layout
+The goal is to make videos searchable in a way that goes beyond transcripts by capturing the information that appears on screen: slides, charts, product demos, code screens, whiteboards, and other visual evidence.
+
+## What Cerul Is Building
+
+Cerul currently has two product directions built on the same foundation:
+
+| Track | Purpose | Description |
+| --- | --- | --- |
+| `broll` | Lightweight showcase | Semantic visual search over free stock footage sources such as Pexels and Pixabay |
+| `knowledge` | Core product direction | Search and retrieval over talks, podcasts, keynotes, and other knowledge-dense videos |
+
+Both tracks are intended to share the same core infrastructure:
+
+- API layer
+- indexing pipelines
+- authentication and usage controls
+- storage and retrieval primitives
+- SDK and MCP integrations
+
+## Why This Exists
+
+Web pages are already easy for agents to search. Video is not.
+
+Cerul is aimed at the gap between raw video content and structured retrieval. The long-term focus is not transcript search alone, but a system that can index and retrieve the parts of a video that actually matter for reasoning and citation.
+
+## Current Status
+
+This repository is still in the bootstrap phase.
+
+What exists today:
+
+- public repository scaffold
+- license and environment template
+- project structure for web, API, workers, SDKs, and MCP
+
+What is not in the repository yet:
+
+- production data
+- internal evaluation assets
+- tuned prompts and ranking parameters
+- proprietary indexes or model weights
+
+## Repository Layout
 
 ```text
 apps/
-  web/        Next.js app
+  web/        Next.js application
   api/        FastAPI service
 core/         Shared Python modules
 workers/      Indexing pipelines and job workers
 config/       YAML config files
-scripts/      Local scripts and bootstrap helpers
+scripts/      Bootstrap and local utility scripts
 training/     Model training experiments
 sdk/          Client SDKs
 mcp/          MCP server
 ```
 
-## Status
+## Development Direction
 
-- 文档骨架已建立
-- 目录结构已初始化
-- 代码实现尚未开始
+The near-term build sequence is straightforward:
 
-## Local Workspace
+1. Establish the public project skeleton.
+2. Implement the first end-to-end `broll` indexing and search flow.
+3. Add the heavier `knowledge` ingestion and retrieval pipeline.
+4. Expand outward into SDK and MCP integrations.
 
-建议本地按下面的方式组织：
+## Open Source Scope
 
-- `~/Cerul/Cerul.ai`: 开源 repo
-- `~/Cerul/private`: 私有策略、研究、pitch、历史材料
+Cerul follows an open-core direction.
+
+Public in this repository:
+
+- application code
+- pipeline framework
+- SDK and MCP integrations
+- local development scaffolding
+
+Not public:
+
+- production indexes
+- user behavior data
+- internal benchmarks
+- proprietary training data
+- tuned production prompts and parameters
+
+## License
+
+This repository is licensed under [Apache 2.0](./LICENSE).
