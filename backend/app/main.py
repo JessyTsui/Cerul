@@ -2,7 +2,9 @@ import os
 
 from fastapi import FastAPI
 
+from .routers.dashboard import router as dashboard_router
 from .routers.health import router as health_router
+from .routers.webhooks import router as webhooks_router
 
 
 def current_environment() -> str:
@@ -22,6 +24,8 @@ app = FastAPI(
 )
 
 app.include_router(health_router)
+app.include_router(dashboard_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/", tags=["meta"])
