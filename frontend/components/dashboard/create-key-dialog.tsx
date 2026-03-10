@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   apiKeys,
   getApiErrorMessage,
@@ -23,9 +23,14 @@ export function CreateKeyDialog({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const copyResetTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
+      if (copyResetTimeoutRef.current !== null) {
+        window.clearTimeout(copyResetTimeoutRef.current);
+        copyResetTimeoutRef.current = null;
+      }
       setName("");
       setCreatedKey(null);
       setError(null);
@@ -47,6 +52,11 @@ export function CreateKeyDialog({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
+
+      if (copyResetTimeoutRef.current !== null) {
+        window.clearTimeout(copyResetTimeoutRef.current);
+        copyResetTimeoutRef.current = null;
+      }
     };
   }, [isOpen, isSubmitting, onClose]);
 
@@ -93,7 +103,13 @@ export function CreateKeyDialog({
     try {
       await navigator.clipboard.writeText(createdKey.rawKey);
       setIsCopied(true);
-      window.setTimeout(() => setIsCopied(false), 2000);
+      if (copyResetTimeoutRef.current !== null) {
+        window.clearTimeout(copyResetTimeoutRef.current);
+      }
+      copyResetTimeoutRef.current = window.setTimeout(() => {
+        setIsCopied(false);
+        copyResetTimeoutRef.current = null;
+      }, 2000);
     } catch {
       setError("Copy failed. Store the key securely before closing this dialog.");
     }
@@ -130,7 +146,7 @@ export function CreateKeyDialog({
             onClick={onClose}
             type="button"
           >
-            x
+            X
           </button>
         </div>
 

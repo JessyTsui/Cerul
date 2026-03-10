@@ -25,6 +25,10 @@ export function DashboardSettingsScreen() {
     null,
   );
   const [billingError, setBillingError] = useState<string | null>(null);
+  const normalizedTier = data?.tier.toLowerCase() ?? "free";
+  const canUpgrade = normalizedTier === "free";
+  const canManageSubscription =
+    normalizedTier === "pro" || normalizedTier === "enterprise";
 
   async function handleCheckout() {
     setBillingAction("checkout");
@@ -156,16 +160,18 @@ export function DashboardSettingsScreen() {
               </p>
 
               <div className="mt-6 flex flex-col gap-3">
-                <button
-                  className="button-primary w-full"
-                  disabled={billingAction !== null}
-                  onClick={() => void handleCheckout()}
-                  type="button"
-                >
-                  {billingAction === "checkout" ? "Redirecting..." : "Upgrade to Pro"}
-                </button>
+                {canUpgrade ? (
+                  <button
+                    className="button-primary w-full"
+                    disabled={billingAction !== null}
+                    onClick={() => void handleCheckout()}
+                    type="button"
+                  >
+                    {billingAction === "checkout" ? "Redirecting..." : "Upgrade to Pro"}
+                  </button>
+                ) : null}
 
-                {["pro", "enterprise"].includes(data.tier.toLowerCase()) ? (
+                {canManageSubscription ? (
                   <button
                     className="button-secondary w-full"
                     disabled={billingAction !== null}

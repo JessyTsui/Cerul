@@ -30,18 +30,41 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
 
-function toUtcDateKey(value: string): string {
+function toValidDate(value: string): Date | null {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
+function toUtcDateKey(value: string): string | null {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return value;
   }
 
-  return new Date(value).toISOString().slice(0, 10);
+  const date = toValidDate(value);
+
+  if (!date) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 10);
 }
 
 function enumerateUtcDays(startDate: string, endDate: string): string[] {
+  const normalizedStart = toUtcDateKey(startDate);
+  const normalizedEnd = toUtcDateKey(endDate);
+
+  if (!normalizedStart || !normalizedEnd) {
+    return [];
+  }
+
   const dates: string[] = [];
-  const cursor = new Date(`${toUtcDateKey(startDate)}T00:00:00.000Z`);
-  const end = new Date(`${toUtcDateKey(endDate)}T00:00:00.000Z`);
+  const cursor = new Date(`${normalizedStart}T00:00:00.000Z`);
+  const end = new Date(`${normalizedEnd}T00:00:00.000Z`);
 
   while (cursor <= end) {
     dates.push(cursor.toISOString().slice(0, 10));
@@ -56,7 +79,9 @@ export function formatNumber(value: number): string {
 }
 
 export function formatDashboardDate(value: string): string {
-  return DAY_LABEL_FORMATTER.format(new Date(value));
+  const date = toValidDate(value);
+
+  return date ? DAY_LABEL_FORMATTER.format(date) : value;
 }
 
 export function formatDashboardDateTime(value: string | null | undefined): string {
@@ -64,7 +89,9 @@ export function formatDashboardDateTime(value: string | null | undefined): strin
     return "Never used";
   }
 
-  return DATE_TIME_FORMATTER.format(new Date(value));
+  const date = toValidDate(value);
+
+  return date ? DATE_TIME_FORMATTER.format(date) : value;
 }
 
 export function formatBillingPeriod(
@@ -100,13 +127,23 @@ export function buildUsageChartData(
   usage: Pick<DashboardMonthlyUsage, "periodStart" | "periodEnd" | "dailyBreakdown">,
 ): UsageChartPoint[] {
   const usageByDate = new Map(
-    usage.dailyBreakdown.map((entry) => [
-      toUtcDateKey(entry.date),
-      {
-        creditsUsed: entry.creditsUsed,
-        requestCount: entry.requestCount,
-      },
-    ]),
+    usage.dailyBreakdown
+      .map((entry) => {
+        const dateKey = toUtcDateKey(entry.date);
+
+        if (!dateKey) {
+          return null;
+        }
+
+        return [
+          dateKey,
+          {
+            creditsUsed: entry.creditsUsed,
+            requestCount: entry.requestCount,
+          },
+        ] as const;
+      })
+      .filter((entry): entry is readonly [string, { creditsUsed: number; requestCount: number }] => entry !== null),
   );
 
   return enumerateUtcDays(usage.periodStart, usage.periodEnd).map((date) => {

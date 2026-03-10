@@ -4,6 +4,7 @@ import {
   apiKeys,
   billing,
   fetchWithAuth,
+  getApiErrorMessage,
   usage,
 } from "./api";
 
@@ -71,6 +72,12 @@ describe("fetchWithAuth", () => {
         code: "not_authenticated",
         message: "Session expired.",
       }),
+    );
+  });
+
+  it("returns actionable guidance for network failures", () => {
+    expect(getApiErrorMessage(new TypeError("Failed to fetch"))).toContain(
+      "NEXT_PUBLIC_API_BASE_URL",
     );
   });
 });
@@ -172,6 +179,52 @@ describe("dashboard API client", () => {
         },
       ],
     });
+  });
+
+  it("filters malformed daily usage entries instead of crashing", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          usage: {
+            tier: "free",
+            period_start: "2026-03-01",
+            period_end: "2026-03-07",
+            credits_limit: 1000,
+            credits_used: 120,
+            credits_remaining: 880,
+            daily_breakdown: [
+              {
+                date: "2026-03-01",
+                credits_used: 20,
+                request_count: 5,
+              },
+              {
+                date: 42,
+                credits_used: "oops",
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(usage.getMonthly()).resolves.toEqual(
+      expect.objectContaining({
+        dailyBreakdown: [
+          {
+            date: "2026-03-01",
+            creditsUsed: 20,
+            requestCount: 5,
+          },
+        ],
+      }),
+    );
   });
 
   it("normalizes billing redirect urls", async () => {

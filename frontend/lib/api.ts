@@ -137,6 +137,10 @@ export function getApiErrorMessage(
   error: unknown,
   fallback = "Something went wrong while contacting the dashboard API.",
 ): string {
+  if (error instanceof TypeError) {
+    return "Could not reach the dashboard API. Verify NEXT_PUBLIC_API_BASE_URL and ensure CORS allows credentialed requests from this app.";
+  }
+
   if (error instanceof ApiClientError) {
     return error.message;
   }
@@ -202,6 +206,33 @@ function getErrorPayload(body: unknown): ApiErrorPayload["error"] | null {
   };
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isApiKeyWire(value: unknown): value is ApiKeyWire {
+  return (
+    isPlainObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.prefix === "string" &&
+    typeof value.created_at === "string" &&
+    (value.last_used_at === undefined ||
+      value.last_used_at === null ||
+      typeof value.last_used_at === "string") &&
+    (value.is_active === undefined || typeof value.is_active === "boolean")
+  );
+}
+
+function isDailyUsageWire(value: unknown): value is DailyUsageWire {
+  return (
+    isPlainObject(value) &&
+    typeof value.date === "string" &&
+    (value.credits_used === undefined || isFiniteNumber(value.credits_used)) &&
+    (value.request_count === undefined || isFiniteNumber(value.request_count))
+  );
+}
+
 function normalizeApiKey(input: ApiKeyWire): DashboardApiKey {
   return {
     id: input.id,
@@ -230,7 +261,19 @@ function normalizeApiKeys(payload: unknown): DashboardApiKey[] {
     });
   }
 
-  return items.map((item) => normalizeApiKey(item as ApiKeyWire));
+  const normalizedItems = items
+    .filter((item): item is ApiKeyWire => isApiKeyWire(item))
+    .map((item) => normalizeApiKey(item));
+
+  if (items.length > 0 && normalizedItems.length === 0) {
+    throw new ApiClientError("API key list response did not include valid items.", {
+      status: 500,
+      code: "invalid_payload",
+      details: payload,
+    });
+  }
+
+  return normalizedItems;
 }
 
 function normalizeCreatedKey(payload: unknown): CreateApiKeyResponse {
@@ -305,7 +348,7 @@ function normalizeUsage(payload: unknown): DashboardMonthlyUsage {
 
   const dailyBreakdown = Array.isArray(usagePayload.daily_breakdown)
     ? usagePayload.daily_breakdown
-        .filter((entry): entry is DailyUsageWire => isPlainObject(entry))
+        .filter((entry): entry is DailyUsageWire => isDailyUsageWire(entry))
         .map((entry) => ({
           date: entry.date,
           creditsUsed: entry.credits_used ?? 0,

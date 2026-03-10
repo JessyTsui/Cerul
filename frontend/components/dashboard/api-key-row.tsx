@@ -49,7 +49,7 @@ export function ApiKeyRow({
           onClick={() => onRevoke(apiKey)}
           type="button"
         >
-          {isPending ? "Revoking..." : "Revoke"}
+          {isPending ? "Revoking..." : apiKey.isActive ? "Revoke" : "Revoked"}
         </button>
       </td>
     </tr>
