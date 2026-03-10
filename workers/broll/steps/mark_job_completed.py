@@ -14,6 +14,13 @@ class MarkJobCompletedStep(PipelineStep):
             "discovered_assets_count": context.data.get("discovered_assets_count", 0),
             "new_assets_count": context.data.get("new_assets_count", 0),
             "indexed_assets_count": context.data.get("indexed_assets_count", 0),
+            "skipped_existing_count": context.data.get("skipped_existing_count", 0),
+            "duplicate_asset_count": context.data.get("duplicate_asset_count", 0),
+            "metadata_error_count": len(context.data.get("metadata_errors", {})),
+            "frame_download_error_count": len(
+                context.data.get("frame_download_errors", {})
+            ),
+            "embedding_error_count": len(context.data.get("embedding_errors", {})),
             "temp_dir": context.data.get("temp_dir"),
         }
 

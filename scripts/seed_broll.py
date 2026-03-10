@@ -21,14 +21,23 @@ async def _run_pipeline(query: str) -> int:
         print(f"Pipeline failed at {context.failed_step}: {context.error}")
         return 1
 
-    warnings = context.data.get("discovery_warnings", {})
-    for source_name, message in warnings.items():
-        print(f"Warning [{source_name}]: {message}")
+    _print_error_bucket("Discovery warning", context.data.get("discovery_warnings", {}))
+    _print_error_bucket("Metadata error", context.data.get("metadata_errors", {}))
+    _print_error_bucket(
+        "Preview download error",
+        context.data.get("frame_download_errors", {}),
+    )
+    _print_error_bucket("Embedding error", context.data.get("embedding_errors", {}))
 
     print(f"Discovered: {context.data.get('discovered_assets_count', 0)}")
     print(f"New: {context.data.get('new_assets_count', 0)}")
     print(f"Indexed: {context.data.get('indexed_assets_count', 0)}")
     return 0
+
+
+def _print_error_bucket(label: str, errors: dict[str, str]) -> None:
+    for error_key, message in errors.items():
+        print(f"{label} [{error_key}]: {message}")
 
 
 def main() -> int:

@@ -26,7 +26,12 @@ class GenerateClipEmbeddingStep(PipelineStep):
                 embedding_errors[asset_id] = "Missing preview frame."
                 continue
 
-            vector = list(embedding_backend.embed_image(frame_path))
+            try:
+                vector = list(embedding_backend.embed_image(frame_path))
+            except Exception as exc:
+                embedding_errors[asset_id] = str(exc)
+                continue
+
             if len(vector) != embedding_backend.dimension():
                 raise ValueError(
                     f"Embedding dimension mismatch for {asset_id}: "

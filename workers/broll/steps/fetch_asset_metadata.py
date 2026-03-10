@@ -16,12 +16,28 @@ class FetchAssetMetadataStep(PipelineStep):
             raise RuntimeError("A B-roll asset repository is required.")
 
         assets: list[dict[str, Any]] = []
+        metadata_errors: dict[str, str] = {}
         skipped_existing_count = 0
+        duplicate_asset_count = 0
+        seen_asset_keys: set[tuple[str, str]] = set()
 
-        for raw_asset in context.data.get("raw_assets", []):
-            source = raw_asset["source"]
-            payload = raw_asset["payload"]
-            asset = self._normalize_asset(source, payload)
+        for index, raw_asset in enumerate(context.data.get("raw_assets", [])):
+            try:
+                source = raw_asset["source"]
+                payload = raw_asset["payload"]
+                if not isinstance(payload, dict):
+                    raise TypeError("Asset payload must be a dictionary.")
+                asset = self._normalize_asset(source, payload)
+            except (KeyError, TypeError, ValueError) as exc:
+                metadata_errors[self._asset_error_key(raw_asset, index)] = str(exc)
+                continue
+
+            asset_key = (asset["source"], asset["source_asset_id"])
+            if asset_key in seen_asset_keys:
+                duplicate_asset_count += 1
+                continue
+
+            seen_asset_keys.add(asset_key)
 
             if await repository.asset_exists(asset["source"], asset["source_asset_id"]):
                 skipped_existing_count += 1
@@ -32,6 +48,9 @@ class FetchAssetMetadataStep(PipelineStep):
         context.data["assets"] = assets
         context.data["new_assets_count"] = len(assets)
         context.data["skipped_existing_count"] = skipped_existing_count
+        context.data["duplicate_asset_count"] = duplicate_asset_count
+        if metadata_errors:
+            context.data["metadata_errors"] = metadata_errors
 
     def _normalize_asset(self, source: str, payload: dict[str, Any]) -> dict[str, Any]:
         if source == "pexels":
@@ -109,3 +128,13 @@ class FetchAssetMetadataStep(PipelineStep):
         if isinstance(raw_tags, list):
             return [str(tag).strip() for tag in raw_tags if str(tag).strip()]
         return [str(raw_tags).strip()]
+
+    def _asset_error_key(self, raw_asset: Any, index: int) -> str:
+        if not isinstance(raw_asset, dict):
+            return f"asset_{index}"
+
+        source = raw_asset.get("source", "unknown")
+        payload = raw_asset.get("payload", {})
+        if isinstance(payload, dict) and payload.get("id") is not None:
+            return f"{source}:{payload['id']}"
+        return f"{source}:{index}"
