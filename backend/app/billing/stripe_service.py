@@ -42,6 +42,20 @@ def _stripe_client() -> Any:
     return stripe
 
 
+def _rows_affected(command_status: Any) -> int:
+    if not isinstance(command_status, str):
+        return 0
+
+    parts = command_status.strip().split()
+    if not parts:
+        return 0
+
+    try:
+        return int(parts[-1])
+    except ValueError:
+        return 0
+
+
 def _to_plain_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
@@ -52,16 +66,27 @@ def _to_plain_dict(value: Any) -> dict[str, Any]:
     return cast(dict[str, Any], dict(value))
 
 
-def create_checkout_session(user_id: str, email: str) -> str:
+def create_checkout_session(
+    user_id: str,
+    email: str,
+    stripe_customer_id: str | None = None,
+) -> str:
     client = _stripe_client()
+    session_payload: dict[str, Any] = {
+        "mode": "subscription",
+        "line_items": [{"price": _require_env("STRIPE_PRO_PRICE_ID"), "quantity": 1}],
+        "client_reference_id": user_id,
+        "metadata": {"user_id": user_id},
+        "success_url": f"{_web_base_url()}/dashboard?checkout=success",
+        "cancel_url": f"{_web_base_url()}/pricing?checkout=cancelled",
+    }
+    if stripe_customer_id:
+        session_payload["customer"] = stripe_customer_id
+    else:
+        session_payload["customer_email"] = email
+
     session = client.checkout.Session.create(
-        mode="subscription",
-        line_items=[{"price": _require_env("STRIPE_PRO_PRICE_ID"), "quantity": 1}],
-        customer_email=email,
-        client_reference_id=user_id,
-        metadata={"user_id": user_id},
-        success_url=f"{_web_base_url()}/dashboard?checkout=success",
-        cancel_url=f"{_web_base_url()}/pricing?checkout=cancelled",
+        **session_payload,
     )
     session_url = getattr(session, "url", None)
 
@@ -122,7 +147,7 @@ async def activate_checkout_subscription(
     tier = "pro"
     monthly_credit_limit = monthly_credit_limit_for_tier(tier)
 
-    await db.execute(
+    command_status = await db.execute(
         """
         UPDATE user_profiles
         SET tier = $1,
@@ -137,6 +162,10 @@ async def activate_checkout_subscription(
         subscription_id,
         user_id,
     )
+    if _rows_affected(command_status) == 0:
+        raise StripeServiceError(
+            "No matching user profile found for checkout session completion.",
+        )
 
     return {
         "tier": tier,
@@ -152,7 +181,7 @@ async def sync_subscription_status(
     tier, monthly_credit_limit = subscription_tier(subscription)
     subscription_id = cast(str | None, subscription.get("id"))
 
-    await db.execute(
+    command_status = await db.execute(
         """
         UPDATE user_profiles
         SET tier = $1,
@@ -166,8 +195,14 @@ async def sync_subscription_status(
         stripe_customer_id,
         subscription_id,
     )
+    updated_rows = _rows_affected(command_status)
+    if updated_rows == 0:
+        raise StripeServiceError(
+            "No matching user profile found for Stripe customer.",
+        )
 
     return {
         "tier": tier,
         "monthly_credit_limit": monthly_credit_limit,
+        "updated_rows": updated_rows,
     }

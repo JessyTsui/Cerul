@@ -201,14 +201,64 @@ def test_checkout_endpoint_returns_checkout_url(
     monkeypatch.setattr(
         dashboard.stripe_service,
         "create_checkout_session",
-        lambda user_id, email: f"https://checkout.test/{user_id}?email={email}",
+        lambda user_id, email, stripe_customer_id=None: (
+            f"https://checkout.test/{user_id}?email={email}&customer={stripe_customer_id}"
+        ),
     )
 
     response = client.post("/dashboard/billing/checkout")
 
     assert response.status_code == 200
     assert response.json()["checkout_url"] == (
-        "https://checkout.test/user_123?email=owner@example.com"
+        "https://checkout.test/user_123?email=owner@example.com&customer=None"
+    )
+
+
+def test_checkout_endpoint_rejects_existing_subscription_state(
+    client: TestClient,
+) -> None:
+    db = client.app.state.test_db
+    db.profiles["user_123"] = {
+        "id": "user_123",
+        "email": "owner@example.com",
+        "tier": "pro",
+        "monthly_credit_limit": 10_000,
+        "stripe_customer_id": "cus_existing",
+    }
+
+    response = client.post("/dashboard/billing/checkout")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Subscription already exists; use the billing portal instead."
+    )
+
+
+def test_checkout_endpoint_reuses_existing_stripe_customer(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = client.app.state.test_db
+    db.profiles["user_123"] = {
+        "id": "user_123",
+        "email": "owner@example.com",
+        "tier": "free",
+        "monthly_credit_limit": 1_000,
+        "stripe_customer_id": "cus_existing",
+    }
+    monkeypatch.setattr(
+        dashboard.stripe_service,
+        "create_checkout_session",
+        lambda user_id, email, stripe_customer_id=None: (
+            f"https://checkout.test/{user_id}?customer={stripe_customer_id}"
+        ),
+    )
+
+    response = client.post("/dashboard/billing/checkout")
+
+    assert response.status_code == 200
+    assert response.json()["checkout_url"] == (
+        "https://checkout.test/user_123?customer=cus_existing"
     )
 
 

@@ -58,7 +58,9 @@ class StripeWebhookDb:
 
         if "WHERE id = $5" in normalized:
             tier, monthly_limit, customer_id, subscription_id, user_id = params
-            profile = self.profiles[str(user_id)]
+            profile = self.profiles.get(str(user_id))
+            if profile is None:
+                return "UPDATE 0"
             profile["tier"] = str(tier)
             profile["monthly_credit_limit"] = int(monthly_limit)
             profile["stripe_customer_id"] = customer_id
@@ -198,6 +200,39 @@ def test_checkout_session_completed_updates_user_tier(client: TestClient) -> Non
     assert db.profiles["user_123"]["tier"] == "pro"
     assert db.profiles["user_123"]["monthly_credit_limit"] == 10_000
     assert db.profiles["user_123"]["stripe_customer_id"] == "cus_123"
+
+
+def test_subscription_update_without_customer_mapping_returns_conflict(
+    client: TestClient,
+) -> None:
+    payload = json.dumps(
+        {
+            "id": "evt_missing_customer",
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": "sub_missing",
+                    "customer": "cus_missing",
+                    "status": "active",
+                },
+            },
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    signature = make_signature(payload, "whsec_test_secret")
+
+    response = client.post(
+        "/webhooks/stripe",
+        content=payload,
+        headers={"Stripe-Signature": signature},
+    )
+
+    db = client.app.state.test_db
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "No matching user profile found for Stripe customer."
+    )
+    assert db.stripe_events["evt_missing_customer"]["processed_at"] is None
 
 
 def test_webhook_processing_is_idempotent_for_duplicate_event(

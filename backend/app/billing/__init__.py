@@ -16,6 +16,8 @@ TIER_KEY_LIMITS: dict[str, int] = {
     "enterprise": 25,
 }
 
+PAID_TIERS = {"pro", "builder", "enterprise"}
+
 
 def key_limit_for_tier(tier: str | None) -> int:
     normalized_tier = (tier or "free").lower()
@@ -28,3 +30,8 @@ def monthly_credit_limit_for_tier(tier: str | None) -> int:
         normalized_tier,
         DEFAULT_MONTHLY_CREDIT_LIMITS["free"],
     )
+
+
+def is_paid_tier(tier: str | None) -> bool:
+    normalized_tier = (tier or "free").lower()
+    return normalized_tier in PAID_TIERS

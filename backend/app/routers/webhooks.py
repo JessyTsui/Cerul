@@ -137,7 +137,15 @@ async def handle_stripe_webhook(
         event_type=event_type,
         payload=payload.decode("utf-8"),
     )
-    await process_stripe_event(db, event)
+
+    try:
+        await process_stripe_event(db, event)
+    except stripe_service.StripeServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
     await mark_event_processed(db, stripe_event_id)
 
     return StripeWebhookResponse(status="ok", duplicate=False)

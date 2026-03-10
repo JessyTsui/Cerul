@@ -12,7 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import SessionContext, require_session
-from ..billing import key_limit_for_tier, monthly_credit_limit_for_tier
+from ..billing import (
+    is_paid_tier,
+    key_limit_for_tier,
+    monthly_credit_limit_for_tier,
+)
 from ..billing import stripe_service
 from ..db import get_db
 
@@ -351,6 +355,13 @@ async def create_billing_checkout(
             detail="User profile not found.",
         )
 
+    current_tier = str(profile.get("tier") or "free").lower()
+    if is_paid_tier(current_tier):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Subscription already exists; use the billing portal instead.",
+        )
+
     email = session.email or cast(str | None, profile.get("email"))
     if not email:
         raise HTTPException(
@@ -359,7 +370,11 @@ async def create_billing_checkout(
         )
 
     try:
-        checkout_url = stripe_service.create_checkout_session(session.user_id, email)
+        checkout_url = stripe_service.create_checkout_session(
+            session.user_id,
+            email,
+            cast(str | None, profile.get("stripe_customer_id")),
+        )
     except stripe_service.StripeServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
