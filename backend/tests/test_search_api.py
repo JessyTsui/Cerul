@@ -86,6 +86,23 @@ def test_search_endpoint_rejects_malformed_api_key() -> None:
     assert response.json()["error"]["code"] == "unauthorized"
 
 
+def test_search_endpoint_rejects_unknown_but_well_formed_api_key() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/search",
+            headers={
+                "Authorization": "Bearer cerul_sk_1234567890abcdef1234567890abcdef"
+            },
+            json={
+                "query": "cinematic drone shot",
+                "search_type": "broll",
+            },
+        )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
 def test_search_endpoint_returns_documented_validation_shape() -> None:
     app.dependency_overrides[require_api_key] = override_auth
 
@@ -102,6 +119,39 @@ def test_search_endpoint_returns_documented_validation_shape() -> None:
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_request"
     assert "Field required" in response.json()["error"]["message"]
+
+
+def test_search_endpoint_reports_persisted_remaining_credits() -> None:
+    db = create_stub_database()
+
+    async def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_api_key] = override_auth
+
+    with TestClient(app) as client:
+        first_response = client.post(
+            "/v1/search",
+            json={
+                "query": "cinematic drone shot",
+                "search_type": "broll",
+            },
+        )
+        second_response = client.post(
+            "/v1/search",
+            json={
+                "query": "cinematic drone shot",
+                "search_type": "broll",
+            },
+        )
+
+    app.dependency_overrides.clear()
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["credits_remaining"] == 999
+    assert second_response.json()["credits_remaining"] == 998
 
 
 def test_usage_endpoint_returns_current_summary() -> None:

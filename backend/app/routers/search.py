@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, Depends
 
 from app.auth import AuthContext, require_api_key
-from app.billing import deduct_credits
+from app.billing import calculate_credits_remaining, deduct_credits, fetch_usage_summary
 from app.db import get_db
 from app.search import (
     BrollSearchService,
@@ -125,10 +125,11 @@ async def search_v1(
             payload=payload,
             results_count=len(results),
         )
+        usage_summary = await fetch_usage_summary(transactional_db, auth.user_id)
 
     return SearchResponse(
         results=results,
         credits_used=credits_used,
-        credits_remaining=max(auth.credits_remaining - credits_used, 0),
+        credits_remaining=calculate_credits_remaining(usage_summary),
         request_id=request_id,
     )

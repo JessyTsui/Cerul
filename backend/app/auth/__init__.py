@@ -46,6 +46,18 @@ async def require_api_key(
             detail="Invalid Cerul API key format",
         )
 
+    user_id = "user_stub"
+    api_key_id = "key_stub"
+    if hasattr(db, "find_active_api_key"):
+        api_key_record = await db.find_active_api_key(token)
+        if api_key_record is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Cerul API key",
+            )
+        user_id = str(api_key_record["user_id"])
+        api_key_id = str(api_key_record["id"])
+
     period_start, period_end = current_billing_period()
     credits_limit = 1000
     credits_used = 0
@@ -53,14 +65,14 @@ async def require_api_key(
     tier = "free"
 
     if hasattr(db, "get_user_profile"):
-        profile = await db.get_user_profile("user_stub")
+        profile = await db.get_user_profile(user_id)
         if profile is not None:
             credits_limit = int(profile.get("monthly_credit_limit", credits_limit))
             rate_limit_per_sec = int(profile.get("rate_limit_per_sec", rate_limit_per_sec))
             tier = str(profile.get("tier", tier))
 
     if hasattr(db, "get_usage_summary"):
-        usage_summary = await db.get_usage_summary("user_stub", period_start, period_end)
+        usage_summary = await db.get_usage_summary(user_id, period_start, period_end)
         credits_limit = int(usage_summary.get("credits_limit", credits_limit))
         credits_used = int(usage_summary.get("credits_used", credits_used))
         rate_limit_per_sec = int(
@@ -69,8 +81,8 @@ async def require_api_key(
         tier = str(usage_summary.get("tier", tier))
 
     return AuthContext(
-        user_id="user_stub",
-        api_key_id="key_stub",
+        user_id=user_id,
+        api_key_id=api_key_id,
         tier=tier,
         credits_remaining=max(credits_limit - credits_used, 0),
         rate_limit_per_sec=rate_limit_per_sec,

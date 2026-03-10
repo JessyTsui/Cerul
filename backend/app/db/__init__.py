@@ -9,6 +9,8 @@ from typing import Any, AsyncIterator
 
 from app.search.base import build_placeholder_vector
 
+STUB_API_KEY = "cerul_sk_abcdefghijklmnopqrstuvwxyz123456"
+
 
 @dataclass
 class StubTransaction:
@@ -41,6 +43,7 @@ class StubDatabase:
                 "user_id": "user_stub",
                 "name": "Default key",
                 "is_active": True,
+                "raw_key": STUB_API_KEY,
             }
         ]
         self.usage_events: dict[str, dict[str, Any]] = {}
@@ -210,6 +213,12 @@ class StubDatabase:
         return sum(
             1 for api_key in self.api_keys if api_key["user_id"] == user_id and api_key["is_active"]
         )
+
+    async def find_active_api_key(self, raw_key: str) -> dict[str, Any] | None:
+        for api_key in self.api_keys:
+            if api_key["is_active"] and api_key.get("raw_key") == raw_key:
+                return deepcopy(api_key)
+        return None
 
     async def record_usage_charge(
         self,
