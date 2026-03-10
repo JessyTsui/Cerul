@@ -4,20 +4,15 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
-
 jobs:
   codex-review:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && github.actor != 'dependabot[bot]'
     steps:
       - name: Request Codex review
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.CODEX_PAT }}
           script: |
             const pullRequest = context.payload.pull_request;
             const prNumber = pullRequest.number;
@@ -30,6 +25,10 @@ jobs:
               `Commit: ${headSha}`
             ].join('\n');
 
+            // Detect the PAT owner's login so dedup works regardless of which account owns the token
+            const { data: tokenUser } = await github.rest.users.getAuthenticated();
+            const botLogin = tokenUser.login;
+
             const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -38,7 +37,7 @@ jobs:
             });
             const alreadyRequestedForCommit = comments.data.some(
               c =>
-                c.user.login === 'github-actions[bot]' &&
+                c.user.login === botLogin &&
                 c.body.includes('@codex review plz') &&
                 c.body.includes(`Commit: ${headSha}`)
             );
