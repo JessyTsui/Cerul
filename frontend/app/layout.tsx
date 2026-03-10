@@ -76,6 +76,14 @@ export const metadata: Metadata = {
   },
   description:
     "Video understanding search API for AI agents. Search what is shown in videos, not just what is said.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "48x48" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
   alternates: {
     canonical: "/",
   },
@@ -86,12 +94,21 @@ export const metadata: Metadata = {
     url: siteOrigin,
     siteName: "Cerul",
     type: "website",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Cerul",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Cerul",
     description:
       "Video understanding search API for AI agents. Search what is shown in videos, not just what is said.",
+    images: ["/og-image.png"],
   },
 };
 
