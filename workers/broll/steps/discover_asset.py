@@ -23,7 +23,9 @@ class DiscoverAssetStep(PipelineStep):
             raise ValueError("B-roll discovery requires query or category input.")
 
         per_page = int(context.conf.get("per_page", 50))
-        requested_sources = list(context.conf.get("sources", ["pexels", "pixabay"]))
+        requested_sources = self._normalize_requested_sources(
+            context.conf.get("sources", ["pexels", "pixabay"])
+        )
 
         clients: Mapping[str, Any] = {
             "pexels": self._pexels_client or context.conf.get("pexels_client"),
@@ -68,3 +70,8 @@ class DiscoverAssetStep(PipelineStep):
         context.data["discovered_assets_count"] = len(discovered_assets)
         if warnings:
             context.data["discovery_warnings"] = warnings
+
+    def _normalize_requested_sources(self, raw_sources: Any) -> list[str]:
+        if isinstance(raw_sources, str):
+            return [raw_sources]
+        return [str(source) for source in raw_sources]

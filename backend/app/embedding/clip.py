@@ -21,9 +21,14 @@ class ClipEmbeddingBackend(EmbeddingBackend):
         self._preprocess: Any | None = None
         self._tokenizer: Any | None = None
         self._torch: Any | None = None
+        self._output_dim: int | None = None
 
     def dimension(self) -> int:
-        return 512
+        if self._output_dim is None:
+            self._ensure_model()
+
+        assert self._output_dim is not None
+        return self._output_dim
 
     def embed_text(self, text: str) -> list[float]:
         self._ensure_model()
@@ -92,3 +97,17 @@ class ClipEmbeddingBackend(EmbeddingBackend):
         self._preprocess = preprocess
         self._tokenizer = tokenizer
         self._torch = torch
+        self._output_dim = self._resolve_output_dim(model)
+
+    def _resolve_output_dim(self, model: Any) -> int:
+        visual = getattr(model, "visual", None)
+        visual_output_dim = getattr(visual, "output_dim", None)
+        if isinstance(visual_output_dim, int):
+            return visual_output_dim
+
+        text_projection = getattr(model, "text_projection", None)
+        projection_shape = getattr(text_projection, "shape", None)
+        if projection_shape:
+            return int(projection_shape[-1])
+
+        raise RuntimeError("Unable to determine CLIP embedding dimension.")

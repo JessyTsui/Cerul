@@ -18,6 +18,7 @@ class GenerateClipEmbeddingStep(PipelineStep):
         embeddings: dict[str, list[float]] = {}
         embedding_errors: dict[str, str] = {}
         frame_paths = context.data.get("frame_paths", {})
+        expected_dimension: int | None = None
 
         for asset in context.data.get("assets", []):
             asset_id = asset["id"]
@@ -32,15 +33,22 @@ class GenerateClipEmbeddingStep(PipelineStep):
                 embedding_errors[asset_id] = str(exc)
                 continue
 
-            if len(vector) != embedding_backend.dimension():
+            if expected_dimension is None:
+                try:
+                    expected_dimension = embedding_backend.dimension()
+                except Exception:
+                    expected_dimension = len(vector)
+
+            if len(vector) != expected_dimension:
                 raise ValueError(
                     f"Embedding dimension mismatch for {asset_id}: "
-                    f"expected {embedding_backend.dimension()}, got {len(vector)}."
+                    f"expected {expected_dimension}, got {len(vector)}."
                 )
 
             embeddings[asset_id] = vector
 
         context.data["embeddings"] = embeddings
-        context.data["embedding_dimension"] = embedding_backend.dimension()
+        if expected_dimension is not None:
+            context.data["embedding_dimension"] = expected_dimension
         if embedding_errors:
             context.data["embedding_errors"] = embedding_errors

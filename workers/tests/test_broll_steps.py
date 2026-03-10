@@ -179,6 +179,22 @@ def test_discover_asset_step_allows_empty_successful_results() -> None:
     assert context.data["discovered_assets_count"] == 0
 
 
+def test_discover_asset_step_accepts_single_source_string_config() -> None:
+    step = DiscoverAssetStep(
+        pexels_client=FakeSourceClient([{"id": 1}]),
+        pixabay_client=FakeSourceClient([]),
+    )
+    context = PipelineContext(
+        conf={"sources": "pexels"},
+        data={"query": "cinematic drone shot"},
+    )
+
+    asyncio.run(step.run(context))
+
+    assert context.data["discovered_assets_count"] == 1
+    assert context.data["raw_assets"][0]["source"] == "pexels"
+
+
 def test_fetch_asset_metadata_step_normalizes_pixabay_payload() -> None:
     repository = InMemoryBrollAssetRepository()
     step = FetchAssetMetadataStep(repository=repository)
