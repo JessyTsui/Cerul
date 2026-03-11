@@ -2,7 +2,14 @@
 
 import type { Route } from "next";
 import Link from "next/link";
-import { startTransition, useDeferredValue, useEffect, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { DemoMode, DemoSearchResponse } from "@/lib/demo-api";
 import { demoModes, searchTracks } from "@/lib/site";
 import { SearchAnswer } from "./search-answer";
@@ -51,6 +58,7 @@ const modeNarratives: Record<DemoMode, ModeNarrative> = {
 async function fetchDemoSearch(
   mode: DemoMode,
   query: string,
+  signal?: AbortSignal,
 ): Promise<DemoSearchResponse> {
   const response = await fetch("/api/demo/search", {
     method: "POST",
@@ -61,6 +69,7 @@ async function fetchDemoSearch(
       mode,
       query,
     }),
+    signal,
   });
 
   if (!response.ok) {
@@ -97,18 +106,41 @@ export function SearchDemo() {
   const [response, setResponse] = useState<DemoSearchResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeRequestRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const deferredQuery = useDeferredValue(query);
 
   const activeModeConfig = demoModes[activeMode];
   const activeModeNarrative = modeNarratives[activeMode];
 
-  async function runSearch(nextMode: DemoMode, nextQuery: string) {
+  const runSearch = useCallback(async (nextMode: DemoMode, nextQuery: string) => {
+    const requestId = activeRequestRef.current + 1;
+    activeRequestRef.current = requestId;
+    abortControllerRef.current?.abort();
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsLoading(true);
     setError(null);
 
     try {
-      setResponse(await fetchDemoSearch(nextMode, nextQuery));
+      const nextResponse = await fetchDemoSearch(
+        nextMode,
+        nextQuery,
+        controller.signal,
+      );
+
+      if (activeRequestRef.current !== requestId || controller.signal.aborted) {
+        return;
+      }
+
+      setResponse(nextResponse);
     } catch (nextError) {
+      if (controller.signal.aborted || activeRequestRef.current !== requestId) {
+        return;
+      }
+
       const nextMessage =
         nextError instanceof Error
           ? nextError.message
@@ -116,48 +148,19 @@ export function SearchDemo() {
 
       setError(nextMessage);
     } finally {
-      setIsLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function loadInitialSearch() {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const initialResponse = await fetchDemoSearch(
-          "knowledge",
-          demoModes.knowledge.query,
-        );
-
-        if (!isCancelled) {
-          setResponse(initialResponse);
-        }
-      } catch (nextError) {
-        const nextMessage =
-          nextError instanceof Error
-            ? nextError.message
-            : "Search request failed. The demo API did not respond as expected.";
-
-        if (!isCancelled) {
-          setError(nextMessage);
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
+      if (activeRequestRef.current === requestId && !controller.signal.aborted) {
+        setIsLoading(false);
       }
     }
+  }, []);
 
-    void loadInitialSearch();
+  useEffect(() => {
+    void runSearch("knowledge", demoModes.knowledge.query);
 
     return () => {
-      isCancelled = true;
+      abortControllerRef.current?.abort();
     };
-  }, []);
+  }, [runSearch]);
 
   return (
     <div className="space-y-8 pb-8">
