@@ -23,7 +23,9 @@ class DiscoverAssetStep(PipelineStep):
             raise ValueError("B-roll discovery requires query or category input.")
 
         per_page = int(context.conf.get("per_page", 50))
-        requested_sources = list(context.conf.get("sources", ["pexels", "pixabay"]))
+        requested_sources = self._normalize_sources(
+            context.conf.get("sources", ["pexels", "pixabay"])
+        )
 
         clients: Mapping[str, Any] = {
             "pexels": self._pexels_client or context.conf.get("pexels_client"),
@@ -37,7 +39,16 @@ class DiscoverAssetStep(PipelineStep):
             if client is None:
                 continue
             source_names.append(source_name)
-            coroutines.append(client.search_videos(query=query, per_page=per_page))
+            coroutines.append(
+                client.search_videos(
+                    **self._build_search_kwargs(
+                        source_name=source_name,
+                        query=query,
+                        per_page=per_page,
+                        conf=context.conf,
+                    )
+                )
+            )
 
         if not coroutines:
             raise RuntimeError("No content source clients are configured for discovery.")
@@ -68,3 +79,58 @@ class DiscoverAssetStep(PipelineStep):
         context.data["discovered_assets_count"] = len(discovered_assets)
         if warnings:
             context.data["discovery_warnings"] = warnings
+
+    def _normalize_sources(self, raw_sources: Any) -> list[str]:
+        if raw_sources is None:
+            return ["pexels", "pixabay"]
+        if isinstance(raw_sources, str):
+            return [raw_sources]
+        return [str(source) for source in raw_sources]
+
+    def _build_search_kwargs(
+        self,
+        *,
+        source_name: str,
+        query: str,
+        per_page: int,
+        conf: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        search_kwargs: dict[str, Any] = {
+            "query": query,
+            "per_page": per_page,
+        }
+
+        if source_name != "pixabay":
+            return search_kwargs
+
+        pixabay_options: dict[str, Any] = {}
+        raw_pixabay_options = conf.get("pixabay_search_options", {})
+        if isinstance(raw_pixabay_options, Mapping):
+            pixabay_options.update(raw_pixabay_options)
+
+        for option_name in (
+            "page",
+            "order",
+            "safesearch",
+            "video_type",
+            "category",
+            "editors_choice",
+            "min_width",
+            "min_height",
+            "lang",
+        ):
+            if option_name in conf:
+                pixabay_options[option_name] = conf[option_name]
+
+            prefixed_option_name = f"pixabay_{option_name}"
+            if prefixed_option_name in conf:
+                pixabay_options[option_name] = conf[prefixed_option_name]
+
+        search_kwargs.update(
+            {
+                key: value
+                for key, value in pixabay_options.items()
+                if value is not None
+            }
+        )
+        return search_kwargs
