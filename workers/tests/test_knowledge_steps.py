@@ -1,5 +1,8 @@
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from backend.app.embedding import GeminiEmbeddingBackend
 from workers.common.pipeline import PipelineContext
@@ -41,6 +44,29 @@ class FakeEmbeddingBackend:
         raise NotImplementedError
 
 
+class FakeHtmlResponse:
+    def __init__(self) -> None:
+        self.content = b"<html>watch page</html>"
+        self.headers = {"content-type": "text/html; charset=utf-8"}
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+class FakeHtmlAsyncClient:
+    def __init__(self, *args, **kwargs) -> None:
+        return None
+
+    async def __aenter__(self) -> "FakeHtmlAsyncClient":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    async def get(self, url: str) -> FakeHtmlResponse:
+        return FakeHtmlResponse()
+
+
 def _write_video(path: Path) -> Path:
     path.write_bytes(b"\x00\x00\x00\x18ftypmp42")
     return path
@@ -74,6 +100,7 @@ def test_fetch_knowledge_metadata_step_normalizes_youtube_payload() -> None:
     assert video_metadata["source_video_id"] == "openai-devday"
     assert video_metadata["speaker"] == "OpenAI"
     assert video_metadata["duration_seconds"] == 3723
+    assert video_metadata["download_url"] is None
     assert video_metadata["thumbnail_url"].endswith("/hqdefault.jpg")
 
 
@@ -96,6 +123,42 @@ def test_download_knowledge_video_step_copies_local_file(tmp_path: Path) -> None
     assert downloaded_path.exists()
     assert downloaded_path.read_bytes() == source_video.read_bytes()
     assert Path(context.data["temp_dir"]).exists()
+
+
+def test_download_knowledge_video_step_requires_explicit_download_url() -> None:
+    step = DownloadKnowledgeVideoStep(video_downloader=HttpVideoDownloader())
+    context = PipelineContext(
+        data={
+            "video_metadata": {
+                "source": "youtube",
+                "source_video_id": "openai-devday",
+                "source_url": "https://www.youtube.com/watch?v=openai-devday",
+                "video_url": "https://www.youtube.com/watch?v=openai-devday",
+            }
+        }
+    )
+
+    with pytest.raises(ValueError, match="explicit download_url"):
+        asyncio.run(step.run(context))
+
+
+def test_download_knowledge_video_step_rejects_non_video_content_type(
+    tmp_path: Path,
+) -> None:
+    step = DownloadKnowledgeVideoStep(video_downloader=HttpVideoDownloader())
+    context = PipelineContext(
+        data={
+            "video_metadata": {
+                "source": "youtube",
+                "source_video_id": "openai-devday",
+                "download_url": "https://www.youtube.com/watch?v=openai-devday",
+            }
+        }
+    )
+
+    with patch("workers.knowledge.runtime.httpx.AsyncClient", FakeHtmlAsyncClient):
+        with pytest.raises(ValueError, match="unsupported content-type"):
+            asyncio.run(step.run(context))
 
 
 def test_transcribe_knowledge_video_step_normalizes_segments() -> None:
@@ -272,6 +335,96 @@ def test_store_knowledge_segments_step_persists_video_and_segments() -> None:
     assert stored_video["source_video_id"] == "openai-devday"
     assert len(stored_segments) == 1
     assert repository.segments_by_video_id[stored_video["id"]][0]["embedding"] == [0.0] * 768
+
+
+def test_store_knowledge_segments_step_rejects_partial_embeddings_without_deleting() -> None:
+    repository = InMemoryKnowledgeRepository()
+    stored_video = asyncio.run(
+        repository.upsert_knowledge_video(
+            {
+                "source": "youtube",
+                "source_video_id": "openai-devday",
+                "source_url": "https://www.youtube.com/watch?v=openai-devday",
+                "video_url": "https://example.com/devday.mp4",
+                "thumbnail_url": "https://img.youtube.com/vi/openai-devday/hqdefault.jpg",
+                "title": "OpenAI Dev Day",
+                "description": "Reasoning models and agents.",
+                "speaker": "Sam Altman",
+                "published_at": None,
+                "duration_seconds": 120,
+                "license": "standard-youtube-license",
+                "metadata": {},
+            }
+        )
+    )
+    asyncio.run(
+        repository.replace_knowledge_segments(
+            video_id=stored_video["id"],
+            segments=[
+                {
+                    "segment_index": 0,
+                    "title": "Existing segment",
+                    "description": "Existing description",
+                    "transcript_text": "existing transcript",
+                    "visual_summary": "Existing summary",
+                    "timestamp_start": 0.0,
+                    "timestamp_end": 10.0,
+                    "metadata": {"scene_index": 0},
+                    "embedding": [1.0] * 768,
+                }
+            ],
+        )
+    )
+
+    step = StoreKnowledgeSegmentsStep(repository=repository)
+    context = PipelineContext(
+        data={
+            "video_metadata": {
+                "source": "youtube",
+                "source_video_id": "openai-devday",
+                "source_url": "https://www.youtube.com/watch?v=openai-devday",
+                "video_url": "https://example.com/devday.mp4",
+                "thumbnail_url": "https://img.youtube.com/vi/openai-devday/hqdefault.jpg",
+                "title": "OpenAI Dev Day",
+                "description": "Reasoning models and agents.",
+                "speaker": "Sam Altman",
+                "published_at": None,
+                "duration_seconds": 120,
+                "license": "standard-youtube-license",
+                "metadata": {},
+            },
+            "segments": [
+                {
+                    "segment_index": 0,
+                    "title": "Updated segment 0",
+                    "description": "Updated description",
+                    "transcript_text": "updated transcript 0",
+                    "visual_summary": "Updated summary 0",
+                    "timestamp_start": 0.0,
+                    "timestamp_end": 10.0,
+                    "metadata": {"scene_index": 0},
+                },
+                {
+                    "segment_index": 1,
+                    "title": "New segment 1",
+                    "description": "New description",
+                    "transcript_text": "new transcript 1",
+                    "visual_summary": "New summary 1",
+                    "timestamp_start": 11.0,
+                    "timestamp_end": 20.0,
+                    "metadata": {"scene_index": 1},
+                },
+            ],
+            "segment_embeddings": {0: [0.0] * 768},
+        }
+    )
+
+    with pytest.raises(ValueError, match="Missing segment indexes: 1"):
+        asyncio.run(step.run(context))
+
+    preserved_segments = repository.segments_by_video_id[stored_video["id"]]
+    assert len(preserved_segments) == 1
+    assert preserved_segments[0]["title"] == "Existing segment"
 
 
 def test_mark_knowledge_job_completed_step_records_artifacts() -> None:

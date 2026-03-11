@@ -24,6 +24,20 @@ class StoreKnowledgeSegmentsStep(PipelineStep):
         if video_metadata is None or segments is None:
             raise RuntimeError("Knowledge storage requires metadata and segments.")
 
+        missing_embedding_indexes = [
+            int(segment["segment_index"])
+            for segment in segments
+            if int(segment["segment_index"]) not in segment_embeddings
+        ]
+        if missing_embedding_indexes:
+            missing_indexes_literal = ", ".join(
+                str(segment_index) for segment_index in missing_embedding_indexes
+            )
+            raise ValueError(
+                "Knowledge storage requires embeddings for every segment. "
+                f"Missing segment indexes: {missing_indexes_literal}."
+            )
+
         stored_video = await repository.upsert_knowledge_video(video_metadata)
         video_id = str(stored_video["id"])
         stored_segments = await repository.replace_knowledge_segments(
@@ -34,7 +48,6 @@ class StoreKnowledgeSegmentsStep(PipelineStep):
                     "embedding": segment_embeddings[int(segment["segment_index"])],
                 }
                 for segment in segments
-                if int(segment["segment_index"]) in segment_embeddings
             ],
         )
 

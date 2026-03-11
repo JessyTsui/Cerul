@@ -91,14 +91,9 @@ class HttpVideoDownloader:
         video_metadata: Mapping[str, Any],
         output_dir: Path,
     ) -> str:
-        source = str(
-            video_metadata.get("download_url")
-            or video_metadata.get("video_url")
-            or video_metadata.get("source_url")
-            or ""
-        ).strip()
+        source = str(video_metadata.get("download_url") or "").strip()
         if not source:
-            raise ValueError("Video metadata is missing a downloadable URL.")
+            raise ValueError("Video metadata is missing an explicit download_url.")
 
         output_dir.mkdir(parents=True, exist_ok=True)
         local_path = _resolve_local_path(source)
@@ -116,9 +111,15 @@ class HttpVideoDownloader:
         ) as client:
             response = await client.get(source)
             response.raise_for_status()
+            content_type = response.headers.get("content-type")
+            if not _is_supported_download_content_type(content_type):
+                raise ValueError(
+                    "download_url returned unsupported content-type: "
+                    f"{content_type or 'unknown'}."
+                )
             extension = _guess_extension(
                 source_url=source,
-                content_type=response.headers.get("content-type"),
+                content_type=content_type,
             )
             destination = output_dir / f"{target_name}{extension}"
             destination.write_bytes(response.content)
@@ -244,7 +245,7 @@ def normalize_video_metadata(
         "source_video_id": str(source_video_id),
         "source_url": source_url,
         "video_url": video_url,
-        "download_url": payload.get("download_url") or video_url,
+        "download_url": _first_non_empty(payload.get("download_url")),
         "thumbnail_url": thumbnail_url,
         "title": str(title),
         "description": str(payload.get("description") or ""),
@@ -405,6 +406,17 @@ def _guess_extension(source_url: str, content_type: str | None) -> str:
             return guessed
 
     return ".mp4"
+
+
+def _is_supported_download_content_type(content_type: str | None) -> bool:
+    if content_type is None:
+        return True
+
+    normalized = content_type.split(";", maxsplit=1)[0].strip().lower()
+    return normalized.startswith("video/") or normalized in {
+        "application/octet-stream",
+        "binary/octet-stream",
+    }
 
 
 def _first_non_empty(*values: Any) -> str | None:
