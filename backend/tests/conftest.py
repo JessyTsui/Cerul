@@ -12,7 +12,7 @@ import pytest
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_DIR = BACKEND_DIR.parent
-MIGRATION_PATH = REPO_DIR / "db" / "migrations" / "001_initial_schema.sql"
+MIGRATIONS_DIR = REPO_DIR / "db" / "migrations"
 DEFAULT_TEST_DATABASE_URL = "postgresql://cerul:cerul@127.0.0.1:54329/cerul"
 TEST_USER_ID = "user_stub"
 TEST_API_KEY_ID = "00000000-0000-0000-0000-000000000001"
@@ -69,14 +69,7 @@ def _wait_for_database(database_url: str, *, timeout_seconds: int = 60) -> None:
     )
 
 
-async def _ensure_schema(database_url: str) -> None:
-    connection = await asyncpg.connect(database_url)
-    try:
-        if await connection.fetchval("SELECT to_regclass('public.user_profiles')") is not None:
-            return
-    finally:
-        await connection.close()
-
+def _run_migration(database_url: str, migration_file: Path) -> None:
     completed = subprocess.run(
         [
             "psql",
@@ -84,14 +77,42 @@ async def _ensure_schema(database_url: str) -> None:
             "-v",
             "ON_ERROR_STOP=1",
             "-f",
-            str(MIGRATION_PATH),
+            str(migration_file),
         ],
         check=False,
         capture_output=True,
         text=True,
     )
     if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or completed.stdout.strip())
+        raise RuntimeError(
+            f"Migration {migration_file.name} failed: "
+            f"{completed.stderr.strip() or completed.stdout.strip()}"
+        )
+
+
+async def _ensure_schema(database_url: str) -> None:
+    migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    if not migration_files:
+        raise RuntimeError(f"No migration files found in {MIGRATIONS_DIR}")
+
+    connection = await asyncpg.connect(database_url)
+    try:
+        schema_exists = (
+            await connection.fetchval("SELECT to_regclass('public.user_profiles')")
+            is not None
+        )
+    finally:
+        await connection.close()
+
+    if schema_exists:
+        # Schema already exists — only run migrations after the initial one.
+        for migration_file in migration_files:
+            if migration_file.name.startswith("001_"):
+                continue
+            _run_migration(database_url, migration_file)
+    else:
+        for migration_file in migration_files:
+            _run_migration(database_url, migration_file)
 
 
 async def _reset_database_state(database_url: str) -> None:
