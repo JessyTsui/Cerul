@@ -12,7 +12,7 @@ import pytest
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_DIR = BACKEND_DIR.parent
-MIGRATION_PATH = REPO_DIR / "db" / "migrations" / "001_initial_schema.sql"
+MIGRATIONS_DIR = REPO_DIR / "db" / "migrations"
 DEFAULT_TEST_DATABASE_URL = "postgresql://cerul:cerul@127.0.0.1:54329/cerul"
 TEST_USER_ID = "user_stub"
 TEST_API_KEY_ID = "00000000-0000-0000-0000-000000000001"
@@ -70,28 +70,29 @@ def _wait_for_database(database_url: str, *, timeout_seconds: int = 60) -> None:
 
 
 async def _ensure_schema(database_url: str) -> None:
-    connection = await asyncpg.connect(database_url)
-    try:
-        if await connection.fetchval("SELECT to_regclass('public.user_profiles')") is not None:
-            return
-    finally:
-        await connection.close()
+    migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    if not migration_files:
+        raise RuntimeError(f"No migration files found in {MIGRATIONS_DIR}")
 
-    completed = subprocess.run(
-        [
-            "psql",
-            database_url,
-            "-v",
-            "ON_ERROR_STOP=1",
-            "-f",
-            str(MIGRATION_PATH),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or completed.stdout.strip())
+    for migration_file in migration_files:
+        completed = subprocess.run(
+            [
+                "psql",
+                database_url,
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-f",
+                str(migration_file),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"Migration {migration_file.name} failed: "
+                f"{completed.stderr.strip() or completed.stdout.strip()}"
+            )
 
 
 async def _reset_database_state(database_url: str) -> None:
