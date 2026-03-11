@@ -75,7 +75,7 @@ class KnowledgeSearchService:
         request: SearchRequest,
         query_vector: Sequence[float] | None = None,
     ) -> list[KnowledgeResult]:
-        resolved_query_vector = resolve_query_vector(
+        resolved_query_vector = await resolve_query_vector(
             query=request.query,
             search_type="knowledge",
             expected_dimension=DEFAULT_KNOWLEDGE_VECTOR_DIMENSION,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import math
@@ -51,7 +52,7 @@ def build_placeholder_vector(seed_text: str, dimension: int) -> list[float]:
     return [value / norm for value in values]
 
 
-def resolve_query_vector(
+async def resolve_query_vector(
     *,
     query: str,
     search_type: str,
@@ -60,7 +61,10 @@ def resolve_query_vector(
     query_vector: Sequence[float] | None = None,
 ) -> list[float]:
     if query_vector is None:
-        resolved_vector = [float(value) for value in embedding_backend.embed_text(query)]
+        resolved_vector = [
+            float(value)
+            for value in await asyncio.to_thread(embedding_backend.embed_text, query)
+        ]
         vector_source = embedding_backend.name
     else:
         resolved_vector = [float(value) for value in query_vector]

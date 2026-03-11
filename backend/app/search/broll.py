@@ -73,7 +73,7 @@ class BrollSearchService:
         request: SearchRequest,
         query_vector: Sequence[float] | None = None,
     ) -> list[SearchResult]:
-        resolved_query_vector = resolve_query_vector(
+        resolved_query_vector = await resolve_query_vector(
             query=request.query,
             search_type="broll",
             expected_dimension=DEFAULT_BROLL_VECTOR_DIMENSION,
