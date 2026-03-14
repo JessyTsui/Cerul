@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { toNextJsHandler } from "better-auth/next-js";
 import { headers } from "next/headers";
+import { cache } from "react";
 import { getAuthDatabase, upsertUserProfile } from "./auth-db";
 
 const DEFAULT_DEV_AUTH_SECRET =
@@ -40,26 +41,36 @@ function expandTrustedOrigins(baseURL: string): string[] {
   return Array.from(localAliases);
 }
 
-function getAuthSecret(): string {
-  const configuredSecret = process.env.BETTER_AUTH_SECRET?.trim();
-
-  if (configuredSecret) {
-    return configuredSecret;
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("BETTER_AUTH_SECRET must be set in production.");
-  }
-
-  return DEFAULT_DEV_AUTH_SECRET;
-}
-
 function getAuthBaseUrl(): string {
   return (
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
     process.env.WEB_BASE_URL?.trim() ||
     DEFAULT_AUTH_BASE_URL
   );
+}
+
+function isLocalAuthOrigin(baseURL: string): boolean {
+  try {
+    const url = new URL(baseURL);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+function getAuthSecret(): string {
+  const configuredSecret = process.env.BETTER_AUTH_SECRET?.trim();
+  const baseURL = getAuthBaseUrl();
+
+  if (configuredSecret) {
+    return configuredSecret;
+  }
+
+  if (process.env.NODE_ENV === "production" && !isLocalAuthOrigin(baseURL)) {
+    throw new Error("BETTER_AUTH_SECRET must be set in production.");
+  }
+
+  return DEFAULT_DEV_AUTH_SECRET;
 }
 
 function createAuth() {
@@ -116,7 +127,7 @@ export function getAuthRouteHandlers() {
   return toNextJsHandler(getAuth());
 }
 
-export async function getServerSession() {
+export const getServerSession = cache(async function getServerSession() {
   const requestHeaders = await headers();
 
   if (!requestHeaders.get("cookie")) {
@@ -126,4 +137,4 @@ export async function getServerSession() {
   return getAuth().api.getSession({
     headers: requestHeaders,
   });
-}
+});

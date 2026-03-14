@@ -13,10 +13,11 @@ export function SiteHeader({ currentPath }: SiteHeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigationId = useId();
   const actionsId = useId();
+  const visibleNavigation = primaryNavigation.filter((item) => item.href !== "/dashboard");
 
   return (
-    <header className="sticky top-4 z-50 mx-auto max-w-[1400px] px-4">
-      <div className="surface-elevated flex flex-col gap-4 px-5 py-4 backdrop-blur-xl lg:flex-row lg:items-center lg:justify-between">
+    <header className="sticky top-4 z-50 mx-auto max-w-[1400px]">
+      <div className="surface-elevated flex flex-col gap-4 rounded-[26px] px-5 py-4 backdrop-blur-xl lg:flex-row lg:items-center lg:justify-between lg:px-6">
         <div className="flex items-center justify-between gap-4">
           <BrandMark />
           <button
@@ -55,11 +56,11 @@ export function SiteHeader({ currentPath }: SiteHeaderProps) {
 
         <nav
           id={navigationId}
-          className={`flex-col gap-4 lg:flex lg:flex-row lg:items-center ${
+          className={`flex-col gap-4 lg:flex lg:flex-row lg:items-center lg:gap-7 ${
             mobileMenuOpen ? "flex" : "hidden"
           }`}
         >
-          {primaryNavigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const isActive = isPrimaryNavigationActive(currentPath, item.href);
 
             return (
@@ -85,7 +86,7 @@ export function SiteHeader({ currentPath }: SiteHeaderProps) {
             href="https://github.com/JessyTsui/cerul"
             target="_blank"
             rel="noreferrer"
-            className="button-ghost focus-ring inline-flex items-center gap-2"
+            className="button-secondary focus-ring inline-flex items-center gap-2 border-[rgba(255,255,255,0.09)] px-4 text-[var(--foreground-secondary)]"
           >
             <svg
               width="18"
@@ -100,7 +101,7 @@ export function SiteHeader({ currentPath }: SiteHeaderProps) {
           <Link href="/login" className="button-secondary focus-ring">
             Sign in
           </Link>
-          <Link href="/signup" className="button-primary focus-ring">
+          <Link href="/signup" className="button-primary focus-ring min-w-[112px]">
             Sign up
           </Link>
         </div>

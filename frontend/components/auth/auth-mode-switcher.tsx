@@ -14,24 +14,24 @@ export function AuthModeSwitcher({
   nextPath,
 }: AuthModeSwitcherProps) {
   return (
-    <div className="rounded-[24px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(145deg,rgba(9,14,26,0.92),rgba(17,24,39,0.76))] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+    <div className="rounded-[18px] border border-[rgba(148,163,184,0.12)] bg-[rgba(255,255,255,0.015)] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <div className="grid grid-cols-2 gap-1">
         <Link
           href={buildAuthPageHref("/login", nextPath) as Route}
-          className={`focus-ring rounded-[18px] px-4 py-3 text-center text-sm font-medium transition ${
+          className={`focus-ring rounded-[14px] px-4 py-3 text-center text-sm font-medium transition ${
             activeMode === "login"
-              ? "bg-[linear-gradient(135deg,rgba(14,165,233,0.24),rgba(249,115,22,0.16))] text-white shadow-[0_12px_30px_rgba(14,165,233,0.16)]"
-              : "text-[var(--foreground-secondary)] hover:bg-white/5 hover:text-white"
+              ? "bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(237,243,255,0.88))] text-[#090c14] shadow-[0_14px_30px_rgba(255,255,255,0.08)]"
+              : "text-[rgba(209,218,235,0.6)] hover:bg-white/5 hover:text-white"
           }`}
         >
           Sign in
         </Link>
         <Link
           href={buildAuthPageHref("/signup", nextPath) as Route}
-          className={`focus-ring rounded-[18px] px-4 py-3 text-center text-sm font-medium transition ${
+          className={`focus-ring rounded-[14px] px-4 py-3 text-center text-sm font-medium transition ${
             activeMode === "signup"
-              ? "bg-[linear-gradient(135deg,rgba(249,115,22,0.24),rgba(14,165,233,0.14))] text-white shadow-[0_12px_30px_rgba(249,115,22,0.16)]"
-              : "text-[var(--foreground-secondary)] hover:bg-white/5 hover:text-white"
+              ? "bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(237,243,255,0.88))] text-[#090c14] shadow-[0_14px_30px_rgba(255,255,255,0.08)]"
+              : "text-[rgba(209,218,235,0.6)] hover:bg-white/5 hover:text-white"
           }`}
         >
           Sign up
