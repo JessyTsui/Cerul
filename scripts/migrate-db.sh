@@ -149,6 +149,14 @@ CREATE TABLE ${MIGRATION_TABLE} (
 SQL
   fi
 
+  if [[ "$(psql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'schema_migrations' AND column_name = 'checksum')")" != "t" ]]; then
+    psql "${DATABASE_URL_VALUE}" -v ON_ERROR_STOP=1 -c "ALTER TABLE ${MIGRATION_TABLE} ADD COLUMN checksum TEXT"
+  fi
+
+  if [[ "$(psql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'schema_migrations' AND column_name = 'applied_at')")" != "t" ]]; then
+    psql "${DATABASE_URL_VALUE}" -v ON_ERROR_STOP=1 -c "ALTER TABLE ${MIGRATION_TABLE} ADD COLUMN applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"
+  fi
+
   if [[ "$(psql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'schema_migrations' AND column_name = 'name')")" == "t" ]]; then
     MIGRATION_NAME_COLUMN="name"
     return 0

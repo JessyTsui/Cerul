@@ -14,8 +14,7 @@ type SignupFormProps = {
 
 export function SignupForm({ nextPath }: SignupFormProps) {
   const router = useRouter();
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -28,8 +27,9 @@ export function SignupForm({ nextPath }: SignupFormProps) {
     event.preventDefault();
     setError(null);
 
-    const trimmedFirstName = firstName.trim();
-    const trimmedLastName = lastName.trim();
+    const normalizedName = fullName.trim().replace(/\s+/g, " ");
+    const [trimmedFirstName, ...lastNameParts] = normalizedName.split(" ");
+    const trimmedLastName = lastNameParts.join(" ").trim();
 
     if (!trimmedFirstName || !trimmedLastName) {
       setError("First and last name are required.");
@@ -93,12 +93,8 @@ export function SignupForm({ nextPath }: SignupFormProps) {
                 type="text"
                 placeholder="Jessy Tsui"
                 autoComplete="name"
-                value={`${firstName} ${lastName}`.trim()}
-                onChange={(event) => {
-                  const parts = event.target.value.split(' ');
-                  setFirstName(parts[0] || '');
-                  setLastName(parts.slice(1).join(' ') || '');
-                }}
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
                 required
               />
             </div>

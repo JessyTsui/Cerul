@@ -94,14 +94,16 @@ export function ParticlesBackground() {
     initParticles();
     drawParticles();
 
-    window.addEventListener("resize", () => {
+    const handleResize = () => {
       resizeCanvas();
       initParticles();
-    });
+    };
+
+    window.addEventListener("resize", handleResize);
 
     return () => {
       cancelAnimationFrame(animationRef.current);
-      window.removeEventListener("resize", resizeCanvas);
+      window.removeEventListener("resize", handleResize);
     };
   }, []);
 
