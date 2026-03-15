@@ -49,24 +49,14 @@ function getAuthBaseUrl(): string {
   );
 }
 
-function isLocalAuthOrigin(baseURL: string): boolean {
-  try {
-    const url = new URL(baseURL);
-    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
-  } catch {
-    return false;
-  }
-}
-
 function getAuthSecret(): string {
   const configuredSecret = process.env.BETTER_AUTH_SECRET?.trim();
-  const baseURL = getAuthBaseUrl();
 
   if (configuredSecret) {
     return configuredSecret;
   }
 
-  if (process.env.NODE_ENV === "production" && !isLocalAuthOrigin(baseURL)) {
+  if (process.env.NODE_ENV === "production") {
     throw new Error("BETTER_AUTH_SECRET must be set in production.");
   }
 
