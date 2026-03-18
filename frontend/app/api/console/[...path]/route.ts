@@ -35,8 +35,26 @@ async function readRequestBody(request: NextRequest): Promise<ArrayBuffer | unde
   return body.byteLength > 0 ? body : undefined;
 }
 
-function getAuthProxySecret(): string {
-  return process.env.BETTER_AUTH_SECRET?.trim() || DEFAULT_DEV_AUTH_SECRET;
+function isProductionRuntime(): boolean {
+  const currentEnvironment =
+    process.env.CERUL_ENV?.trim().toLowerCase() ??
+    process.env.NODE_ENV?.trim().toLowerCase() ??
+    "";
+  return currentEnvironment === "production";
+}
+
+function getAuthProxySecret(): string | null {
+  const configuredSecret = process.env.BETTER_AUTH_SECRET?.trim();
+
+  if (configuredSecret) {
+    return configuredSecret;
+  }
+
+  if (isProductionRuntime()) {
+    return null;
+  }
+
+  return DEFAULT_DEV_AUTH_SECRET;
 }
 
 function buildSessionSignature(input: {
@@ -45,6 +63,7 @@ function buildSessionSignature(input: {
   timestamp: string;
   method: string;
   path: string;
+  secret: string;
 }): string {
   const payload = [
     input.userId,
@@ -54,7 +73,7 @@ function buildSessionSignature(input: {
     input.path,
   ].join("\n");
 
-  return createHmac("sha256", getAuthProxySecret())
+  return createHmac("sha256", input.secret)
     .update(payload)
     .digest("hex");
 }
@@ -86,6 +105,15 @@ async function proxyConsoleRequest(
     );
   }
 
+  const authProxySecret = getAuthProxySecret();
+
+  if (!authProxySecret) {
+    return NextResponse.json(
+      { detail: "Console auth proxy is not configured." },
+      { status: 503 },
+    );
+  }
+
   const headers = new Headers();
 
   for (const headerName of ["accept", "authorization", "content-type"]) {
@@ -111,6 +139,7 @@ async function proxyConsoleRequest(
       timestamp,
       method: request.method,
       path: forwardPath,
+      secret: authProxySecret,
     }),
   );
 

@@ -58,11 +58,24 @@ def _get_better_auth_base_url() -> str:
     ) or "http://localhost:3000"
 
 
-def _get_auth_proxy_secret() -> str:
-    return _first_non_empty(
-        os.getenv("BETTER_AUTH_SECRET"),
-        DEFAULT_DEV_AUTH_SECRET,
-    ) or DEFAULT_DEV_AUTH_SECRET
+def _is_production_environment() -> bool:
+    current_environment = _first_non_empty(
+        os.getenv("CERUL_ENV"),
+        os.getenv("NODE_ENV"),
+    )
+    return (current_environment or "").strip().lower() == "production"
+
+
+def _get_auth_proxy_secret() -> str | None:
+    configured_secret = _first_non_empty(os.getenv("BETTER_AUTH_SECRET"))
+
+    if configured_secret is not None:
+        return configured_secret
+
+    if _is_production_environment():
+        return None
+
+    return DEFAULT_DEV_AUTH_SECRET
 
 
 def _build_proxy_signature(
@@ -72,7 +85,13 @@ def _build_proxy_signature(
     timestamp: int,
     method: str,
     path: str,
+    secret: str | None = None,
 ) -> str:
+    resolved_secret = secret or _get_auth_proxy_secret()
+
+    if resolved_secret is None:
+        raise RuntimeError("BETTER_AUTH_SECRET must be set to sign proxy sessions.")
+
     payload = "\n".join(
         [
             user_id,
@@ -83,13 +102,18 @@ def _build_proxy_signature(
         ]
     )
     return hmac.new(
-        _get_auth_proxy_secret().encode("utf-8"),
+        resolved_secret.encode("utf-8"),
         payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
 
 
 def _resolve_proxy_session(request: Request) -> SessionContext | None:
+    auth_proxy_secret = _get_auth_proxy_secret()
+
+    if auth_proxy_secret is None:
+        return None
+
     user_id = _first_non_empty(request.headers.get(SESSION_PROXY_USER_ID_HEADER))
     timestamp_raw = _first_non_empty(request.headers.get(SESSION_PROXY_TIMESTAMP_HEADER))
     signature = _first_non_empty(request.headers.get(SESSION_PROXY_SIGNATURE_HEADER))
@@ -112,6 +136,7 @@ def _resolve_proxy_session(request: Request) -> SessionContext | None:
         timestamp=timestamp,
         method=request.method,
         path=request.url.path,
+        secret=auth_proxy_secret,
     )
 
     if not hmac.compare_digest(signature, expected_signature):

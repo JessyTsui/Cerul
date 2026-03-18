@@ -304,8 +304,8 @@ export function DashboardSettingsScreen() {
           Admin access managed by email
         </p>
         <p className="mt-3 text-sm leading-7 text-[var(--foreground-secondary)]">
-          This workspace is using <span className="font-mono text-white">ADMIN_CONSOLE_EMAILS</span>,
-          so bootstrap promotion is intentionally disabled.
+          This workspace is using configured dashboard admin email settings, so
+          bootstrap promotion is intentionally disabled.
         </p>
       </article>
     </section>

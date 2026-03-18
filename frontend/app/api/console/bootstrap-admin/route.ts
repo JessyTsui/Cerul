@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { sql } from "kysely";
 import { getAuthDatabase } from "@/lib/auth-db";
 import { getServerSession } from "@/lib/auth-server";
+import {
+  getConfiguredAdminEmails,
+  getConfiguredBootstrapAdminSecret,
+} from "@/lib/console-settings";
 import { getConsoleViewer, invalidateConsoleViewer } from "@/lib/console-viewer";
 
 export const runtime = "nodejs";
@@ -11,47 +15,41 @@ type BootstrapPayload = {
   secret?: string;
 };
 
-function getBootstrapAdminSecret(): string | null {
-  const secret = process.env.BOOTSTRAP_ADMIN_SECRET?.trim();
-  return secret || null;
-}
+const BOOTSTRAP_ADMIN_LOCK_KEY = 873_311_407;
 
-function getConfiguredAdminEmails(): Set<string> {
-  return new Set(
-    (process.env.ADMIN_CONSOLE_EMAILS ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
-async function countOtherStoredAdmins(userId: string): Promise<number> {
-  const result = await sql<{ count: number }>`
-    SELECT COUNT(*)::int AS count
-    FROM user_profiles
-    WHERE console_role = 'admin' AND id <> ${userId}
-  `.execute(getAuthDatabase());
-
-  return Number(result.rows[0]?.count ?? 0);
-}
-
-async function promoteCurrentUserToAdmin(input: {
+async function promoteCurrentUserToAdminIfEligible(input: {
   userId: string;
   email: string | null;
   name: string | null;
-}): Promise<void> {
+}): Promise<"promoted" | "admin_exists"> {
   const normalizedEmail = input.email?.trim().toLowerCase() ?? null;
   const displayName = input.name?.trim() || null;
 
-  await sql`
-    INSERT INTO user_profiles (id, email, display_name, console_role)
-    VALUES (${input.userId}, ${normalizedEmail}, ${displayName}, 'admin')
-    ON CONFLICT (id) DO UPDATE
-    SET email = COALESCE(EXCLUDED.email, user_profiles.email),
-        display_name = COALESCE(EXCLUDED.display_name, user_profiles.display_name),
-        console_role = 'admin',
-        updated_at = NOW()
-  `.execute(getAuthDatabase());
+  return getAuthDatabase().transaction().execute(async (trx) => {
+    await sql`SELECT pg_advisory_xact_lock(${BOOTSTRAP_ADMIN_LOCK_KEY})`.execute(trx);
+
+    const adminCount = await sql<{ count: number }>`
+      SELECT COUNT(*)::int AS count
+      FROM user_profiles
+      WHERE console_role = 'admin' AND id <> ${input.userId}
+    `.execute(trx);
+
+    if (Number(adminCount.rows[0]?.count ?? 0) > 0) {
+      return "admin_exists";
+    }
+
+    await sql`
+      INSERT INTO user_profiles (id, email, display_name, console_role)
+      VALUES (${input.userId}, ${normalizedEmail}, ${displayName}, 'admin')
+      ON CONFLICT (id) DO UPDATE
+      SET email = COALESCE(EXCLUDED.email, user_profiles.email),
+          display_name = COALESCE(EXCLUDED.display_name, user_profiles.display_name),
+          console_role = 'admin',
+          updated_at = NOW()
+    `.execute(trx);
+
+    return "promoted";
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -64,7 +62,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const configuredSecret = getBootstrapAdminSecret();
+  const configuredSecret = getConfiguredBootstrapAdminSecret();
 
   if (!configuredSecret) {
     return NextResponse.json(
@@ -81,7 +79,7 @@ export async function POST(request: NextRequest) {
 
   if (getConfiguredAdminEmails().size > 0) {
     return NextResponse.json(
-      { detail: "Administrator access is managed through ADMIN_CONSOLE_EMAILS." },
+      { detail: "Administrator access is managed through dashboard admin email settings." },
       { status: 409 },
     );
   }
@@ -96,20 +94,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const otherAdminCount = await countOtherStoredAdmins(session.user.id);
+  const promotionResult = await promoteCurrentUserToAdminIfEligible({
+    userId: session.user.id,
+    email: session.user.email ?? null,
+    name: session.user.name ?? null,
+  });
 
-  if (otherAdminCount > 0) {
+  if (promotionResult === "admin_exists") {
     return NextResponse.json(
       { detail: "An administrator already exists for this workspace." },
       { status: 409 },
     );
   }
-
-  await promoteCurrentUserToAdmin({
-    userId: session.user.id,
-    email: session.user.email ?? null,
-    name: session.user.name ?? null,
-  });
   invalidateConsoleViewer(session.user.id);
 
   return NextResponse.json({ promoted: true });

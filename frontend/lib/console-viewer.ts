@@ -2,6 +2,7 @@ import { sql } from "kysely";
 import { cache } from "react";
 import { getAuthDatabase } from "./auth-db";
 import { getServerSession } from "./auth-server";
+import { getConfiguredAdminEmails } from "./console-settings";
 
 export type ConsoleViewer = {
   userId: string;
@@ -21,15 +22,6 @@ type ConsoleProfileRow = {
 function normalizeEmail(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized || null;
-}
-
-function parseEmailList(value: string | undefined): Set<string> {
-  return new Set(
-    (value ?? "")
-      .split(",")
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean),
-  );
 }
 
 const VIEWER_CACHE_TTL_MS = process.env.NODE_ENV === "development" ? 15_000 : 5_000;
@@ -95,7 +87,7 @@ export const getConsoleViewer = cache(async function getConsoleViewer(): Promise
   const email = normalizeEmail(profile?.email ?? session.user.email ?? null);
   const displayName = profile?.display_name?.trim() || session.user.name?.trim() || null;
   const normalizedRole = String(profile?.console_role ?? "user").trim().toLowerCase() || "user";
-  const adminEmails = parseEmailList(process.env.ADMIN_CONSOLE_EMAILS);
+  const adminEmails = getConfiguredAdminEmails();
   const isAdmin = normalizedRole === "admin" || (email !== null && adminEmails.has(email));
 
   const viewer = {

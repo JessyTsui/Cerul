@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import time
 
 import pytest
@@ -121,6 +122,61 @@ async def test_require_session_rejects_missing_better_auth_session(
             "method": "GET",
             "headers": [],
             "path": "/dashboard",
+        },
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_session(request)
+
+    assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+    assert exc_info.value.detail == "Missing authenticated session."
+
+
+@pytest.mark.anyio
+async def test_require_session_ignores_proxy_headers_without_secret_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
+    monkeypatch.setenv("CERUL_ENV", "production")
+
+    async def fetch_session(_: Request) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "app.auth.session.fetch_better_auth_session",
+        fetch_session,
+    )
+
+    timestamp = int(time.time())
+    signature = hmac.new(
+        session_module.DEFAULT_DEV_AUTH_SECRET.encode("utf-8"),
+        "\n".join(
+            [
+                "user_123",
+                "owner@example.com",
+                str(timestamp),
+                "GET",
+                "/dashboard/api-keys",
+            ]
+        ).encode("utf-8"),
+        session_module.hashlib.sha256,
+    ).hexdigest()
+
+    request = Request(
+        {
+            "type": "http",
+            "scheme": "http",
+            "method": "GET",
+            "path": "/dashboard/api-keys",
+            "query_string": b"",
+            "headers": [
+                (b"x-cerul-session-user-id", b"user_123"),
+                (b"x-cerul-session-user-email", b"owner@example.com"),
+                (f"{session_module.SESSION_PROXY_TIMESTAMP_HEADER}".encode("utf-8"), str(timestamp).encode("utf-8")),
+                (f"{session_module.SESSION_PROXY_SIGNATURE_HEADER}".encode("utf-8"), signature.encode("utf-8")),
+            ],
+            "server": ("testserver", 80),
+            "client": ("127.0.0.1", 1234),
         },
     )
 

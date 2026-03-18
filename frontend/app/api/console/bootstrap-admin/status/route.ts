@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { sql } from "kysely";
 import { getAuthDatabase } from "@/lib/auth-db";
 import { getServerSession } from "@/lib/auth-server";
+import {
+  getConfiguredAdminEmails,
+  getConfiguredBootstrapAdminSecret,
+} from "@/lib/console-settings";
 import { getConsoleViewer } from "@/lib/console-viewer";
 
 export const runtime = "nodejs";
@@ -13,20 +17,6 @@ type BootstrapReason =
   | "disabled"
   | "managed_by_emails"
   | "admin_exists";
-
-function getBootstrapAdminSecret(): string | null {
-  const secret = process.env.BOOTSTRAP_ADMIN_SECRET?.trim();
-  return secret || null;
-}
-
-function getConfiguredAdminEmails(): Set<string> {
-  return new Set(
-    (process.env.ADMIN_CONSOLE_EMAILS ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
 
 async function countStoredAdmins(): Promise<number> {
   const result = await sql<{ count: number }>`
@@ -55,7 +45,7 @@ export async function GET() {
     });
   }
 
-  if (!getBootstrapAdminSecret()) {
+  if (!getConfiguredBootstrapAdminSecret()) {
     return NextResponse.json({
       authenticated: true,
       eligible: false,
