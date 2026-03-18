@@ -76,7 +76,7 @@ function stripInlineComment(value: string): string {
 function parseScalar(value: string): string | null {
   const normalized = stripInlineComment(value);
 
-  if (!normalized || normalized === "null") {
+  if (!normalized || normalized === "null" || normalized === "~") {
     return null;
   }
 
@@ -88,6 +88,22 @@ function parseScalar(value: string): string | null {
   }
 
   return normalized;
+}
+
+function parseYamlEmailValue(value: string | undefined): string[] {
+  const normalized = value?.trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    return parseInlineList(normalized);
+  }
+
+  const scalar = parseScalar(normalized);
+  const normalizedEmail = scalar ? normalizeEmail(scalar) : null;
+  return normalizedEmail ? [normalizedEmail] : [];
 }
 
 function parseInlineList(value: string): string[] {
@@ -288,7 +304,7 @@ export function getConfiguredAdminEmails(): Set<string> {
   ) {
     return new Set([
       ...normalizeEmailList(process.env.ADMIN_CONSOLE_EMAILS),
-      ...normalizeEmailList(process.env.CERUL__DASHBOARD__ADMIN_EMAILS),
+      ...parseYamlEmailValue(process.env.CERUL__DASHBOARD__ADMIN_EMAILS),
     ]);
   }
 
@@ -301,7 +317,7 @@ export function getConfiguredBootstrapAdminSecret(): string | null {
   }
 
   if (hasEnvOverride("CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET")) {
-    return normalizeSecret(process.env.CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET);
+    return parseScalar(process.env.CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET ?? "");
   }
 
   return loadDashboardSettingsFromConfig().bootstrapAdminSecret;

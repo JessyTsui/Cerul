@@ -28,7 +28,8 @@ describe("console settings helpers", () => {
 
   it("merges legacy and shared admin email settings", () => {
     process.env.ADMIN_CONSOLE_EMAILS = "owner@example.com";
-    process.env.CERUL__DASHBOARD__ADMIN_EMAILS = "admin@example.com, owner@example.com";
+    process.env.CERUL__DASHBOARD__ADMIN_EMAILS =
+      "['admin@example.com', 'owner@example.com']";
 
     expect(Array.from(getConfiguredAdminEmails()).sort()).toEqual([
       "admin@example.com",
@@ -48,6 +49,13 @@ describe("console settings helpers", () => {
     process.env.CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET = "shared-secret";
 
     expect(getConfiguredBootstrapAdminSecret()).toBe("shared-secret");
+  });
+
+  it("treats YAML null shared bootstrap secrets as disabled", () => {
+    delete process.env.BOOTSTRAP_ADMIN_SECRET;
+    process.env.CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET = "~";
+
+    expect(getConfiguredBootstrapAdminSecret()).toBeNull();
   });
 
   it("falls back to dashboard YAML settings when env overrides are absent", () => {
