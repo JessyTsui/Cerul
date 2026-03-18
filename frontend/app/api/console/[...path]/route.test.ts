@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const getServerSessionMock = vi.fn();
+const getServerSessionUncachedMock = vi.fn();
 const getBackendApiBaseUrlMock = vi.fn();
 const isConsolePathMock = vi.fn();
 
 vi.mock("@/lib/auth-server", () => ({
-  getServerSession: getServerSessionMock,
+  getServerSessionUncached: getServerSessionUncachedMock,
 }));
 
 vi.mock("@/lib/console-api", () => ({
@@ -34,7 +34,7 @@ describe("console proxy route", () => {
       ),
     );
 
-    getServerSessionMock.mockResolvedValue({
+    getServerSessionUncachedMock.mockResolvedValue({
       user: {
         id: "user_123",
         email: "owner@example.com",
@@ -93,5 +93,38 @@ describe("console proxy route", () => {
     expect(headers.get("x-cerul-session-user-email")).toBe("owner@example.com");
     expect(headers.get("x-cerul-session-timestamp")).toBeTruthy();
     expect(headers.get("x-cerul-session-signature")).toBeTruthy();
+  });
+
+  it("preserves a backend API base path prefix", async () => {
+    getBackendApiBaseUrlMock.mockReturnValue("http://127.0.0.1:8000/backend");
+
+    const request = new NextRequest(
+      "http://127.0.0.1:3000/api/console/admin/targets?range=7d",
+      {
+        method: "PUT",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          maxRequestLatencyMs: 3000,
+        }),
+      },
+    );
+
+    const response = await PUT(request, {
+      params: Promise.resolve({
+        path: ["admin", "targets"],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    const [target] = vi.mocked(global.fetch).mock.calls[0] ?? [];
+    expect(target).toBeInstanceOf(URL);
+    expect(String(target)).toBe(
+      "http://127.0.0.1:8000/backend/admin/targets?range=7d",
+    );
   });
 });

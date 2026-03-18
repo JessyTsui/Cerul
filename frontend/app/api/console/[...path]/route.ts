@@ -26,6 +26,19 @@ function buildForwardPath(pathSegments: string[] | undefined): string {
   return `/${(pathSegments ?? []).join("/")}`.replace(/\/{2,}/g, "/");
 }
 
+function buildUpstreamUrl(input: {
+  backendApiBaseUrl: string;
+  forwardPath: string;
+  search: string;
+}): URL {
+  const normalizedBaseUrl = input.backendApiBaseUrl.endsWith("/")
+    ? input.backendApiBaseUrl
+    : `${input.backendApiBaseUrl}/`;
+  const relativePath = input.forwardPath.replace(/^\/+/, "");
+
+  return new URL(`${relativePath}${input.search}`, normalizedBaseUrl);
+}
+
 function canIncludeBody(method: string): boolean {
   return method !== "GET" && method !== "HEAD";
 }
@@ -92,10 +105,11 @@ async function proxyConsoleRequest(
     );
   }
 
-  const upstreamUrl = new URL(
-    `${forwardPath}${request.nextUrl.search}`,
-    getBackendApiBaseUrl(),
-  );
+  const upstreamUrl = buildUpstreamUrl({
+    backendApiBaseUrl: getBackendApiBaseUrl(),
+    forwardPath,
+    search: request.nextUrl.search,
+  });
   const session = await getServerSessionUncached();
 
   if (!session?.user?.id) {
