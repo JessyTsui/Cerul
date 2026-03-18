@@ -35,8 +35,42 @@ function normalizeSecret(value: string | undefined): string | null {
 }
 
 function stripInlineComment(value: string): string {
-  const hashIndex = value.indexOf("#");
-  return hashIndex >= 0 ? value.slice(0, hashIndex).trim() : value.trim();
+  let quote: "\"" | "'" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+
+    if (quote === "\"") {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (character === "\\") {
+        escaped = true;
+        continue;
+      }
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (character === "\"" || character === "'") {
+      quote = character;
+      continue;
+    }
+
+    if (character === "#") {
+      return value.slice(0, index).trim();
+    }
+  }
+
+  return value.trim();
 }
 
 function parseScalar(value: string): string | null {
@@ -66,8 +100,67 @@ function parseInlineList(value: string): string[] {
   const inner = normalized.startsWith("[") && normalized.endsWith("]")
     ? normalized.slice(1, -1)
     : normalized;
+  const emails: string[] = [];
+  const seen = new Set<string>();
+  let quote: "\"" | "'" | null = null;
+  let escaped = false;
+  let current = "";
 
-  return normalizeEmailList(inner);
+  const pushCurrent = () => {
+    const scalar = parseScalar(current);
+    const normalizedEmail = scalar ? normalizeEmail(scalar) : null;
+
+    if (!normalizedEmail || seen.has(normalizedEmail)) {
+      current = "";
+      return;
+    }
+
+    seen.add(normalizedEmail);
+    emails.push(normalizedEmail);
+    current = "";
+  };
+
+  for (let index = 0; index < inner.length; index += 1) {
+    const character = inner[index];
+
+    if (quote === "\"") {
+      if (escaped) {
+        escaped = false;
+        current += character;
+        continue;
+      }
+
+      if (character === "\\") {
+        escaped = true;
+        current += character;
+        continue;
+      }
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+      }
+      current += character;
+      continue;
+    }
+
+    if (character === "\"" || character === "'") {
+      quote = character;
+      current += character;
+      continue;
+    }
+
+    if (character === ",") {
+      pushCurrent();
+      continue;
+    }
+
+    current += character;
+  }
+
+  pushCurrent();
+  return emails;
 }
 
 function parseDashboardSettingsFromYaml(content: string): Partial<DashboardSettingsSnapshot> {
@@ -101,7 +194,8 @@ function parseDashboardSettingsFromYaml(content: string): Partial<DashboardSetti
 
     if (collectingAdminEmails) {
       if (indent >= 2 && trimmed.startsWith("- ")) {
-        const normalized = normalizeEmail(trimmed.slice(2));
+        const scalar = parseScalar(trimmed.slice(2));
+        const normalized = scalar ? normalizeEmail(scalar) : null;
         if (normalized && !adminEmails.includes(normalized)) {
           adminEmails.push(normalized);
         }

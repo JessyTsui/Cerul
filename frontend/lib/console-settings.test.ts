@@ -85,4 +85,43 @@ describe("console settings helpers", () => {
 
     rmSync(tempDir, { recursive: true, force: true });
   });
+
+  it("parses quoted YAML admin entries and secrets consistently", () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "cerul-console-settings-"));
+    process.env.CERUL_CONFIG_DIR = tempDir;
+    process.env.CERUL_ENV = "production";
+    delete process.env.ADMIN_CONSOLE_EMAILS;
+    delete process.env.CERUL__DASHBOARD__ADMIN_EMAILS;
+    delete process.env.BOOTSTRAP_ADMIN_SECRET;
+    delete process.env.CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET;
+
+    writeFileSync(
+      path.join(tempDir, "base.yaml"),
+      [
+        "dashboard:",
+        "  admin_emails: [\"Inline@example.com\", 'Owner@example.com']",
+        "  bootstrap_admin_secret: base-secret",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      path.join(tempDir, "production.yaml"),
+      [
+        "dashboard:",
+        "  admin_emails:",
+        "    - \"Prod@example.com\"",
+        "    - owner@example.com # production owner",
+        "  bootstrap_admin_secret: \"prod#2026\"",
+        "",
+      ].join("\n"),
+    );
+
+    expect(Array.from(getConfiguredAdminEmails()).sort()).toEqual([
+      "owner@example.com",
+      "prod@example.com",
+    ]);
+    expect(getConfiguredBootstrapAdminSecret()).toBe("prod#2026");
+
+    rmSync(tempDir, { recursive: true, force: true });
+  });
 });
