@@ -62,6 +62,15 @@ function pruneViewerCache(now: number) {
   }
 }
 
+export function invalidateConsoleViewer(userId?: string | null) {
+  if (userId) {
+    viewerCache.delete(userId);
+    return;
+  }
+
+  viewerCache.clear();
+}
+
 export const getConsoleViewer = cache(async function getConsoleViewer(): Promise<ConsoleViewer | null> {
   const session = await getServerSession();
 

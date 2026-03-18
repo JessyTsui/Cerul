@@ -155,6 +155,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
   return proxyConsoleRequest(request, context);
 }
 
+export async function PUT(request: NextRequest, context: RouteContext) {
+  return proxyConsoleRequest(request, context);
+}
+
 export async function DELETE(request: NextRequest, context: RouteContext) {
   return proxyConsoleRequest(request, context);
 }

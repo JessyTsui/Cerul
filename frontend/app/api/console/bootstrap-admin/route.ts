@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { sql } from "kysely";
 import { getAuthDatabase } from "@/lib/auth-db";
 import { getServerSession } from "@/lib/auth-server";
-import { getConsoleViewer } from "@/lib/console-viewer";
+import { getConsoleViewer, invalidateConsoleViewer } from "@/lib/console-viewer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,6 +110,7 @@ export async function POST(request: NextRequest) {
     email: session.user.email ?? null,
     name: session.user.name ?? null,
   });
+  invalidateConsoleViewer(session.user.id);
 
   return NextResponse.json({ promoted: true });
 }
