@@ -146,7 +146,9 @@ export function getAuthRouteHandlers() {
   return toNextJsHandler(getAuth());
 }
 
-export const getServerSession = cache(async function getServerSession() {
+async function readServerSession(input: {
+  useCache: boolean;
+}) {
   const requestHeaders = await headers();
   const cookieHeader = requestHeaders.get("cookie");
 
@@ -154,22 +156,36 @@ export const getServerSession = cache(async function getServerSession() {
     return null;
   }
 
-  const now = Date.now();
-  const cached = sessionCache.get(cookieHeader);
+  if (input.useCache) {
+    const now = Date.now();
+    const cached = sessionCache.get(cookieHeader);
 
-  if (cached && cached.expiresAt > now) {
-    return cached.value;
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    const session = await getAuth().api.getSession({
+      headers: requestHeaders,
+    });
+
+    sessionCache.set(cookieHeader, {
+      expiresAt: now + SESSION_CACHE_TTL_MS,
+      value: session,
+    });
+    pruneExpiredSessionCache(now);
+
+    return session;
   }
 
-  const session = await getAuth().api.getSession({
+  return getAuth().api.getSession({
     headers: requestHeaders,
   });
+}
 
-  sessionCache.set(cookieHeader, {
-    expiresAt: now + SESSION_CACHE_TTL_MS,
-    value: session,
-  });
-  pruneExpiredSessionCache(now);
+export async function getServerSessionUncached() {
+  return readServerSession({ useCache: false });
+}
 
-  return session;
+export const getServerSession = cache(async function getServerSession() {
+  return readServerSession({ useCache: true });
 });

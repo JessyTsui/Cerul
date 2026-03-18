@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "kysely";
 import { getAuthDatabase } from "@/lib/auth-db";
-import { getServerSession } from "@/lib/auth-server";
+import { getServerSessionUncached } from "@/lib/auth-server";
 import {
   getConfiguredAdminEmails,
   getConfiguredBootstrapAdminSecret,
@@ -29,7 +29,7 @@ async function countStoredAdmins(): Promise<number> {
 }
 
 export async function GET() {
-  const session = await getServerSession();
+  const session = await getServerSessionUncached();
 
   if (!session?.user?.id) {
     return NextResponse.json({ authenticated: false }, { status: 401 });

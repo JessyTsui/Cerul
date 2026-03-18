@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { sql } from "kysely";
 import { getAuthDatabase } from "@/lib/auth-db";
-import { getServerSession } from "@/lib/auth-server";
+import { getServerSessionUncached } from "@/lib/auth-server";
 import {
   getConfiguredAdminEmails,
   getConfiguredBootstrapAdminSecret,
@@ -53,7 +53,7 @@ async function promoteCurrentUserToAdminIfEligible(input: {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession();
+  const session = await getServerSessionUncached();
 
   if (!session?.user?.id) {
     return NextResponse.json(

@@ -1,10 +1,32 @@
-function normalizeEmailList(value: string | undefined): Set<string> {
-  return new Set(
-    (value ?? "")
-      .split(",")
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean),
-  );
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
+type DashboardSettingsSnapshot = {
+  adminEmails: string[];
+  bootstrapAdminSecret: string | null;
+};
+
+function normalizeEmail(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+}
+
+function normalizeEmailList(value: string | undefined): string[] {
+  const emails: string[] = [];
+  const seen = new Set<string>();
+
+  for (const item of (value ?? "").split(",")) {
+    const normalized = normalizeEmail(item);
+
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    emails.push(normalized);
+  }
+
+  return emails;
 }
 
 function normalizeSecret(value: string | undefined): string | null {
@@ -12,25 +34,181 @@ function normalizeSecret(value: string | undefined): string | null {
   return normalized || null;
 }
 
-export function getConfiguredAdminEmails(): Set<string> {
-  const emails = new Set<string>();
+function stripInlineComment(value: string): string {
+  const hashIndex = value.indexOf("#");
+  return hashIndex >= 0 ? value.slice(0, hashIndex).trim() : value.trim();
+}
 
-  for (const value of [
-    process.env.ADMIN_CONSOLE_EMAILS,
-    process.env.CERUL__DASHBOARD__ADMIN_EMAILS,
-  ]) {
-    for (const email of normalizeEmailList(value)) {
-      emails.add(email);
+function parseScalar(value: string): string | null {
+  const normalized = stripInlineComment(value);
+
+  if (!normalized || normalized === "null") {
+    return null;
+  }
+
+  if (
+    (normalized.startsWith("\"") && normalized.endsWith("\"")) ||
+    (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
+    return normalized.slice(1, -1);
+  }
+
+  return normalized;
+}
+
+function parseInlineList(value: string): string[] {
+  const normalized = stripInlineComment(value);
+
+  if (!normalized || normalized === "[]") {
+    return [];
+  }
+
+  const inner = normalized.startsWith("[") && normalized.endsWith("]")
+    ? normalized.slice(1, -1)
+    : normalized;
+
+  return normalizeEmailList(inner);
+}
+
+function parseDashboardSettingsFromYaml(content: string): Partial<DashboardSettingsSnapshot> {
+  const parsed: Partial<DashboardSettingsSnapshot> = {};
+  const lines = content.split(/\r?\n/);
+  let inDashboard = false;
+  let collectingAdminEmails = false;
+  let adminEmails: string[] = [];
+
+  for (const rawLine of lines) {
+    const indent = rawLine.match(/^ */)?.[0].length ?? 0;
+    const trimmed = rawLine.trim();
+
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    if (!inDashboard) {
+      if (indent === 0 && trimmed === "dashboard:") {
+        inDashboard = true;
+      }
+      continue;
+    }
+
+    if (indent === 0 && !trimmed.startsWith("- ")) {
+      if (collectingAdminEmails) {
+        parsed.adminEmails = adminEmails;
+      }
+      break;
+    }
+
+    if (collectingAdminEmails) {
+      if (indent >= 2 && trimmed.startsWith("- ")) {
+        const normalized = normalizeEmail(trimmed.slice(2));
+        if (normalized && !adminEmails.includes(normalized)) {
+          adminEmails.push(normalized);
+        }
+        continue;
+      }
+
+      parsed.adminEmails = adminEmails;
+      collectingAdminEmails = false;
+    }
+
+    if (trimmed.startsWith("admin_emails:")) {
+      const value = trimmed.slice("admin_emails:".length).trim();
+
+      if (!value) {
+        adminEmails = [];
+        collectingAdminEmails = true;
+        continue;
+      }
+
+      parsed.adminEmails = parseInlineList(value);
+      continue;
+    }
+
+    if (trimmed.startsWith("bootstrap_admin_secret:")) {
+      const value = trimmed.slice("bootstrap_admin_secret:".length).trim();
+      parsed.bootstrapAdminSecret = parseScalar(value);
     }
   }
 
-  return emails;
+  if (collectingAdminEmails) {
+    parsed.adminEmails = adminEmails;
+  }
+
+  return parsed;
+}
+
+function resolveConfigDir(): string {
+  const configuredDir = process.env.CERUL_CONFIG_DIR?.trim();
+
+  if (configuredDir) {
+    return configuredDir;
+  }
+
+  const repoRelativeDir = path.resolve(process.cwd(), "..", "config");
+  if (existsSync(repoRelativeDir)) {
+    return repoRelativeDir;
+  }
+
+  return path.resolve(process.cwd(), "config");
+}
+
+function loadDashboardSettingsFromConfig(): DashboardSettingsSnapshot {
+  const configDir = resolveConfigDir();
+  const environment = process.env.CERUL_ENV?.trim().toLowerCase() || "development";
+  const snapshot: DashboardSettingsSnapshot = {
+    adminEmails: [],
+    bootstrapAdminSecret: null,
+  };
+
+  for (const configPath of [
+    path.join(configDir, "base.yaml"),
+    path.join(configDir, `${environment}.yaml`),
+  ]) {
+    if (!existsSync(configPath)) {
+      continue;
+    }
+
+    const parsed = parseDashboardSettingsFromYaml(readFileSync(configPath, "utf8"));
+
+    if (parsed.adminEmails) {
+      snapshot.adminEmails = parsed.adminEmails;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(parsed, "bootstrapAdminSecret")) {
+      snapshot.bootstrapAdminSecret = parsed.bootstrapAdminSecret ?? null;
+    }
+  }
+
+  return snapshot;
+}
+
+function hasEnvOverride(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(process.env, name);
+}
+
+export function getConfiguredAdminEmails(): Set<string> {
+  if (
+    hasEnvOverride("ADMIN_CONSOLE_EMAILS") ||
+    hasEnvOverride("CERUL__DASHBOARD__ADMIN_EMAILS")
+  ) {
+    return new Set([
+      ...normalizeEmailList(process.env.ADMIN_CONSOLE_EMAILS),
+      ...normalizeEmailList(process.env.CERUL__DASHBOARD__ADMIN_EMAILS),
+    ]);
+  }
+
+  return new Set(loadDashboardSettingsFromConfig().adminEmails);
 }
 
 export function getConfiguredBootstrapAdminSecret(): string | null {
-  return (
-    normalizeSecret(process.env.BOOTSTRAP_ADMIN_SECRET) ??
-    normalizeSecret(process.env.CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET)
-  );
-}
+  if (hasEnvOverride("BOOTSTRAP_ADMIN_SECRET")) {
+    return normalizeSecret(process.env.BOOTSTRAP_ADMIN_SECRET);
+  }
 
+  if (hasEnvOverride("CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET")) {
+    return normalizeSecret(process.env.CERUL__DASHBOARD__BOOTSTRAP_ADMIN_SECRET);
+  }
+
+  return loadDashboardSettingsFromConfig().bootstrapAdminSecret;
+}

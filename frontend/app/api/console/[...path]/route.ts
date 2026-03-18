@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { getServerSession } from "@/lib/auth-server";
+import { getServerSessionUncached } from "@/lib/auth-server";
 import {
   getBackendApiBaseUrl,
   isConsolePath,
@@ -96,7 +96,7 @@ async function proxyConsoleRequest(
     `${forwardPath}${request.nextUrl.search}`,
     getBackendApiBaseUrl(),
   );
-  const session = await getServerSession();
+  const session = await getServerSessionUncached();
 
   if (!session?.user?.id) {
     return NextResponse.json(
