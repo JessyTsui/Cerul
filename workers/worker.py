@@ -252,6 +252,7 @@ class JobWorker:
         try:
             await self.release_locked_jobs(conn)
             while not self._shutdown_event.is_set():
+                conn = await self._ensure_connection(conn)
                 job = await self.claim_job(conn)
                 if job is None:
                     try:
@@ -266,12 +267,26 @@ class JobWorker:
                 job_id = str(job["id"])
                 await self.execute_job(conn, job)
 
+                conn = await self._ensure_connection(conn)
                 context = self._job_contexts.pop(job_id, None)
                 if context is not None:
                     await self.record_step_progress(conn, job_id, context)
         finally:
             await self.release_locked_jobs(conn)
             await conn.close()
+
+    async def _ensure_connection(self, conn: asyncpg.Connection) -> asyncpg.Connection:
+        """Reconnect if the existing connection has gone stale."""
+        try:
+            await conn.execute("SELECT 1")
+            return conn
+        except Exception:
+            LOGGER.warning("Database connection lost, reconnecting.")
+            try:
+                await conn.close()
+            except Exception:
+                pass
+            return await asyncpg.connect(self.db_url)
 
     async def release_locked_jobs(self, conn: asyncpg.Connection) -> None:
         await conn.execute(RELEASE_LOCKED_JOBS_SQL, self.worker_id)
