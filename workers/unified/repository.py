@@ -9,6 +9,9 @@ from uuid import uuid4
 
 
 class UnifiedRepository(Protocol):
+    async def job_exists(self, job_id: str | None) -> bool:
+        ...
+
     async def upsert_video(self, video: Mapping[str, Any]) -> dict[str, Any]:
         ...
 
@@ -37,6 +40,9 @@ class InMemoryUnifiedRepository:
     access_by_video_id: dict[str, set[str | None]] = field(default_factory=dict)
     units_by_video_id: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     completed_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    async def job_exists(self, job_id: str | None) -> bool:
+        return True
 
     async def upsert_video(self, video: Mapping[str, Any]) -> dict[str, Any]:
         payload = dict(video)
@@ -81,6 +87,24 @@ class InMemoryUnifiedRepository:
 class AsyncpgUnifiedRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
+
+    async def job_exists(self, job_id: str | None) -> bool:
+        if job_id is None:
+            return True
+        connection = await self._connect()
+        try:
+            row = await connection.fetchval(
+                """
+                SELECT TRUE
+                FROM processing_jobs
+                WHERE id = $1::uuid
+                LIMIT 1
+                """,
+                job_id,
+            )
+            return bool(row)
+        finally:
+            await connection.close()
 
     async def upsert_video(self, video: Mapping[str, Any]) -> dict[str, Any]:
         connection = await self._connect()
@@ -294,6 +318,8 @@ class AsyncpgUnifiedRepository:
         artifacts: Mapping[str, Any],
     ) -> None:
         if job_id is None:
+            return
+        if not await self.job_exists(job_id):
             return
 
         connection = await self._connect()

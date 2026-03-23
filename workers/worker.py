@@ -473,6 +473,12 @@ class JobWorker:
         ) -> None:
         conn = await asyncpg.connect(self.db_url)
         try:
+            job_exists = await conn.fetchval(
+                "SELECT TRUE FROM processing_jobs WHERE id = $1::uuid LIMIT 1",
+                job_id,
+            )
+            if not job_exists:
+                return
             await self._upsert_job_step(
                 conn=conn,
                 job_id=job_id,

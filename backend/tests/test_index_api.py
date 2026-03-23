@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 
 from app.auth import AuthContext, require_api_key
@@ -176,6 +178,181 @@ def test_force_reindex_keeps_existing_units_until_replacement(database) -> None:
     ) == 1
 
 
+def test_force_reindex_existing_video_is_allowed_even_at_video_limit(
+    database,
+    monkeypatch,
+) -> None:
+    video_id = "31111111-1111-1111-1111-111111111111"
+    database.fetchval(
+        """
+        INSERT INTO videos (
+            id,
+            source,
+            source_video_id,
+            source_url,
+            video_url,
+            thumbnail_url,
+            title,
+            description,
+            speaker,
+            duration_seconds,
+            metadata
+        )
+        VALUES (
+            $1::uuid,
+            'youtube',
+            'unifieddemo01',
+            $2,
+            $2,
+            'https://example.com/thumb.jpg',
+            'Existing indexed video',
+            'Existing description',
+            'Cerul',
+            120,
+            '{}'::jsonb
+        )
+        RETURNING id::text
+        """,
+        video_id,
+        TEST_INDEX_URL,
+    )
+    database.fetchval(
+        """
+        INSERT INTO video_access (video_id, owner_id)
+        VALUES ($1::uuid, $2)
+        RETURNING TRUE
+        """,
+        video_id,
+        TEST_USER_ID,
+    )
+    database.fetchval(
+        """
+        WITH inserted AS (
+            INSERT INTO videos (
+                id,
+                source,
+                source_video_id,
+                source_url,
+                video_url,
+                title,
+                description,
+                metadata
+            )
+            SELECT
+                gen_random_uuid(),
+                'upload',
+                'seed-' || gs::text,
+                'https://example.com/seed-' || gs::text || '.mp4',
+                'https://example.com/seed-' || gs::text || '.mp4',
+                'Seed video ' || gs::text,
+                '',
+                '{}'::jsonb
+            FROM generate_series(1, 49) AS gs
+            RETURNING 1
+        )
+        SELECT COUNT(*)
+        FROM inserted
+        """
+    )
+    database.fetchval(
+        """
+        WITH inserted AS (
+            INSERT INTO video_access (video_id, owner_id)
+            SELECT id, $1
+            FROM videos
+            WHERE source = 'upload'
+            RETURNING 1
+        )
+        SELECT COUNT(*)
+        FROM inserted
+        """,
+        TEST_USER_ID,
+    )
+
+    async def fake_duration(
+        self,
+        *,
+        url: str,
+        source: str,
+        source_video_id: str,
+    ) -> int | None:
+        return 120
+
+    monkeypatch.setattr(
+        UnifiedIndexService,
+        "_fetch_source_duration_seconds",
+        fake_duration,
+    )
+    app.dependency_overrides[require_api_key] = override_auth
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/index",
+            json={
+                "url": TEST_INDEX_URL,
+                "force": True,
+            },
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 202
+    assert response.json()["video_id"] == video_id
+    assert response.json()["status"] == "processing"
+
+
+def test_insert_placeholder_video_returns_canonical_id_after_conflict(database) -> None:
+    existing_video_id = "32222222-2222-2222-2222-222222222222"
+    database.fetchval(
+        """
+        INSERT INTO videos (
+            id,
+            source,
+            source_video_id,
+            source_url,
+            video_url,
+            title,
+            description,
+            metadata
+        )
+        VALUES (
+            $1::uuid,
+            'youtube',
+            'unifieddemo01',
+            $2,
+            $2,
+            'Existing indexed video',
+            '',
+            '{}'::jsonb
+        )
+        RETURNING id::text
+        """,
+        existing_video_id,
+        TEST_INDEX_URL,
+    )
+    service = UnifiedIndexService(
+        type(
+            "AsyncDatabaseAdapter",
+            (),
+            {
+                "fetchrow": lambda _self, query, *params: database.fetchrow_async(query, *params),
+            },
+        )()
+    )
+
+    canonical_video_id, created = asyncio.run(
+        service._insert_placeholder_video(
+            video_id="33333333-3333-3333-3333-333333333333",
+            url=TEST_INDEX_URL,
+            source="youtube",
+            source_video_id="unifieddemo01",
+        )
+    )
+
+    assert canonical_video_id == existing_video_id
+    assert created is False
+
+
 def test_get_index_status_and_list(database) -> None:
     app.dependency_overrides[require_api_key] = override_auth
 
@@ -230,6 +407,30 @@ def test_delete_indexed_video_removes_owner_access_and_video(database) -> None:
     ) == 0
     assert database.fetchval(
         "SELECT COUNT(*) FROM videos WHERE id = $1::uuid",
+        video_id,
+    ) == 0
+
+
+def test_delete_indexed_video_removes_associated_processing_jobs(database) -> None:
+    app.dependency_overrides[require_api_key] = override_auth
+
+    with TestClient(app) as client:
+        submit_response = client.post(
+            "/v1/index",
+            json={"url": TEST_INDEX_URL},
+        )
+        video_id = submit_response.json()["video_id"]
+        delete_response = client.delete(f"/v1/index/{video_id}")
+
+    app.dependency_overrides.clear()
+
+    assert delete_response.status_code == 200
+    assert database.fetchval(
+        """
+        SELECT COUNT(*)
+        FROM processing_jobs
+        WHERE input_payload->>'video_id' = $1::text
+        """,
         video_id,
     ) == 0
 

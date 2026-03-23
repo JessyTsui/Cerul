@@ -45,11 +45,12 @@ def test_create_embedding_backend_openai_compatible(
 ) -> None:
     monkeypatch.setenv("EMBEDDING_BACKEND", "openai_compatible")
     monkeypatch.setenv("EMBEDDING_OPENAI_BASE_URL", "http://localhost:9999/v1")
+    monkeypatch.setenv("EMBEDDING_MODEL", "qwen3-vl-embedding-2b")
 
     backend = create_embedding_backend()
 
     assert isinstance(backend, OpenAICompatibleEmbeddingBackend)
-    assert "openai_compatible" in backend.name
+    assert backend.name == "openai_compatible:qwen3-vl-embedding-2b"
 
 
 def test_create_embedding_backend_openai_compatible_uses_env_dimension(

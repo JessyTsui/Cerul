@@ -42,7 +42,6 @@ class UnifiedIndexService:
         auth: AuthContext,
     ) -> SubmitIndexResponse:
         await self._enforce_submit_rate_limit(auth.user_id)
-        await self._enforce_video_limit(auth.user_id, auth.tier)
 
         resolved = self.resolve_source(payload.url)
         existing_video = await self._find_video_by_source(
@@ -50,11 +49,17 @@ class UnifiedIndexService:
             resolved["source_video_id"],
         )
         request_id = self.generate_request_id()
+        created_placeholder = False
 
         if existing_video is None:
-            video_id = str(uuid4())
-            await self._insert_placeholder_video(
-                video_id=video_id,
+            await self._enforce_max_duration(
+                url=payload.url,
+                source=resolved["source"],
+                source_video_id=resolved["source_video_id"],
+            )
+            placeholder_video_id = str(uuid4())
+            video_id, created_placeholder = await self._insert_placeholder_video(
+                video_id=placeholder_video_id,
                 url=payload.url,
                 source=resolved["source"],
                 source_video_id=resolved["source_video_id"],
@@ -62,7 +67,15 @@ class UnifiedIndexService:
         else:
             video_id = str(existing_video["id"])
 
-        await self._ensure_video_access(video_id, auth.user_id)
+        has_access = await self._has_video_access(video_id, auth.user_id)
+        if not has_access:
+            try:
+                await self._enforce_video_limit(auth.user_id, auth.tier)
+            except Exception:
+                if created_placeholder:
+                    await self._delete_placeholder_video_if_unowned(video_id)
+                raise
+            await self._ensure_video_access(video_id, auth.user_id)
 
         existing_job = await self._find_active_job(video_id)
         if existing_job is not None and not payload.force:
@@ -80,11 +93,12 @@ class UnifiedIndexService:
                 request_id=request_id,
             )
 
-        await self._enforce_max_duration(
-            url=payload.url,
-            source=resolved["source"],
-            source_video_id=resolved["source_video_id"],
-        )
+        if existing_video is not None:
+            await self._enforce_max_duration(
+                url=payload.url,
+                source=resolved["source"],
+                source_video_id=resolved["source_video_id"],
+            )
 
         await self.db.execute(
             """
@@ -310,6 +324,7 @@ class UnifiedIndexService:
             normalized_video_id,
         )
         if int(remaining_access or 0) == 0:
+            await self._delete_video_jobs(normalized_video_id)
             await self.db.execute(
                 "DELETE FROM videos WHERE id = $1::uuid",
                 normalized_video_id,
@@ -375,9 +390,9 @@ class UnifiedIndexService:
         url: str,
         source: str,
         source_video_id: str,
-    ) -> None:
+    ) -> tuple[str, bool]:
         title = self._build_placeholder_title(url, source, source_video_id)
-        await self.db.execute(
+        row = await self.db.fetchrow(
             """
             INSERT INTO videos (
                 id,
@@ -391,6 +406,7 @@ class UnifiedIndexService:
             )
             VALUES ($1::uuid, $2, $3, $4, $5, $6, '', '{}'::jsonb)
             ON CONFLICT (source, source_video_id) DO NOTHING
+            RETURNING id::text AS id
             """,
             video_id,
             source,
@@ -399,6 +415,15 @@ class UnifiedIndexService:
             url,
             title,
         )
+        if row is not None:
+            return str(row["id"]), True
+
+        existing_video = await self._find_video_by_source(source, source_video_id)
+        if existing_video is None:
+            raise RuntimeError(
+                "Failed to resolve canonical indexed video after placeholder conflict."
+            )
+        return str(existing_video["id"]), False
 
     async def _ensure_video_access(self, video_id: str, owner_id: str) -> None:
         await self.db.execute(
@@ -409,6 +434,34 @@ class UnifiedIndexService:
             """,
             video_id,
             owner_id,
+        )
+
+    async def _has_video_access(self, video_id: str, owner_id: str) -> bool:
+        row = await self.db.fetchval(
+            """
+            SELECT TRUE
+            FROM video_access
+            WHERE video_id = $1::uuid
+              AND owner_id = $2
+            LIMIT 1
+            """,
+            video_id,
+            owner_id,
+        )
+        return bool(row)
+
+    async def _delete_placeholder_video_if_unowned(self, video_id: str) -> None:
+        await self.db.execute(
+            """
+            DELETE FROM videos
+            WHERE id = $1::uuid
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM video_access
+                  WHERE video_id = $1::uuid
+              )
+            """,
+            video_id,
         )
 
     async def _find_active_job(self, video_id: str) -> dict[str, Any] | None:
@@ -443,6 +496,15 @@ class UnifiedIndexService:
     async def _delete_video_units(self, video_id: str) -> None:
         await self.db.execute(
             "DELETE FROM retrieval_units WHERE video_id = $1::uuid",
+            video_id,
+        )
+
+    async def _delete_video_jobs(self, video_id: str) -> None:
+        await self.db.execute(
+            """
+            DELETE FROM processing_jobs
+            WHERE input_payload->>'video_id' = $1::text
+            """,
             video_id,
         )
 

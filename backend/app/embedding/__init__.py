@@ -43,6 +43,7 @@ def create_embedding_backend(
 
     if backend_type == "openai_compatible":
         return OpenAICompatibleEmbeddingBackend(
+            model=settings.embedding.model,
             output_dimension=resolved_dimension,
         )
 

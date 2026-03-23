@@ -1162,6 +1162,8 @@ class UnifiedIndexingPipeline:
         units: Sequence[Mapping[str, Any]],
         job_id: str | None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        if job_id is not None and not await self._repository.job_exists(job_id):
+            return dict(video), []
         stored_video = await self._repository.upsert_video(video)
         await self._repository.ensure_video_access(str(stored_video["id"]), owner_id)
         stored_units = await self._repository.replace_units(

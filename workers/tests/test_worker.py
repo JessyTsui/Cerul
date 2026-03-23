@@ -61,12 +61,18 @@ class ClaimConnection:
 class RecordingConnection:
     def __init__(self) -> None:
         self.execute_calls: list[tuple[str, tuple[object, ...]]] = []
+        self.fetchval_calls: list[tuple[str, tuple[object, ...]]] = []
         self.closed = False
 
     async def execute(self, query: str, *params: object) -> str:
         normalized = " ".join(query.split())
         self.execute_calls.append((normalized, params))
         return "OK"
+
+    async def fetchval(self, query: str, *params: object) -> object | None:
+        normalized = " ".join(query.split())
+        self.fetchval_calls.append((normalized, params))
+        return True
 
     async def close(self) -> None:
         self.closed = True
@@ -256,6 +262,26 @@ def test_compute_retry_delay_uses_exponential_backoff_with_cap() -> None:
     assert worker.compute_retry_delay(2) == 60
     assert worker.compute_retry_delay(3) == 120
     assert worker.compute_retry_delay(20) == 3600
+
+
+def test_record_live_step_event_ignores_deleted_job() -> None:
+    worker = JobWorker("worker-a", "postgresql://example")
+    conn = RecordingConnection()
+    conn.fetchval = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    context = PipelineContext(data={"job_status": "running"})
+
+    with patch("workers.worker.asyncpg.connect", AsyncMock(return_value=conn)):
+        run_async(
+            worker._record_live_step_event(
+                job_id="job-deleted",
+                step_name="PersistUnifiedUnitsStep",
+                status="running",
+                context=context,
+            )
+        )
+
+    assert conn.execute_calls == []
+    assert conn.closed is True
 
 
 def test_execute_job_marks_unified_job_completed_on_pipeline_success() -> None:
