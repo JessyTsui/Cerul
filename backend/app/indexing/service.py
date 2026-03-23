@@ -156,6 +156,8 @@ class UnifiedIndexService:
                 pj.completed_at AS job_completed_at,
                 pj.updated_at AS job_updated_at,
                 pj.input_payload->>'request_id' AS request_id,
+                latest_success.created_at AS latest_success_created_at,
+                latest_success.completed_at AS latest_success_completed_at,
                 step_counts.steps_completed,
                 step_counts.steps_total,
                 active_step.current_step
@@ -175,6 +177,15 @@ class UnifiedIndexService:
                 ORDER BY created_at DESC
                 LIMIT 1
             ) AS pj ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT created_at, completed_at
+                FROM processing_jobs
+                WHERE track = 'unified'
+                  AND input_payload->>'video_id' = v.id::text
+                  AND status = 'completed'
+                ORDER BY completed_at DESC NULLS LAST, created_at DESC
+                LIMIT 1
+            ) AS latest_success ON TRUE
             LEFT JOIN LATERAL (
                 SELECT
                     COUNT(*) FILTER (WHERE status = 'completed')::int AS steps_completed,
@@ -213,18 +224,44 @@ class UnifiedIndexService:
         else:
             status_value = "processing"
 
+        completed_with_previous_units = (
+            status_value == "completed" and job_status == "failed" and units_created > 0
+        )
+        created_at = payload.get("job_created_at") or payload.get("job_updated_at")
+        completed_at = payload.get("job_completed_at")
+        current_step = payload.get("current_step")
+        steps_completed = payload.get("steps_completed")
+        steps_total = payload.get("steps_total")
+        error = payload.get("error_message")
+
+        if completed_with_previous_units:
+            created_at = (
+                payload.get("latest_success_created_at")
+                or payload.get("job_created_at")
+                or payload.get("job_updated_at")
+            )
+            completed_at = (
+                payload.get("latest_success_completed_at")
+                or payload.get("job_completed_at")
+                or payload.get("job_updated_at")
+            )
+            current_step = None
+            steps_completed = None
+            steps_total = None
+            error = None
+
         return IndexStatusResponse(
             video_id=str(payload["video_id"]),
             status=status_value,
             title=payload.get("title"),
-            current_step=payload.get("current_step"),
-            steps_completed=payload.get("steps_completed"),
-            steps_total=payload.get("steps_total"),
+            current_step=current_step,
+            steps_completed=steps_completed,
+            steps_total=steps_total,
             duration=payload.get("duration_seconds"),
             units_created=units_created,
-            error=payload.get("error_message"),
-            created_at=payload.get("job_created_at") or payload.get("job_updated_at"),
-            completed_at=payload.get("job_completed_at"),
+            error=error if status_value == "failed" else None,
+            created_at=created_at,
+            completed_at=completed_at,
             failed_at=payload.get("job_updated_at") if status_value == "failed" else None,
         )
 
@@ -244,7 +281,8 @@ class UnifiedIndexService:
                 va.created_at,
                 COALESCE(ru_counts.units_created, 0) AS units_created,
                 pj.status AS job_status,
-                pj.completed_at
+                pj.completed_at,
+                latest_success.completed_at AS latest_success_completed_at
             FROM videos AS v
             JOIN video_access AS va
                 ON va.video_id = v.id
@@ -261,6 +299,15 @@ class UnifiedIndexService:
                 ORDER BY created_at DESC
                 LIMIT 1
             ) AS pj ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT completed_at
+                FROM processing_jobs
+                WHERE track = 'unified'
+                  AND input_payload->>'video_id' = v.id::text
+                  AND status = 'completed'
+                ORDER BY completed_at DESC NULLS LAST, created_at DESC
+                LIMIT 1
+            ) AS latest_success ON TRUE
             WHERE va.owner_id = $1
             ORDER BY va.created_at DESC
             LIMIT $2 OFFSET $3
@@ -292,7 +339,14 @@ class UnifiedIndexService:
                 ),
                 units_created=int(row["units_created"] or 0),
                 created_at=row["created_at"],
-                completed_at=row["completed_at"],
+                completed_at=(
+                    row["latest_success_completed_at"]
+                    if (
+                        str(row["job_status"] or "") == "failed"
+                        and int(row["units_created"] or 0) > 0
+                    )
+                    else row["completed_at"]
+                ),
             )
             for row in rows
         ]

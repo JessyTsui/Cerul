@@ -376,6 +376,32 @@ def test_get_index_status_and_list(database) -> None:
 
 def test_get_index_status_and_list_stay_completed_when_previous_units_exist(database) -> None:
     video_id = "41111111-1111-1111-1111-111111111111"
+    _completed_job_id = database.fetchval(
+        """
+        INSERT INTO processing_jobs (
+            track,
+            source_id,
+            job_type,
+            status,
+            input_payload,
+            created_at,
+            completed_at,
+            updated_at
+        )
+        VALUES (
+            'unified',
+            NULL,
+            'index_video',
+            'completed',
+            $1::jsonb,
+            NOW() - INTERVAL '2 hours',
+            NOW() - INTERVAL '90 minutes',
+            NOW() - INTERVAL '90 minutes'
+        )
+        RETURNING id::text
+        """,
+        f'{{"video_id":"{video_id}","request_id":"req_completed"}}',
+    )
     vector = build_placeholder_vector(
         "existing retrieval unit",
         DEFAULT_KNOWLEDGE_VECTOR_DIMENSION,
@@ -459,7 +485,7 @@ def test_get_index_status_and_list_stay_completed_when_previous_units_exist(data
         video_id,
         vector_to_literal(vector),
     )
-    database.fetchval(
+    failed_job_id = database.fetchval(
         """
         INSERT INTO processing_jobs (
             track,
@@ -485,6 +511,28 @@ def test_get_index_status_and_list_stay_completed_when_previous_units_exist(data
         """,
         f'{{"video_id":"{video_id}","request_id":"req_existing"}}',
     )
+    database.fetchval(
+        """
+        INSERT INTO processing_job_steps (
+            job_id,
+            step_name,
+            status,
+            error_message,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            $1::uuid,
+            'PersistUnifiedUnitsStep',
+            'failed',
+            'Reindex failed',
+            NOW(),
+            NOW()
+        )
+        RETURNING id::text
+        """,
+        failed_job_id,
+    )
 
     app.dependency_overrides[require_api_key] = override_auth
 
@@ -497,10 +545,17 @@ def test_get_index_status_and_list_stay_completed_when_previous_units_exist(data
     assert status_response.status_code == 200
     assert status_response.json()["status"] == "completed"
     assert status_response.json()["units_created"] == 1
+    assert status_response.json()["error"] is None
+    assert status_response.json()["current_step"] is None
+    assert status_response.json()["steps_completed"] is None
+    assert status_response.json()["steps_total"] is None
+    assert status_response.json()["failed_at"] is None
+    assert status_response.json()["completed_at"] is not None
     matching_video = next(
         video for video in list_response.json()["videos"] if video["video_id"] == video_id
     )
     assert matching_video["status"] == "completed"
+    assert matching_video["completed_at"] is not None
 
 
 def test_get_index_status_returns_404_for_non_uuid_id(database) -> None:

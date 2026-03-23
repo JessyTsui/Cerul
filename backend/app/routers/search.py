@@ -190,7 +190,7 @@ async def _execute_search_request(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient credits for this request.",
         ) from exc
-    except Exception:
+    except BaseException:
         if credits_used > 0:
             try:
                 await refund_credits(db, request_id)
