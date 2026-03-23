@@ -514,7 +514,7 @@ class UnifiedIndexService:
                     ELSE error_message
                 END,
                 completed_at = CASE
-                    WHEN status IN ('pending', 'running', 'retrying') THEN NULL
+                    WHEN status IN ('pending', 'running', 'retrying') THEN NOW()
                     ELSE completed_at
                 END,
                 next_retry_at = NULL,
@@ -528,6 +528,23 @@ class UnifiedIndexService:
                 ),
                 updated_at = NOW()
             WHERE input_payload->>'video_id' = $1::text
+            """,
+            video_id,
+        )
+        await self.db.execute(
+            """
+            UPDATE processing_job_steps
+            SET
+                status = 'skipped',
+                error_message = 'Cancelled by user.',
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE status IN ('pending', 'running')
+              AND job_id IN (
+                  SELECT id
+                  FROM processing_jobs
+                  WHERE input_payload->>'video_id' = $1::text
+              )
             """,
             video_id,
         )

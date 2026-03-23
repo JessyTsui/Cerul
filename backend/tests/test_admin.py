@@ -419,6 +419,97 @@ def test_admin_ingestion_summary_filters_failed_jobs_to_selected_window(
     )
 
 
+def test_admin_ingestion_summary_excludes_cancelled_jobs_from_failed_metrics(
+    admin_client: TestClient,
+    database,
+) -> None:
+    seed_admin_metrics(database)
+    source_id = database.fetchval(
+        "SELECT id FROM content_sources WHERE slug = 'youtube-openai'"
+    )
+    now = datetime.now(timezone.utc)
+    database.fetchval(
+        """
+        INSERT INTO processing_jobs (
+            track,
+            source_id,
+            job_type,
+            status,
+            input_payload,
+            error_message,
+            attempts,
+            max_attempts,
+            started_at,
+            completed_at,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            'knowledge',
+            $1::uuid,
+            'index_video',
+            'failed',
+            '{"video_id":"cancelled-job","cancelled_by_user":true}'::jsonb,
+            'Cancelled by user.',
+            1,
+            3,
+            $2,
+            $2,
+            $2,
+            $2
+        )
+        RETURNING id
+        """,
+        source_id,
+        now,
+    )
+    database.fetchval(
+        """
+        INSERT INTO processing_job_steps (
+            job_id,
+            step_name,
+            status,
+            artifacts,
+            error_message,
+            started_at,
+            completed_at,
+            updated_at
+        )
+        VALUES (
+            (
+                SELECT id
+                FROM processing_jobs
+                WHERE input_payload->>'video_id' = 'cancelled-job'
+                LIMIT 1
+            ),
+            'AnalyzeKnowledgeFramesStep',
+            'failed',
+            '{}'::jsonb,
+            'Cancelled by user.',
+            $1,
+            $1,
+            $1
+        )
+        RETURNING id
+        """,
+        now,
+    )
+
+    response = admin_client.get("/admin/ingestion/summary", params={"range": "7d"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metrics"]["jobs_failed"]["current"] == 1
+    assert all(
+        job["error_message"] != "Cancelled by user."
+        for job in payload["recent_failed_jobs"]
+    )
+    assert all(
+        step["step_name"] != "AnalyzeKnowledgeFramesStep"
+        for step in payload["failed_steps"]
+    )
+
+
 def test_admin_targets_can_be_upserted_and_deleted(
     admin_client: TestClient,
     database,
@@ -814,6 +905,58 @@ def test_admin_worker_live_supports_failed_job_pagination(
     assert payload["failed_jobs_offset"] == 1
     assert len(payload["failed_jobs"]) == 1
     assert payload["failed_jobs"][0]["job_id"] == failed_job_ids[1]
+
+
+def test_admin_worker_live_excludes_cancelled_jobs_from_failed_queue(
+    admin_client: TestClient,
+    database,
+) -> None:
+    seed_admin_metrics(database)
+    source_id = database.fetchval(
+        "SELECT id FROM content_sources WHERE slug = 'youtube-openai'"
+    )
+    now = datetime.now(timezone.utc)
+    database.fetchval(
+        """
+        INSERT INTO processing_jobs (
+            track,
+            source_id,
+            job_type,
+            status,
+            input_payload,
+            error_message,
+            attempts,
+            max_attempts,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            'knowledge',
+            $1::uuid,
+            'index_video',
+            'failed',
+            '{"video_id":"cancelled-live","cancelled_by_user":true}'::jsonb,
+            'Cancelled by user.',
+            1,
+            3,
+            $2,
+            $2
+        )
+        RETURNING id
+        """,
+        source_id,
+        now,
+    )
+
+    response = admin_client.get("/admin/worker/live")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["queue"]["failed"] == 1
+    assert all(
+        job["error_message"] != "Cancelled by user."
+        for job in payload["failed_jobs"]
+    )
 
 
 def test_admin_indexed_videos_supports_query_and_pagination(
@@ -1404,6 +1547,52 @@ def test_admin_kill_failed_job_returns_not_found_for_non_failed_job(
     )
 
     response = admin_client.post(f"/admin/jobs/{running_job_id}/kill")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Job not found or not in failed state."
+
+
+@pytest.mark.parametrize("action", ["retry", "kill"])
+def test_admin_failed_job_actions_ignore_cancelled_jobs(
+    admin_client: TestClient,
+    database,
+    action: str,
+) -> None:
+    source_id = database.fetchval(
+        "SELECT id FROM content_sources WHERE slug = 'youtube-openai'"
+    )
+    cancelled_job_id = database.fetchval(
+        """
+        INSERT INTO processing_jobs (
+            track,
+            source_id,
+            job_type,
+            status,
+            input_payload,
+            error_message,
+            attempts,
+            max_attempts,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            'knowledge',
+            $1::uuid,
+            'index_video',
+            'failed',
+            '{"video_id":"cancelled-action","cancelled_by_user":true}'::jsonb,
+            'Cancelled by user.',
+            1,
+            3,
+            NOW(),
+            NOW()
+        )
+        RETURNING id
+        """,
+        source_id,
+    )
+
+    response = admin_client.post(f"/admin/jobs/{cancelled_job_id}/{action}")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Job not found or not in failed state."

@@ -176,9 +176,14 @@ def _job_duration_ms(
     return max(int(duration.total_seconds() * 1000), 0)
 
 
+def _not_cancelled_job_condition(alias: str | None = None) -> str:
+    prefix = f"{alias}." if alias else ""
+    return f"COALESCE(({prefix}input_payload->>'cancelled_by_user')::boolean, FALSE) = FALSE"
+
+
 async def retry_job(db: Any, job_id: str) -> dict[str, Any] | None:
     row = await db.fetchrow(
-        """
+        f"""
         UPDATE processing_jobs
         SET status = 'pending',
             attempts = 0,
@@ -187,7 +192,9 @@ async def retry_job(db: Any, job_id: str) -> dict[str, Any] | None:
             locked_at = NULL,
             next_retry_at = NULL,
             updated_at = NOW()
-        WHERE id = $1::uuid AND status = 'failed'
+        WHERE id = $1::uuid
+          AND status = 'failed'
+          AND {_not_cancelled_job_condition()}
         RETURNING id
         """,
         job_id,
@@ -197,9 +204,11 @@ async def retry_job(db: Any, job_id: str) -> dict[str, Any] | None:
 
 async def kill_job(db: Any, job_id: str) -> dict[str, Any] | None:
     row = await db.fetchrow(
-        """
+        f"""
         DELETE FROM processing_jobs
-        WHERE id = $1::uuid AND status = 'failed'
+        WHERE id = $1::uuid
+          AND status = 'failed'
+          AND {_not_cancelled_job_condition()}
         RETURNING id
         """,
         job_id,
@@ -898,15 +907,21 @@ async def _fetch_target_actual(
 
     if metric_name in {"jobs_completed", "jobs_failed"}:
         job_status = "completed" if metric_name == "jobs_completed" else "failed"
+        failed_clause = (
+            f" AND {_not_cancelled_job_condition()}"
+            if job_status == "failed"
+            else ""
+        )
         if normalized_scope_type == "global":
             return _as_float(
                 await db.fetchval(
-                    """
+                    f"""
                     SELECT COUNT(*)
                     FROM processing_jobs
                     WHERE status = $1
                       AND updated_at >= $2
                       AND updated_at < $3
+                      {failed_clause}
                     """,
                     job_status,
                     window.current_start,
@@ -916,13 +931,14 @@ async def _fetch_target_actual(
         if normalized_scope_type == "track":
             return _as_float(
                 await db.fetchval(
-                    """
+                    f"""
                     SELECT COUNT(*)
                     FROM processing_jobs
                     WHERE status = $1
                       AND updated_at >= $2
                       AND updated_at < $3
                       AND track = $4
+                      {failed_clause}
                     """,
                     job_status,
                     window.current_start,
@@ -933,7 +949,7 @@ async def _fetch_target_actual(
         if normalized_scope_type == "source":
             return _as_float(
                 await db.fetchval(
-                    """
+                    f"""
                     SELECT COUNT(*)
                     FROM processing_jobs AS pj
                     LEFT JOIN content_sources AS cs
@@ -941,6 +957,7 @@ async def _fetch_target_actual(
                     WHERE pj.status = $1
                       AND pj.updated_at >= $2
                       AND pj.updated_at < $3
+                      AND {_not_cancelled_job_condition("pj")}
                       AND (
                         LOWER(COALESCE(cs.slug, '')) = $4
                         OR LOWER(COALESCE(pj.source_id::text, '')) = $4
@@ -963,7 +980,7 @@ async def _fetch_summary_counts(
     window: TimeWindow,
 ) -> dict[str, float]:
     row = await db.fetchrow(
-        """
+        f"""
         SELECT
             (SELECT COUNT(*) FROM user_profiles) AS total_users,
             (SELECT COUNT(*) FROM user_profiles WHERE created_at >= $1 AND created_at < $2) AS new_users_current,
@@ -986,8 +1003,16 @@ async def _fetch_summary_counts(
             (SELECT COUNT(*) FROM processing_jobs
               WHERE status IN ('pending', 'running', 'retrying')
                 AND updated_at < $3) AS pending_jobs_previous,
-            (SELECT COUNT(*) FROM processing_jobs WHERE status = 'failed' AND updated_at >= $1 AND updated_at < $2) AS failed_jobs_current,
-            (SELECT COUNT(*) FROM processing_jobs WHERE status = 'failed' AND updated_at >= $3 AND updated_at < $4) AS failed_jobs_previous
+            (SELECT COUNT(*) FROM processing_jobs
+              WHERE status = 'failed'
+                AND {_not_cancelled_job_condition()}
+                AND updated_at >= $1
+                AND updated_at < $2) AS failed_jobs_current,
+            (SELECT COUNT(*) FROM processing_jobs
+              WHERE status = 'failed'
+                AND {_not_cancelled_job_condition()}
+                AND updated_at >= $3
+                AND updated_at < $4) AS failed_jobs_previous
         """,
         window.current_start,
         window.current_end,
@@ -1003,7 +1028,7 @@ async def _fetch_daily_series(
     window: TimeWindow,
 ) -> list[dict[str, Any]]:
     rows = await db.fetch(
-        """
+        f"""
         WITH dates AS (
             SELECT generate_series($1::date, $2::date, INTERVAL '1 day')::date AS bucket_date
         ),
@@ -1056,7 +1081,10 @@ async def _fetch_daily_series(
             SELECT
                 DATE(updated_at) AS bucket_date,
                 COUNT(*) FILTER (WHERE status = 'completed') AS jobs_completed,
-                COUNT(*) FILTER (WHERE status = 'failed') AS jobs_failed
+                COUNT(*) FILTER (
+                    WHERE status = 'failed'
+                      AND {_not_cancelled_job_condition()}
+                ) AS jobs_failed
             FROM processing_jobs
             WHERE updated_at >= $3
               AND updated_at < $4
@@ -1753,14 +1781,22 @@ async def fetch_ingestion_summary(
     window = resolve_time_window(range_key)
     targets = await _fetch_target_map(db, window.range_key)
     metric_row = await db.fetchrow(
-        """
+        f"""
         SELECT
             (SELECT COUNT(*) FROM processing_jobs WHERE created_at >= $1 AND created_at < $2) AS jobs_created_current,
             (SELECT COUNT(*) FROM processing_jobs WHERE created_at >= $3 AND created_at < $4) AS jobs_created_previous,
             (SELECT COUNT(*) FROM processing_jobs WHERE status = 'completed' AND updated_at >= $1 AND updated_at < $2) AS jobs_completed_current,
             (SELECT COUNT(*) FROM processing_jobs WHERE status = 'completed' AND updated_at >= $3 AND updated_at < $4) AS jobs_completed_previous,
-            (SELECT COUNT(*) FROM processing_jobs WHERE status = 'failed' AND updated_at >= $1 AND updated_at < $2) AS jobs_failed_current,
-            (SELECT COUNT(*) FROM processing_jobs WHERE status = 'failed' AND updated_at >= $3 AND updated_at < $4) AS jobs_failed_previous,
+            (SELECT COUNT(*) FROM processing_jobs
+              WHERE status = 'failed'
+                AND {_not_cancelled_job_condition()}
+                AND updated_at >= $1
+                AND updated_at < $2) AS jobs_failed_current,
+            (SELECT COUNT(*) FROM processing_jobs
+              WHERE status = 'failed'
+                AND {_not_cancelled_job_condition()}
+                AND updated_at >= $3
+                AND updated_at < $4) AS jobs_failed_previous,
             (SELECT COUNT(*) FROM processing_jobs WHERE status IN ('pending', 'running', 'retrying')) AS pending_backlog_current,
             (SELECT COUNT(*) FROM processing_jobs
               WHERE status IN ('pending', 'running', 'retrying')
@@ -1784,18 +1820,21 @@ async def fetch_ingestion_summary(
         window.previous_end,
     )
     status_row = await db.fetchrow(
-        """
+        f"""
         SELECT
             COUNT(*) FILTER (WHERE status = 'pending') AS pending,
             COUNT(*) FILTER (WHERE status = 'running') AS running,
             COUNT(*) FILTER (WHERE status = 'retrying') AS retrying,
             COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-            COUNT(*) FILTER (WHERE status = 'failed') AS failed
+            COUNT(*) FILTER (
+                WHERE status = 'failed'
+                  AND {_not_cancelled_job_condition()}
+            ) AS failed
         FROM processing_jobs
         """
     )
     source_rows = await db.fetch(
-        """
+        f"""
         SELECT
             cs.id::text AS source_id,
             cs.slug,
@@ -1804,7 +1843,12 @@ async def fetch_ingestion_summary(
             cs.is_active,
             COUNT(pj.id) FILTER (WHERE pj.created_at >= $1 AND pj.created_at < $2) AS jobs_created,
             COUNT(pj.id) FILTER (WHERE pj.status = 'completed' AND pj.updated_at >= $1 AND pj.updated_at < $2) AS jobs_completed,
-            COUNT(pj.id) FILTER (WHERE pj.status = 'failed' AND pj.updated_at >= $1 AND pj.updated_at < $2) AS jobs_failed,
+            COUNT(pj.id) FILTER (
+                WHERE pj.status = 'failed'
+                  AND {_not_cancelled_job_condition("pj")}
+                  AND pj.updated_at >= $1
+                  AND pj.updated_at < $2
+            ) AS jobs_failed,
             COUNT(pj.id) FILTER (WHERE pj.status IN ('pending', 'running', 'retrying')) AS backlog,
             MAX(pj.updated_at) AS last_job_at
         FROM content_sources AS cs
@@ -1817,7 +1861,7 @@ async def fetch_ingestion_summary(
         window.current_end,
     )
     failed_job_rows = await db.fetch(
-        """
+        f"""
         SELECT
             id::text AS job_id,
             track,
@@ -1829,6 +1873,7 @@ async def fetch_ingestion_summary(
             updated_at
         FROM processing_jobs
         WHERE status = 'failed'
+          AND {_not_cancelled_job_condition()}
           AND updated_at >= $1
           AND updated_at < $2
         ORDER BY updated_at DESC
@@ -1838,17 +1883,20 @@ async def fetch_ingestion_summary(
         window.current_end,
     )
     failed_step_rows = await db.fetch(
-        """
+        f"""
         SELECT
-            step_name,
+            pjs.step_name,
             COUNT(*) AS failure_count,
-            MAX(updated_at) AS last_failed_at
-        FROM processing_job_steps
-        WHERE status = 'failed'
-          AND updated_at >= $1
-          AND updated_at < $2
-        GROUP BY step_name
-        ORDER BY failure_count DESC, step_name ASC
+            MAX(pjs.updated_at) AS last_failed_at
+        FROM processing_job_steps AS pjs
+        JOIN processing_jobs AS pj
+          ON pj.id = pjs.job_id
+        WHERE pjs.status = 'failed'
+          AND {_not_cancelled_job_condition("pj")}
+          AND pjs.updated_at >= $1
+          AND pjs.updated_at < $2
+        GROUP BY pjs.step_name
+        ORDER BY failure_count DESC, pjs.step_name ASC
         LIMIT 10
         """,
         window.current_start,
@@ -2021,13 +2069,16 @@ async def fetch_worker_live(
     """Return a real-time snapshot of the worker queue and active jobs."""
 
     # Queue counts across all time
-    counts_row = await db.fetchrow("""
+    counts_row = await db.fetchrow(f"""
         SELECT
             COUNT(*) FILTER (WHERE status = 'pending')   AS pending,
             COUNT(*) FILTER (WHERE status = 'running')   AS running,
             COUNT(*) FILTER (WHERE status = 'retrying')  AS retrying,
             COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-            COUNT(*) FILTER (WHERE status = 'failed')    AS failed
+            COUNT(*) FILTER (
+                WHERE status = 'failed'
+                  AND {_not_cancelled_job_condition()}
+            ) AS failed
         FROM processing_jobs
     """)
 
@@ -2079,16 +2130,17 @@ async def fetch_worker_live(
     active_job_ids = [str(row["id"]) for row in active_rows]
     failed_jobs_total = _as_int(
         await db.fetchval(
-            """
+            f"""
             SELECT COUNT(*)
             FROM processing_jobs
             WHERE status = 'failed'
+              AND {_not_cancelled_job_condition()}
             """
         )
     )
 
     failed_rows = await db.fetch(
-        """
+        f"""
         SELECT
             pj.id,
             pj.track,
@@ -2112,6 +2164,7 @@ async def fetch_worker_live(
         LEFT JOIN videos AS v
             ON v.id::text = pj.input_payload->>'video_id'
         WHERE pj.status = 'failed'
+          AND {_not_cancelled_job_condition("pj")}
         ORDER BY pj.updated_at DESC
         LIMIT $1
         OFFSET $2

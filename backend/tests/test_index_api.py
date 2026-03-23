@@ -420,6 +420,38 @@ def test_delete_indexed_video_cancels_associated_processing_jobs(database) -> No
             json={"url": TEST_INDEX_URL},
         )
         video_id = submit_response.json()["video_id"]
+        job_id = database.fetchval(
+            """
+            SELECT id::text
+            FROM processing_jobs
+            WHERE input_payload->>'video_id' = $1::text
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            video_id,
+        )
+        database.fetchval(
+            """
+            INSERT INTO processing_job_steps (
+                job_id,
+                step_name,
+                status,
+                artifacts,
+                started_at,
+                updated_at
+            )
+            VALUES (
+                $1::uuid,
+                'DownloadKnowledgeVideoStep',
+                'running',
+                '{}'::jsonb,
+                NOW(),
+                NOW()
+            )
+            RETURNING id
+            """,
+            job_id,
+        )
         delete_response = client.delete(f"/v1/index/{video_id}")
 
     app.dependency_overrides.clear()
@@ -443,6 +475,18 @@ def test_delete_indexed_video_cancels_associated_processing_jobs(database) -> No
         """,
         video_id,
     ) == 1
+    step_row = database.fetchrow(
+        """
+        SELECT status, error_message, completed_at
+        FROM processing_job_steps
+        WHERE job_id = $1::uuid
+          AND step_name = 'DownloadKnowledgeVideoStep'
+        """,
+        job_id,
+    )
+    assert step_row["status"] == "skipped"
+    assert step_row["error_message"] == "Cancelled by user."
+    assert step_row["completed_at"] is not None
 
 
 def test_submit_index_rejects_unsupported_url() -> None:

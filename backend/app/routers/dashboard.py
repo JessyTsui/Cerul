@@ -456,6 +456,11 @@ async def fetch_daily_usage_breakdown(
     return [cast(dict[str, Any], _record_to_dict(row)) for row in rows]
 
 
+def _not_cancelled_job_condition(alias: str | None = None) -> str:
+    prefix = f"{alias}." if alias else ""
+    return f"COALESCE(({prefix}input_payload->>'cancelled_by_user')::boolean, FALSE) = FALSE"
+
+
 async def count_processing_jobs(
     db: Any,
     *,
@@ -463,10 +468,11 @@ async def count_processing_jobs(
     track: JobTrack | None = None,
 ) -> int:
     count = await db.fetchval(
-        """
+        f"""
         SELECT COUNT(*)
         FROM processing_jobs
-        WHERE ($1::text IS NULL OR status = $1)
+        WHERE {_not_cancelled_job_condition()}
+          AND ($1::text IS NULL OR status = $1)
           AND ($2::text IS NULL OR track = $2)
         """,
         job_status,
@@ -484,7 +490,7 @@ async def list_processing_jobs(
     offset: int,
 ) -> list[dict[str, Any]]:
     rows = await db.fetch(
-        """
+        f"""
         SELECT
             id,
             track,
@@ -498,7 +504,8 @@ async def list_processing_jobs(
             completed_at,
             updated_at
         FROM processing_jobs
-        WHERE ($1::text IS NULL OR status = $1)
+        WHERE {_not_cancelled_job_condition()}
+          AND ($1::text IS NULL OR status = $1)
           AND ($2::text IS NULL OR track = $2)
         ORDER BY created_at DESC
         LIMIT $3
@@ -584,7 +591,7 @@ async def fetch_processing_job_stats(
     db: Any,
 ) -> dict[str, int]:
     row = await db.fetchrow(
-        """
+        f"""
         SELECT
             COUNT(*) AS total,
             COUNT(*) FILTER (WHERE status = 'pending') AS pending,
@@ -596,6 +603,7 @@ async def fetch_processing_job_stats(
             COUNT(*) FILTER (WHERE track = 'knowledge') AS knowledge,
             COUNT(*) FILTER (WHERE track = 'unified') AS unified
         FROM processing_jobs
+        WHERE {_not_cancelled_job_condition()}
         """
     )
     payload = _record_to_dict(row) or {}
