@@ -3,7 +3,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -904,6 +904,32 @@ def test_openai_compatible_transcriber_reads_env_overrides_for_openai_compatible
         ]
     finally:
         reset_settings_cache()
+
+
+def test_openai_compatible_transcriber_does_not_reuse_ytdlp_proxy_for_asr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    video_path = _write_video(tmp_path / "devday.mp4")
+    fake_client = FakeTranscriptionClient(payload={"text": "agents coordinate tasks"})
+    monkeypatch.setenv("YTDLP_PROXY", "http://yt-proxy.example:10001")
+    monkeypatch.setenv("HTTPS_PROXY", "http://asr-proxy.example:10002")
+    transcriber = OpenAICompatibleTranscriber(api_key="test-key")
+    client_ctor = MagicMock(return_value=fake_client)
+
+    with (
+        patch.object(transcriber, "_extract_audio_track", AsyncMock(return_value=False)),
+        patch("workers.knowledge.runtime.httpx.Client", client_ctor),
+    ):
+        segments = asyncio.run(
+            transcriber.transcribe(
+                video_path,
+                video_metadata={"duration_seconds": 5},
+            )
+        )
+
+    assert segments[0]["text"] == "agents coordinate tasks"
+    assert client_ctor.call_args.kwargs["proxy"] == "http://asr-proxy.example:10002"
 
 
 def test_plan_transcription_chunks_prefers_nearby_silence_boundaries() -> None:

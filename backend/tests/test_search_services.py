@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -19,7 +20,14 @@ from app.search.base import (
     vector_to_literal,
 )
 from app.search.models import SearchRequest
-from app.search.rerank import LLMReranker, OpenAICompatibleRerankerBackend
+from app.search.rerank import (
+    DEFAULT_COHERE_MODEL,
+    DEFAULT_RERANK_MODEL,
+    CohereRerankerBackend,
+    LLMReranker,
+    OpenAICompatibleRerankerBackend,
+    _build_default_backend,
+)
 from app.search.unified import UnifiedSearchService
 
 
@@ -625,6 +633,20 @@ def test_llm_reranker_reorders_candidates_by_llm_score(
     assert reranked[0]["rerank_score"] == pytest.approx(0.9)
     assert len(requests) == 3
     assert requests[0]["url"] == "https://api.openai.com/v1/chat/completions"
+
+
+def test_build_default_backend_uses_cohere_model_default_when_backend_switches() -> None:
+    settings = SimpleNamespace(
+        knowledge=SimpleNamespace(
+            rerank_backend="cohere",
+            rerank_model=DEFAULT_RERANK_MODEL,
+        )
+    )
+
+    backend = _build_default_backend(settings)
+
+    assert isinstance(backend, CohereRerankerBackend)
+    assert backend.model_name == DEFAULT_COHERE_MODEL
 
 
 def test_answer_generator_produces_answer_with_citations(

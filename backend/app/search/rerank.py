@@ -307,7 +307,14 @@ def _build_default_backend(
 ) -> RerankerBackend | CohereRerankerBackend:
     backend_name = getattr(settings.knowledge, "rerank_backend", "openai")
     if backend_name == "cohere":
-        model = getattr(settings.knowledge, "rerank_model", DEFAULT_COHERE_MODEL)
+        configured_model = str(
+            getattr(settings.knowledge, "rerank_model", "") or ""
+        ).strip()
+        model = (
+            DEFAULT_COHERE_MODEL
+            if not configured_model or configured_model == DEFAULT_RERANK_MODEL
+            else configured_model
+        )
         return CohereRerankerBackend(model_name=model)
     model = getattr(settings.knowledge, "rerank_model", DEFAULT_RERANK_MODEL)
     return OpenAICompatibleRerankerBackend(model_name=model)

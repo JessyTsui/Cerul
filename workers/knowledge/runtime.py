@@ -489,7 +489,10 @@ class OpenAICompatibleTranscriber:
         model_name = self._model_name
         response_format = self._resolve_transcription_response_format()
         timeout = self._timeout_seconds
-        proxy_url = os.getenv("YTDLP_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY") or None
+        proxy_url = (
+            _first_env("ASR_PROXY", "HTTPS_PROXY", "HTTP_PROXY")
+            or None
+        )
         request_data = {
             "model": model_name,
             "response_format": response_format,
