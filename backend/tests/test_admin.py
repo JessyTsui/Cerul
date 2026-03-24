@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -687,6 +688,127 @@ def test_admin_targets_reject_unsupported_scope(
 
     assert response.status_code == 400
     assert "does not support 'source' scope" in response.json()["detail"]
+
+
+def test_admin_sources_support_crud(
+    admin_client: TestClient,
+    database,
+) -> None:
+    initial_response = admin_client.get("/admin/sources")
+
+    assert initial_response.status_code == 200
+    assert initial_response.json()["sources"] == []
+
+    create_response = admin_client.post(
+        "/admin/sources",
+        json={
+            "slug": "OpenAI-YouTube",
+            "track": "knowledge",
+            "display_name": "OpenAI YouTube",
+            "base_url": "https://www.youtube.com/@OpenAI",
+            "is_active": True,
+            "metadata": {"kind": "channel", "priority": 1},
+        },
+    )
+
+    assert create_response.status_code == 201
+    created_payload = create_response.json()
+    source_id = created_payload["id"]
+    assert created_payload["slug"] == "openai-youtube"
+    assert created_payload["track"] == "knowledge"
+    assert created_payload["display_name"] == "OpenAI YouTube"
+    assert created_payload["base_url"] == "https://www.youtube.com/@OpenAI"
+    assert created_payload["is_active"] is True
+    assert created_payload["metadata"] == {"kind": "channel", "priority": 1}
+
+    list_response = admin_client.get("/admin/sources")
+
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert len(list_payload["sources"]) == 1
+    assert list_payload["sources"][0]["id"] == source_id
+
+    update_response = admin_client.patch(
+        f"/admin/sources/{source_id}",
+        json={
+            "slug": "OpenAI-Library",
+            "track": "shared",
+            "display_name": "OpenAI Library",
+            "base_url": None,
+            "is_active": False,
+            "metadata": {"kind": "archive", "priority": 2},
+        },
+    )
+
+    assert update_response.status_code == 200
+    updated_payload = update_response.json()
+    assert updated_payload["slug"] == "openai-library"
+    assert updated_payload["track"] == "shared"
+    assert updated_payload["display_name"] == "OpenAI Library"
+    assert updated_payload["base_url"] is None
+    assert updated_payload["is_active"] is False
+    assert updated_payload["metadata"] == {"kind": "archive", "priority": 2}
+
+    source_row = database.fetchrow(
+        """
+        SELECT slug, track, display_name, base_url, is_active, metadata
+        FROM content_sources
+        WHERE id = $1::uuid
+        """,
+        source_id,
+    )
+    assert source_row is not None
+    assert str(source_row["slug"]) == "openai-library"
+    assert str(source_row["track"]) == "shared"
+    assert str(source_row["display_name"]) == "OpenAI Library"
+    assert source_row["base_url"] is None
+    assert bool(source_row["is_active"]) is False
+    raw_metadata = source_row["metadata"]
+    stored_metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else dict(raw_metadata)
+    assert stored_metadata == {"kind": "archive", "priority": 2}
+
+    delete_response = admin_client.delete(f"/admin/sources/{source_id}")
+
+    assert delete_response.status_code == 204
+    remaining = database.fetchval("SELECT COUNT(*) FROM content_sources")
+    assert int(remaining or 0) == 0
+
+
+def test_admin_sources_reject_duplicate_slug_and_missing_source(
+    admin_client: TestClient,
+) -> None:
+    first_response = admin_client.post(
+        "/admin/sources",
+        json={
+            "slug": "docs-feed",
+            "track": "knowledge",
+            "display_name": "Docs Feed",
+            "metadata": {"kind": "docs"},
+        },
+    )
+
+    assert first_response.status_code == 201
+
+    duplicate_response = admin_client.post(
+        "/admin/sources",
+        json={
+            "slug": "DOCS-FEED",
+            "track": "knowledge",
+            "display_name": "Duplicate Docs Feed",
+            "metadata": {"kind": "docs"},
+        },
+    )
+
+    assert duplicate_response.status_code == 400
+    assert duplicate_response.json()["detail"] == "Content source slug already exists."
+
+    missing_response = admin_client.patch(
+        "/admin/sources/00000000-0000-0000-0000-000000000123",
+        json={"display_name": "Missing source"},
+    )
+
+    assert missing_response.status_code == 404
+    assert missing_response.json()["detail"] == "Content source not found."
 
 
 def test_admin_worker_live_includes_retrying_jobs_and_steps(
@@ -1690,6 +1812,7 @@ def test_admin_target_delete_rejects_invalid_uuid(
         "/admin/requests/summary",
         "/admin/content/summary",
         "/admin/ingestion/summary",
+        "/admin/sources",
         "/admin/targets",
     ],
 )

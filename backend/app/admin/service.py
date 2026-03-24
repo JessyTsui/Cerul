@@ -5,6 +5,8 @@ from datetime import UTC, date, datetime, time, timedelta
 import json
 from typing import Any
 
+import asyncpg
+
 from .models import (
     AdminActiveUser,
     AdminContentSummaryResponse,
@@ -27,9 +29,11 @@ from .models import (
     AdminRecentUser,
     AdminRequestsMetrics,
     AdminRequestsSummaryResponse,
+    AdminSource,
     AdminSourceFreshness,
     AdminSourceGrowth,
     AdminSourceHealth,
+    AdminSourcesResponse,
     AdminSummaryPoint,
     AdminSummaryResponse,
     AdminTargetsResponse,
@@ -41,6 +45,8 @@ from .models import (
     AdminWorkerLiveResponse,
     AdminWorkerQueueCounts,
     AdminWorkerStep,
+    CreateSourceRequest,
+    UpdateSourceRequest,
 )
 
 ALLOWED_TARGET_METRICS = {
@@ -179,6 +185,206 @@ def _job_duration_ms(
 def _not_cancelled_job_condition(alias: str | None = None) -> str:
     prefix = f"{alias}." if alias else ""
     return f"COALESCE(({prefix}input_payload->>'cancelled_by_user')::boolean, FALSE) = FALSE"
+
+
+def _normalize_source_slug(value: str) -> str:
+    slug = str(value).strip().lower()
+    if not slug:
+        raise ValueError("Content source slug is required.")
+    return slug
+
+
+def _normalize_source_track(value: str) -> str:
+    track = str(value).strip().lower()
+    if track not in {"broll", "knowledge", "shared"}:
+        raise ValueError("Content source track must be one of: broll, knowledge, shared.")
+    return track
+
+
+def _normalize_source_display_name(value: str) -> str:
+    display_name = str(value).strip()
+    if not display_name:
+        raise ValueError("Content source display_name is required.")
+    return display_name
+
+
+def _normalize_source_base_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _serialize_admin_source(row: Any) -> AdminSource:
+    raw_metadata = _coerce_json_value(row.get("metadata"))
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+
+    return AdminSource(
+        id=str(row["id"]),
+        slug=str(row["slug"]),
+        track=str(row["track"]),
+        display_name=str(row["display_name"]),
+        base_url=str(row["base_url"]) if row.get("base_url") else None,
+        is_active=bool(row["is_active"]),
+        metadata=metadata,
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+async def fetch_sources(db: Any) -> AdminSourcesResponse:
+    rows = await db.fetch(
+        """
+        SELECT
+            id::text AS id,
+            slug,
+            track,
+            display_name,
+            base_url,
+            is_active,
+            metadata,
+            created_at,
+            updated_at
+        FROM content_sources
+        ORDER BY display_name ASC, slug ASC
+        """
+    )
+
+    return AdminSourcesResponse(
+        generated_at=_utc_now(),
+        sources=[_serialize_admin_source(row) for row in rows],
+    )
+
+
+async def create_source(
+    db: Any,
+    *,
+    payload: CreateSourceRequest,
+) -> AdminSource:
+    try:
+        row = await db.fetchrow(
+            """
+            INSERT INTO content_sources (
+                slug,
+                track,
+                display_name,
+                base_url,
+                is_active,
+                metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            RETURNING
+                id::text AS id,
+                slug,
+                track,
+                display_name,
+                base_url,
+                is_active,
+                metadata,
+                created_at,
+                updated_at
+            """,
+            _normalize_source_slug(payload.slug),
+            _normalize_source_track(payload.track),
+            _normalize_source_display_name(payload.display_name),
+            _normalize_source_base_url(payload.base_url),
+            payload.is_active,
+            json.dumps(payload.metadata),
+        )
+    except asyncpg.UniqueViolationError as exc:
+        raise ValueError("Content source slug already exists.") from exc
+
+    if row is None:
+        raise ValueError("Unable to create content source.")
+
+    return _serialize_admin_source(row)
+
+
+async def update_source(
+    db: Any,
+    *,
+    source_id: str,
+    payload: UpdateSourceRequest,
+) -> AdminSource | None:
+    if not payload.model_fields_set:
+        raise ValueError("At least one field must be provided.")
+
+    assignments: list[str] = []
+    params: list[Any] = []
+
+    if "slug" in payload.model_fields_set:
+        params.append(_normalize_source_slug(payload.slug or ""))
+        assignments.append(f"slug = ${len(params)}")
+
+    if "track" in payload.model_fields_set:
+        params.append(_normalize_source_track(payload.track or ""))
+        assignments.append(f"track = ${len(params)}")
+
+    if "display_name" in payload.model_fields_set:
+        params.append(_normalize_source_display_name(payload.display_name or ""))
+        assignments.append(f"display_name = ${len(params)}")
+
+    if "base_url" in payload.model_fields_set:
+        params.append(_normalize_source_base_url(payload.base_url))
+        assignments.append(f"base_url = ${len(params)}")
+
+    if "is_active" in payload.model_fields_set:
+        params.append(payload.is_active)
+        assignments.append(f"is_active = ${len(params)}")
+
+    if "metadata" in payload.model_fields_set:
+        metadata = payload.metadata if payload.metadata is not None else {}
+        params.append(json.dumps(metadata))
+        assignments.append(f"metadata = ${len(params)}::jsonb")
+
+    if not assignments:
+        raise ValueError("At least one field must be provided.")
+
+    params.append(source_id)
+
+    try:
+        row = await db.fetchrow(
+            f"""
+            UPDATE content_sources
+            SET {", ".join(assignments)},
+                updated_at = NOW()
+            WHERE id = ${len(params)}::uuid
+            RETURNING
+                id::text AS id,
+                slug,
+                track,
+                display_name,
+                base_url,
+                is_active,
+                metadata,
+                created_at,
+                updated_at
+            """,
+            *params,
+        )
+    except asyncpg.UniqueViolationError as exc:
+        raise ValueError("Content source slug already exists.") from exc
+
+    if row is None:
+        return None
+
+    return _serialize_admin_source(row)
+
+
+async def delete_source(
+    db: Any,
+    *,
+    source_id: str,
+) -> bool:
+    row = await db.fetchrow(
+        """
+        DELETE FROM content_sources
+        WHERE id = $1::uuid
+        RETURNING id
+        """,
+        source_id,
+    )
+    return row is not None
 
 
 async def retry_job(db: Any, job_id: str) -> dict[str, Any] | None:
