@@ -440,13 +440,15 @@ export function AdminSourcesScreen() {
           <button
             className="button-secondary"
             onClick={() => {
-              void loadSources();
-              void loadAnalytics(analyticsRange);
-              void loadRecentVideos();
+              setVideoUrl("");
+              setVideoSubmitResult(null);
+              setVideoSubmitError(null);
+              setVideoJobs([]);
+              setShowSubmitVideoModal(true);
             }}
             type="button"
           >
-            Refresh
+            Submit video
           </button>
           <button
             className="button-secondary"
@@ -459,19 +461,6 @@ export function AdminSourcesScreen() {
             type="button"
           >
             Search YouTube
-          </button>
-          <button
-            className="button-secondary"
-            onClick={() => {
-              setVideoUrl("");
-              setVideoSubmitResult(null);
-              setVideoSubmitError(null);
-              setVideoJobs([]);
-              setShowSubmitVideoModal(true);
-            }}
-            type="button"
-          >
-            Submit video
           </button>
           <button
             className="button-primary"
