@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { admin, type AdminSource, type CreateSourceInput } from "@/lib/admin-api";
+import {
+  admin,
+  type AdminSource,
+  type AdminSourceAnalytics,
+  type AdminSourceRecentVideosEntry,
+  type CreateSourceInput,
+  type SourceAnalyticsRange,
+} from "@/lib/admin-api";
 import { getApiErrorMessage } from "@/lib/api";
 import { AdminLayout } from "./admin-layout";
 
@@ -24,6 +31,14 @@ const emptyForm: FormState = {
   description: "",
   thumbnailUrl: "",
 };
+
+const RANGE_OPTIONS: { key: SourceAnalyticsRange; label: string }[] = [
+  { key: "24h", label: "24h" },
+  { key: "3d", label: "3d" },
+  { key: "7d", label: "7d" },
+  { key: "15d", label: "15d" },
+  { key: "30d", label: "30d" },
+];
 
 function slugify(name: string): string {
   return name
@@ -53,13 +68,42 @@ function formatCount(n: number | null): string {
   return String(n);
 }
 
-function ChannelAvatar({ url, name }: { url: string; name: string }) {
+function formatDuration(seconds: number | null): string {
+  if (seconds == null) return "—";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function DeltaBadge({ current, previous }: { current: number; previous: number }) {
+  const delta = current - previous;
+  if (delta === 0 && current === 0) return null;
+  const sign = delta > 0 ? "+" : "";
+  const color =
+    delta > 0
+      ? "text-emerald-400"
+      : delta < 0
+        ? "text-red-400"
+        : "text-[var(--foreground-tertiary)]";
+  return (
+    <span className={`ml-1 text-[10px] ${color}`}>
+      {sign}
+      {delta}
+    </span>
+  );
+}
+
+function ChannelAvatar({ url, name, size = 12 }: { url: string; name: string; size?: number }) {
   const [failed, setFailed] = useState(false);
   const letter = name.charAt(0).toUpperCase();
+  const sizeClass = size === 12 ? "h-12 w-12" : "h-10 w-10";
+  const textSize = size === 12 ? "text-base" : "text-sm";
 
   if (!url || failed) {
     return (
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.06)] text-base font-semibold text-[var(--foreground-tertiary)]">
+      <div className={`flex ${sizeClass} shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.06)] ${textSize} font-semibold text-[var(--foreground-tertiary)]`}>
         {letter}
       </div>
     );
@@ -70,10 +114,42 @@ function ChannelAvatar({ url, name }: { url: string; name: string }) {
     <img
       src={url}
       alt={name}
-      className="h-12 w-12 shrink-0 rounded-full border border-[var(--border)] object-cover"
+      className={`${sizeClass} shrink-0 rounded-full border border-[var(--border)] object-cover`}
       onError={() => setFailed(true)}
     />
   );
+}
+
+/**
+ * Extract YouTube channel ID from various URL formats.
+ * Supports: /channel/UC..., /@handle, /c/name, /user/name
+ */
+function extractChannelInfo(input: string): { type: "id" | "url"; value: string } | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // Already a channel ID (starts with UC and ~24 chars)
+  if (/^UC[\w-]{20,}$/.test(trimmed)) {
+    return { type: "id", value: trimmed };
+  }
+
+  try {
+    const url = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+    if (!url.hostname.includes("youtube.com")) return null;
+
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts[0] === "channel" && parts[1]) {
+      return { type: "id", value: parts[1] };
+    }
+    // For @handle, /c/name, /user/name — return the URL for display
+    if (parts[0]?.startsWith("@") || parts[0] === "c" || parts[0] === "user") {
+      return { type: "url", value: trimmed };
+    }
+  } catch {
+    // not a URL
+  }
+
+  return null;
 }
 
 export function AdminSourcesScreen() {
@@ -86,7 +162,22 @@ export function AdminSourcesScreen() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteSource, setConfirmDeleteSource] = useState<AdminSource | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Quick-add by URL
+  const [quickAddUrl, setQuickAddUrl] = useState("");
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
+
+  // Analytics
+  const [analyticsRange, setAnalyticsRange] = useState<SourceAnalyticsRange>("7d");
+  const [analyticsData, setAnalyticsData] = useState<AdminSourceAnalytics[]>([]);
+
+  // Recent videos
+  const [recentVideos, setRecentVideos] = useState<AdminSourceRecentVideosEntry[]>([]);
+
+  // Expanded cards
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const loadSources = useCallback(async () => {
     try {
@@ -101,9 +192,32 @@ export function AdminSourcesScreen() {
     }
   }, []);
 
+  const loadAnalytics = useCallback(async (range: SourceAnalyticsRange) => {
+    try {
+      const response = await admin.getSourcesAnalytics(range);
+      setAnalyticsData(response.sources);
+    } catch {
+      // silent fail for analytics
+    }
+  }, []);
+
+  const loadRecentVideos = useCallback(async () => {
+    try {
+      const response = await admin.getSourcesRecentVideos(3);
+      setRecentVideos(response.sources);
+    } catch {
+      // silent fail
+    }
+  }, []);
+
   useEffect(() => {
     void loadSources();
-  }, [loadSources]);
+    void loadRecentVideos();
+  }, [loadSources, loadRecentVideos]);
+
+  useEffect(() => {
+    void loadAnalytics(analyticsRange);
+  }, [analyticsRange, loadAnalytics]);
 
   function openCreateForm() {
     setForm(emptyForm);
@@ -199,6 +313,32 @@ export function AdminSourcesScreen() {
     }
   }
 
+  async function handleQuickAdd() {
+    const info = extractChannelInfo(quickAddUrl);
+    if (!info) {
+      setQuickAddError(
+        "Please enter a valid YouTube channel URL or channel ID (e.g. https://www.youtube.com/channel/UC... or https://www.youtube.com/@handle)",
+      );
+      return;
+    }
+
+    if (info.type === "url") {
+      setQuickAddError(
+        "Please use the channel ID format (UC...). You can find it in the channel's URL under /channel/UC...",
+      );
+      return;
+    }
+
+    setQuickAddError(null);
+    setForm({
+      ...emptyForm,
+      channelId: info.value,
+    });
+    setEditingId(null);
+    setShowForm(true);
+    setQuickAddUrl("");
+  }
+
   async function handleToggleActive(source: AdminSource) {
     setTogglingId(source.id);
     try {
@@ -215,12 +355,21 @@ export function AdminSourcesScreen() {
     setDeletingId(source.id);
     try {
       await admin.deleteSource(source.id);
+      setConfirmDeleteSource(null);
       await loadSources();
     } catch (err) {
       setActionError(getApiErrorMessage(err, "Failed to delete source."));
     } finally {
       setDeletingId(null);
     }
+  }
+
+  function getAnalyticsForSource(sourceId: string): AdminSourceAnalytics | null {
+    return analyticsData.find((a) => a.sourceId === sourceId) ?? null;
+  }
+
+  function getRecentVideosForSource(sourceId: string): AdminSourceRecentVideosEntry | null {
+    return recentVideos.find((r) => r.sourceId === sourceId) ?? null;
   }
 
   const activeCount = sources.filter((s) => s.isActive).length;
@@ -239,7 +388,11 @@ export function AdminSourcesScreen() {
         <>
           <button
             className="button-secondary"
-            onClick={() => void loadSources()}
+            onClick={() => {
+              void loadSources();
+              void loadAnalytics(analyticsRange);
+              void loadRecentVideos();
+            }}
             type="button"
           >
             Refresh
@@ -255,6 +408,72 @@ export function AdminSourcesScreen() {
           {actionError}
         </div>
       ) : null}
+
+      {/* Delete confirmation modal */}
+      {confirmDeleteSource ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="surface-elevated mx-4 w-full max-w-md rounded-[24px] px-6 py-6">
+            <p className="text-lg font-semibold text-white">Delete source</p>
+            <p className="mt-2 text-sm text-[var(--foreground-secondary)]">
+              Are you sure you want to delete{" "}
+              <strong className="text-white">{confirmDeleteSource.displayName}</strong>?
+              This will stop all future video discovery from this channel.
+              Existing indexed videos will not be removed.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                className="rounded-[14px] border border-red-500/50 bg-red-500/20 px-4 py-2 text-sm text-red-200 transition hover:bg-red-500/30"
+                type="button"
+                disabled={deletingId === confirmDeleteSource.id}
+                onClick={() => void handleDelete(confirmDeleteSource)}
+              >
+                {deletingId === confirmDeleteSource.id ? "Deleting..." : "Delete"}
+              </button>
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={() => setConfirmDeleteSource(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Quick-add by URL */}
+      <section>
+        <article className="surface rounded-[28px] px-6 py-5">
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+            Quick add channel
+          </p>
+          <div className="mt-3 flex gap-3">
+            <input
+              type="text"
+              value={quickAddUrl}
+              onChange={(e) => {
+                setQuickAddUrl(e.target.value);
+                setQuickAddError(null);
+              }}
+              placeholder="Paste YouTube channel URL or channel ID..."
+              className="h-12 flex-1 rounded-[14px] border border-[var(--border)] bg-[var(--surface)] px-4 text-white outline-none transition focus:border-[var(--brand)]"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleQuickAdd();
+              }}
+            />
+            <button
+              className="button-primary shrink-0"
+              type="button"
+              onClick={() => void handleQuickAdd()}
+            >
+              Add
+            </button>
+          </div>
+          {quickAddError ? (
+            <p className="mt-2 text-xs text-red-300">{quickAddError}</p>
+          ) : null}
+        </article>
+      </section>
 
       {showForm ? (
         <section>
@@ -305,14 +524,12 @@ export function AdminSourcesScreen() {
                 />
               </label>
               <label className="space-y-2 text-sm text-[var(--foreground-secondary)] lg:col-span-2">
-                <span className={labelClassName}>
-                  Channel avatar URL
-                </span>
+                <span className={labelClassName}>Channel avatar URL</span>
                 <input
                   type="url"
                   value={form.thumbnailUrl}
                   onChange={(e) => updateField("thumbnailUrl", e.target.value)}
-                  placeholder="https://yt3.ggpht.com/..."
+                  placeholder="https://cdn.cerul.ai/avatars/channels/..."
                   className={inputClassName}
                 />
               </label>
@@ -343,12 +560,7 @@ export function AdminSourcesScreen() {
             {form.thumbnailUrl.trim() ? (
               <div className="mt-4 flex items-center gap-3">
                 <span className={labelClassName}>Preview</span>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={form.thumbnailUrl.trim()}
-                  alt="Channel avatar preview"
-                  className="h-10 w-10 rounded-full border border-[var(--border)] object-cover"
-                />
+                <ChannelAvatar url={form.thumbnailUrl.trim()} name={form.displayName || "?"} size={10} />
               </div>
             ) : null}
 
@@ -361,11 +573,7 @@ export function AdminSourcesScreen() {
               >
                 {isSaving ? "Saving..." : editingId ? "Update" : "Create"}
               </button>
-              <button
-                className="button-secondary"
-                type="button"
-                onClick={closeForm}
-              >
+              <button className="button-secondary" type="button" onClick={closeForm}>
                 Cancel
               </button>
             </div>
@@ -379,7 +587,24 @@ export function AdminSourcesScreen() {
             <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
               Content sources
             </p>
-            <div className="flex gap-3">
+            <div className="flex items-center gap-3">
+              {/* Range selector */}
+              <div className="flex rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.02)]">
+                {RANGE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setAnalyticsRange(opt.key)}
+                    className={`px-3 py-1 text-xs transition ${
+                      analyticsRange === opt.key
+                        ? "bg-[var(--brand)] text-black rounded-full font-medium"
+                        : "text-[var(--foreground-tertiary)] hover:text-white"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
               <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.04)] px-3 py-1 text-xs text-[var(--foreground-secondary)]">
                 {sources.length} total
               </span>
@@ -404,7 +629,7 @@ export function AdminSourcesScreen() {
               </p>
             </div>
           ) : (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-4 space-y-3">
               {sources.map((source) => {
                 const channelId =
                   typeof source.config.channel_id === "string"
@@ -422,17 +647,21 @@ export function AdminSourcesScreen() {
                 const keywords = Array.isArray(source.metadata.keywords)
                   ? (source.metadata.keywords as string[])
                   : [];
+                const analytics = getAnalyticsForSource(source.id);
+                const videos = getRecentVideosForSource(source.id);
+                const isExpanded = expandedId === source.id;
 
                 return (
                   <div
                     key={source.id}
-                    className="group relative rounded-[20px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-5 transition hover:border-[var(--foreground-tertiary)]"
+                    className="rounded-[20px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] transition hover:border-[var(--foreground-tertiary)]"
                   >
-                    <div className="flex items-start gap-4">
-                      <ChannelAvatar
-                        url={thumbnailUrl}
-                        name={source.displayName}
-                      />
+                    {/* Main row — always visible */}
+                    <div
+                      className="flex cursor-pointer items-center gap-4 p-5"
+                      onClick={() => setExpandedId(isExpanded ? null : source.id)}
+                    >
+                      <ChannelAvatar url={thumbnailUrl} name={source.displayName} />
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -451,117 +680,231 @@ export function AdminSourcesScreen() {
                         </div>
                         <p className="mt-0.5 text-xs text-[var(--foreground-tertiary)]">
                           {source.slug}
+                          {description ? ` · ${description.slice(0, 80)}${description.length > 80 ? "..." : ""}` : ""}
                         </p>
                       </div>
-                    </div>
 
-                    {description ? (
-                      <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-[var(--foreground-secondary)]">
-                        {description}
-                      </p>
-                    ) : null}
-
-                    {keywords.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {keywords.slice(0, 6).map((kw) => (
-                          <span
-                            key={kw}
-                            className="rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-[10px] text-[var(--foreground-tertiary)]"
-                          >
-                            {kw}
-                          </span>
-                        ))}
-                        {keywords.length > 6 ? (
-                          <span className="px-1 py-0.5 text-[10px] text-[var(--foreground-tertiary)]">
-                            +{keywords.length - 6}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
-
-                    {(subscriberCount != null || videoCount != null || viewCount != null) ? (
-                      <div className="mt-3 flex gap-4 text-xs">
+                      {/* Stats summary */}
+                      <div className="hidden gap-6 text-xs sm:flex">
                         {subscriberCount != null ? (
-                          <div>
+                          <div className="text-center">
                             <span className="font-semibold text-white">{formatCount(subscriberCount)}</span>
                             <span className="ml-1 text-[var(--foreground-tertiary)]">subs</span>
                           </div>
                         ) : null}
-                        {videoCount != null ? (
-                          <div>
-                            <span className="font-semibold text-white">{formatCount(videoCount)}</span>
-                            <span className="ml-1 text-[var(--foreground-tertiary)]">videos</span>
-                          </div>
-                        ) : null}
-                        {viewCount != null ? (
-                          <div>
-                            <span className="font-semibold text-white">{formatCount(viewCount)}</span>
-                            <span className="ml-1 text-[var(--foreground-tertiary)]">views</span>
-                          </div>
+                        {analytics ? (
+                          <>
+                            <div className="text-center">
+                              <span className="font-semibold text-white">{analytics.jobsCompleted}</span>
+                              <DeltaBadge current={analytics.jobsCompleted} previous={analytics.prevJobsCompleted} />
+                              <span className="ml-1 text-[var(--foreground-tertiary)]">indexed</span>
+                            </div>
+                            {analytics.jobsFailed > 0 ? (
+                              <div className="text-center">
+                                <span className="font-semibold text-red-300">{analytics.jobsFailed}</span>
+                                <span className="ml-1 text-[var(--foreground-tertiary)]">failed</span>
+                              </div>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
-                    ) : null}
 
-                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--foreground-tertiary)]">
-                      {channelId ? (
-                        <a
-                          href={getChannelUrl(channelId)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 transition hover:text-[var(--brand)]"
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            className="h-3.5 w-3.5"
-                            aria-hidden="true"
+                      {/* Actions */}
+                      <div className="flex shrink-0 gap-2" onClick={(e) => e.stopPropagation()}>
+                        {channelId ? (
+                          <a
+                            href={getChannelUrl(channelId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground-secondary)] transition hover:border-[var(--brand)] hover:text-white"
                           >
-                            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814Z" />
-                            <path d="m9.545 15.568 6.273-3.568-6.273-3.568v7.136Z" fill="var(--surface)" />
-                          </svg>
-                          YouTube
-                        </a>
-                      ) : null}
-                      {maxResults != null ? (
-                        <span>Max {maxResults}/sync</span>
-                      ) : null}
-                      <span>
-                        Synced{" "}
-                        {source.syncCursor
-                          ? new Date(source.syncCursor).toLocaleDateString()
-                          : "never"}
+                            YouTube
+                          </a>
+                        ) : null}
+                        <button
+                          className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground-secondary)] transition hover:border-[var(--brand)] hover:text-white"
+                          onClick={() => openEditForm(source)}
+                          type="button"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground-secondary)] transition hover:border-amber-500 hover:text-amber-300"
+                          disabled={togglingId === source.id}
+                          onClick={() => void handleToggleActive(source)}
+                          type="button"
+                        >
+                          {togglingId === source.id
+                            ? "..."
+                            : source.isActive
+                              ? "Pause"
+                              : "Resume"}
+                        </button>
+                        <button
+                          className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground-secondary)] transition hover:border-red-500 hover:text-red-300"
+                          onClick={() => setConfirmDeleteSource(source)}
+                          type="button"
+                        >
+                          Delete
+                        </button>
+                      </div>
+
+                      {/* Expand indicator */}
+                      <span className="text-xs text-[var(--foreground-tertiary)]">
+                        {isExpanded ? "▲" : "▼"}
                       </span>
                     </div>
 
-                    <div className="mt-4 flex gap-2 border-t border-[var(--border)] pt-3">
-                      <button
-                        className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground-secondary)] transition hover:border-[var(--brand)] hover:text-white"
-                        onClick={() => openEditForm(source)}
-                        type="button"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground-secondary)] transition hover:border-amber-500 hover:text-amber-300"
-                        disabled={togglingId === source.id}
-                        onClick={() => void handleToggleActive(source)}
-                        type="button"
-                      >
-                        {togglingId === source.id
-                          ? "..."
-                          : source.isActive
-                            ? "Pause"
-                            : "Resume"}
-                      </button>
-                      <button
-                        className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground-secondary)] transition hover:border-red-500 hover:text-red-300"
-                        disabled={deletingId === source.id}
-                        onClick={() => void handleDelete(source)}
-                        type="button"
-                      >
-                        {deletingId === source.id ? "..." : "Delete"}
-                      </button>
-                    </div>
+                    {/* Expanded detail section */}
+                    {isExpanded ? (
+                      <div className="border-t border-[var(--border)] px-5 pb-5 pt-4">
+                        <div className="grid gap-6 lg:grid-cols-2">
+                          {/* Left: channel info + keywords */}
+                          <div className="space-y-4">
+                            {/* Channel stats */}
+                            <div className="flex flex-wrap gap-4 text-xs">
+                              {subscriberCount != null ? (
+                                <div>
+                                  <span className="font-semibold text-white">{formatCount(subscriberCount)}</span>
+                                  <span className="ml-1 text-[var(--foreground-tertiary)]">subscribers</span>
+                                </div>
+                              ) : null}
+                              {videoCount != null ? (
+                                <div>
+                                  <span className="font-semibold text-white">{formatCount(videoCount)}</span>
+                                  <span className="ml-1 text-[var(--foreground-tertiary)]">videos</span>
+                                </div>
+                              ) : null}
+                              {viewCount != null ? (
+                                <div>
+                                  <span className="font-semibold text-white">{formatCount(viewCount)}</span>
+                                  <span className="ml-1 text-[var(--foreground-tertiary)]">total views</span>
+                                </div>
+                              ) : null}
+                              {maxResults != null ? (
+                                <div>
+                                  <span className="font-semibold text-white">{maxResults}</span>
+                                  <span className="ml-1 text-[var(--foreground-tertiary)]">max/sync</span>
+                                </div>
+                              ) : null}
+                              <div>
+                                <span className="text-[var(--foreground-tertiary)]">
+                                  Synced{" "}
+                                  {source.syncCursor
+                                    ? new Date(source.syncCursor).toLocaleDateString()
+                                    : "never"}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Analytics for selected range */}
+                            {analytics ? (
+                              <div>
+                                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+                                  Activity ({analyticsRange})
+                                </p>
+                                <div className="mt-2 flex gap-6 text-xs">
+                                  <div>
+                                    <span className="font-semibold text-white">{analytics.jobsCreated}</span>
+                                    <DeltaBadge current={analytics.jobsCreated} previous={analytics.prevJobsCreated} />
+                                    <span className="ml-1 text-[var(--foreground-tertiary)]">discovered</span>
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold text-white">{analytics.jobsCompleted}</span>
+                                    <DeltaBadge current={analytics.jobsCompleted} previous={analytics.prevJobsCompleted} />
+                                    <span className="ml-1 text-[var(--foreground-tertiary)]">completed</span>
+                                  </div>
+                                  <div>
+                                    <span className={`font-semibold ${analytics.jobsFailed > 0 ? "text-red-300" : "text-white"}`}>
+                                      {analytics.jobsFailed}
+                                    </span>
+                                    <DeltaBadge current={analytics.jobsFailed} previous={analytics.prevJobsFailed} />
+                                    <span className="ml-1 text-[var(--foreground-tertiary)]">failed</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {/* Keywords */}
+                            {keywords.length > 0 ? (
+                              <div>
+                                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+                                  Keywords
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {keywords.slice(0, 10).map((kw) => (
+                                    <span
+                                      key={kw}
+                                      className="rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-[10px] text-[var(--foreground-tertiary)]"
+                                    >
+                                      {kw}
+                                    </span>
+                                  ))}
+                                  {keywords.length > 10 ? (
+                                    <span className="px-1 py-0.5 text-[10px] text-[var(--foreground-tertiary)]">
+                                      +{keywords.length - 10}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {/* Right: recent videos */}
+                          <div>
+                            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+                              Recent videos
+                            </p>
+                            {videos && videos.videos.length > 0 ? (
+                              <div className="mt-2 space-y-2">
+                                {videos.videos.map((video) => (
+                                  <a
+                                    key={video.videoId}
+                                    href={`https://www.youtube.com/watch?v=${video.videoId}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex gap-3 rounded-[12px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-2 transition hover:border-[var(--foreground-tertiary)]"
+                                  >
+                                    {video.thumbnailUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={video.thumbnailUrl}
+                                        alt=""
+                                        className="h-16 w-28 shrink-0 rounded-[8px] object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-16 w-28 shrink-0 items-center justify-center rounded-[8px] bg-[rgba(255,255,255,0.06)]">
+                                        <span className="text-xs text-[var(--foreground-tertiary)]">No thumb</span>
+                                      </div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                      <p className="line-clamp-2 text-sm leading-tight text-white">
+                                        {video.title}
+                                      </p>
+                                      <div className="mt-1 flex gap-3 text-[10px] text-[var(--foreground-tertiary)]">
+                                        {video.viewCount != null ? (
+                                          <span>{formatCount(video.viewCount)} views</span>
+                                        ) : null}
+                                        {video.durationSeconds != null ? (
+                                          <span>{formatDuration(video.durationSeconds)}</span>
+                                        ) : null}
+                                        {video.publishedAt ? (
+                                          <span>{new Date(video.publishedAt).toLocaleDateString()}</span>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </a>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-xs text-[var(--foreground-tertiary)]">
+                                No videos indexed yet.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}

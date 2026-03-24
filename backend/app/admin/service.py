@@ -30,9 +30,14 @@ from .models import (
     AdminRequestsMetrics,
     AdminRequestsSummaryResponse,
     AdminSource,
+    AdminSourceAnalytics,
     AdminSourceFreshness,
     AdminSourceGrowth,
     AdminSourceHealth,
+    AdminSourceRecentVideo,
+    AdminSourceRecentVideosEntry,
+    AdminSourcesAnalyticsResponse,
+    AdminSourcesRecentVideosResponse,
     AdminSourcesResponse,
     AdminSummaryPoint,
     AdminSummaryResponse,
@@ -2605,4 +2610,163 @@ async def fetch_worker_live(
         failed_jobs_total=failed_jobs_total,
         failed_jobs_limit=failed_limit,
         failed_jobs_offset=failed_offset,
+    )
+
+
+def _resolve_source_analytics_window(range_key: str) -> TimeWindow:
+    """Like resolve_time_window but supports 24h, 3d, 7d, 15d, 30d."""
+    now = _utc_now()
+    today_start = datetime.combine(now.date(), time.min, tzinfo=UTC)
+    days_map = {"24h": 1, "3d": 3, "7d": 7, "15d": 15, "30d": 30}
+    days = days_map.get(range_key, 7)
+    current_start = today_start - timedelta(days=days - 1)
+    current_end = now
+    duration = current_end - current_start
+    previous_end = current_start
+    previous_start = previous_end - duration
+    return TimeWindow(
+        range_key=range_key,
+        current_start=current_start,
+        current_end=current_end,
+        previous_start=previous_start,
+        previous_end=previous_end,
+    )
+
+
+async def fetch_sources_analytics(
+    db: Any,
+    *,
+    range_key: str = "7d",
+) -> AdminSourcesAnalyticsResponse:
+    window = _resolve_source_analytics_window(range_key)
+    not_cancelled = _not_cancelled_job_condition("pj")
+
+    rows = await db.fetch(
+        f"""
+        SELECT
+            cs.id::text AS source_id,
+            cs.slug,
+            cs.display_name,
+            COUNT(pj.id) FILTER (
+                WHERE pj.created_at >= $1 AND pj.created_at < $2
+            ) AS jobs_created,
+            COUNT(pj.id) FILTER (
+                WHERE pj.status = 'completed'
+                  AND pj.updated_at >= $1 AND pj.updated_at < $2
+            ) AS jobs_completed,
+            COUNT(pj.id) FILTER (
+                WHERE pj.status = 'failed'
+                  AND {not_cancelled}
+                  AND pj.updated_at >= $1 AND pj.updated_at < $2
+            ) AS jobs_failed,
+            COUNT(pj.id) FILTER (
+                WHERE pj.created_at >= $3 AND pj.created_at < $4
+            ) AS prev_jobs_created,
+            COUNT(pj.id) FILTER (
+                WHERE pj.status = 'completed'
+                  AND pj.updated_at >= $3 AND pj.updated_at < $4
+            ) AS prev_jobs_completed,
+            COUNT(pj.id) FILTER (
+                WHERE pj.status = 'failed'
+                  AND {not_cancelled}
+                  AND pj.updated_at >= $3 AND pj.updated_at < $4
+            ) AS prev_jobs_failed
+        FROM content_sources AS cs
+        LEFT JOIN processing_jobs AS pj ON pj.source_id = cs.id
+        WHERE cs.is_active = TRUE
+        GROUP BY cs.id, cs.slug, cs.display_name
+        ORDER BY cs.display_name
+        """,
+        window.current_start,
+        window.current_end,
+        window.previous_start,
+        window.previous_end,
+    )
+
+    sources = [
+        AdminSourceAnalytics(
+            source_id=str(row["source_id"]),
+            slug=str(row["slug"]),
+            display_name=str(row["display_name"]),
+            jobs_created=int(row["jobs_created"]),
+            jobs_completed=int(row["jobs_completed"]),
+            jobs_failed=int(row["jobs_failed"]),
+            prev_jobs_created=int(row["prev_jobs_created"]),
+            prev_jobs_completed=int(row["prev_jobs_completed"]),
+            prev_jobs_failed=int(row["prev_jobs_failed"]),
+        )
+        for row in rows
+    ]
+
+    return AdminSourcesAnalyticsResponse(
+        generated_at=_utc_now(),
+        range_key=window.range_key,
+        current_start=window.current_start,
+        current_end=window.current_end,
+        sources=sources,
+    )
+
+
+async def fetch_sources_recent_videos(
+    db: Any,
+    *,
+    limit: int = 3,
+) -> AdminSourcesRecentVideosResponse:
+    rows = await db.fetch(
+        """
+        WITH ranked AS (
+            SELECT
+                pj.source_id,
+                cs.slug,
+                pj.input_payload->>'source_item_id' AS video_id,
+                COALESCE(
+                    pj.input_payload->'item'->>'title',
+                    pj.input_payload->>'title',
+                    ''
+                ) AS title,
+                pj.input_payload->'item'->>'thumbnail_url' AS thumbnail_url,
+                pj.input_payload->'item'->>'view_count' AS view_count,
+                pj.input_payload->'item'->>'duration_seconds' AS duration_seconds,
+                pj.input_payload->'item'->>'published_at' AS published_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pj.source_id
+                    ORDER BY pj.created_at DESC
+                ) AS rn
+            FROM processing_jobs AS pj
+            JOIN content_sources AS cs ON cs.id = pj.source_id
+            WHERE cs.is_active = TRUE
+              AND cs.source_type = 'youtube'
+        )
+        SELECT * FROM ranked WHERE rn <= $1
+        ORDER BY slug, rn
+        """,
+        limit,
+    )
+
+    sources_map: dict[str, AdminSourceRecentVideosEntry] = {}
+    for row in rows:
+        sid = str(row["source_id"])
+        if sid not in sources_map:
+            sources_map[sid] = AdminSourceRecentVideosEntry(
+                source_id=sid,
+                slug=str(row["slug"]),
+            )
+
+        view_count_raw = row["view_count"]
+        duration_raw = row["duration_seconds"]
+
+        sources_map[sid].videos.append(
+            AdminSourceRecentVideo(
+                video_id=str(row["video_id"] or ""),
+                title=str(row["title"] or ""),
+                thumbnail_url=row["thumbnail_url"],
+                view_count=int(view_count_raw) if view_count_raw is not None else None,
+                duration_seconds=int(float(duration_raw)) if duration_raw is not None else None,
+                published_at=row["published_at"],
+            )
+        )
+
+    return AdminSourcesRecentVideosResponse(
+        generated_at=_utc_now(),
+        sources=list(sources_map.values()),
     )

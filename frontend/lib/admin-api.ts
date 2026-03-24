@@ -378,6 +378,48 @@ export type UpdateSourceInput = {
   syncCursor?: string | null;
 };
 
+export type SourceAnalyticsRange = "24h" | "3d" | "7d" | "15d" | "30d";
+
+export type AdminSourceAnalytics = {
+  sourceId: string;
+  slug: string;
+  displayName: string;
+  jobsCreated: number;
+  jobsCompleted: number;
+  jobsFailed: number;
+  prevJobsCreated: number;
+  prevJobsCompleted: number;
+  prevJobsFailed: number;
+};
+
+export type AdminSourcesAnalyticsResponse = {
+  generatedAt: string;
+  rangeKey: string;
+  currentStart: string;
+  currentEnd: string;
+  sources: AdminSourceAnalytics[];
+};
+
+export type AdminSourceRecentVideo = {
+  videoId: string;
+  title: string;
+  thumbnailUrl: string | null;
+  viewCount: number | null;
+  durationSeconds: number | null;
+  publishedAt: string | null;
+};
+
+export type AdminSourceRecentVideosEntry = {
+  sourceId: string;
+  slug: string;
+  videos: AdminSourceRecentVideo[];
+};
+
+export type AdminSourcesRecentVideosResponse = {
+  generatedAt: string;
+  sources: AdminSourceRecentVideosEntry[];
+};
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -1262,5 +1304,75 @@ export const admin = {
     await fetchWithAuth<null>(`/admin/sources/${sourceId}`, {
       method: "DELETE",
     });
+  },
+
+  async getSourcesAnalytics(
+    range: SourceAnalyticsRange = "7d",
+  ): Promise<AdminSourcesAnalyticsResponse> {
+    const payload = await fetchWithAuth<unknown>(
+      `/admin/sources/analytics?range=${range}`,
+      { method: "GET", cache: "no-store" },
+    );
+    const raw = ensureObject(payload, "Invalid sources analytics response.");
+    const sources = Array.isArray(raw.sources)
+      ? raw.sources.map((item) => {
+          const v = ensureObject(item, "Invalid source analytics payload.");
+          return {
+            sourceId: typeof v.source_id === "string" ? v.source_id : "",
+            slug: typeof v.slug === "string" ? v.slug : "",
+            displayName: typeof v.display_name === "string" ? v.display_name : "",
+            jobsCreated: isFiniteNumber(v.jobs_created) ? v.jobs_created : 0,
+            jobsCompleted: isFiniteNumber(v.jobs_completed) ? v.jobs_completed : 0,
+            jobsFailed: isFiniteNumber(v.jobs_failed) ? v.jobs_failed : 0,
+            prevJobsCreated: isFiniteNumber(v.prev_jobs_created) ? v.prev_jobs_created : 0,
+            prevJobsCompleted: isFiniteNumber(v.prev_jobs_completed) ? v.prev_jobs_completed : 0,
+            prevJobsFailed: isFiniteNumber(v.prev_jobs_failed) ? v.prev_jobs_failed : 0,
+          };
+        })
+      : [];
+    return {
+      generatedAt: typeof raw.generated_at === "string" ? raw.generated_at : "",
+      rangeKey: typeof raw.range_key === "string" ? raw.range_key : "",
+      currentStart: typeof raw.current_start === "string" ? raw.current_start : "",
+      currentEnd: typeof raw.current_end === "string" ? raw.current_end : "",
+      sources,
+    };
+  },
+
+  async getSourcesRecentVideos(
+    limit: number = 3,
+  ): Promise<AdminSourcesRecentVideosResponse> {
+    const payload = await fetchWithAuth<unknown>(
+      `/admin/sources/recent-videos?limit=${limit}`,
+      { method: "GET", cache: "no-store" },
+    );
+    const raw = ensureObject(payload, "Invalid sources recent videos response.");
+    const sources = Array.isArray(raw.sources)
+      ? raw.sources.map((entry) => {
+          const e = ensureObject(entry, "Invalid source recent videos entry.");
+          const videos = Array.isArray(e.videos)
+            ? e.videos.map((vid) => {
+                const v = ensureObject(vid, "Invalid recent video payload.");
+                return {
+                  videoId: typeof v.video_id === "string" ? v.video_id : "",
+                  title: typeof v.title === "string" ? v.title : "",
+                  thumbnailUrl: typeof v.thumbnail_url === "string" ? v.thumbnail_url : null,
+                  viewCount: isFiniteNumber(v.view_count) ? v.view_count : null,
+                  durationSeconds: isFiniteNumber(v.duration_seconds) ? v.duration_seconds : null,
+                  publishedAt: typeof v.published_at === "string" ? v.published_at : null,
+                };
+              })
+            : [];
+          return {
+            sourceId: typeof e.source_id === "string" ? e.source_id : "",
+            slug: typeof e.slug === "string" ? e.slug : "",
+            videos,
+          };
+        })
+      : [];
+    return {
+      generatedAt: typeof raw.generated_at === "string" ? raw.generated_at : "",
+      sources,
+    };
   },
 };

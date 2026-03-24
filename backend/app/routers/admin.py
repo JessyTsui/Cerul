@@ -11,6 +11,8 @@ from app.admin import (
     AdminDeleteVideoResponse,
     AdminIndexedVideosResponse,
     AdminSource,
+    AdminSourcesAnalyticsResponse,
+    AdminSourcesRecentVideosResponse,
     AdminSourcesResponse,
     AdminSummaryResponse,
     AdminTargetsResponse,
@@ -28,6 +30,8 @@ from app.admin import (
     fetch_indexed_videos,
     fetch_requests_summary,
     fetch_sources,
+    fetch_sources_analytics,
+    fetch_sources_recent_videos,
     fetch_targets_summary,
     fetch_users_summary,
     fetch_worker_live,
@@ -43,6 +47,7 @@ from app.admin.models import (
     AdminRangeKey,
     AdminRequestsSummaryResponse,
     AdminUsersSummaryResponse,
+    SourceAnalyticsRangeKey,
 )
 from app.auth import SessionContext, require_session
 from app.db import get_db
@@ -156,6 +161,26 @@ async def get_admin_sources(
 ) -> AdminSourcesResponse:
     await require_admin_access(session, db)
     return await fetch_sources(db)
+
+
+@router.get("/sources/analytics", response_model=AdminSourcesAnalyticsResponse)
+async def get_sources_analytics(
+    range_key: SourceAnalyticsRangeKey | None = Query(default="7d", alias="range"),
+    session: SessionContext = Depends(require_session),
+    db: Any = Depends(get_db),
+) -> AdminSourcesAnalyticsResponse:
+    await require_admin_access(session, db)
+    return await fetch_sources_analytics(db, range_key=range_key or "7d")
+
+
+@router.get("/sources/recent-videos", response_model=AdminSourcesRecentVideosResponse)
+async def get_sources_recent_videos(
+    limit: int = Query(default=3, ge=1, le=10),
+    session: SessionContext = Depends(require_session),
+    db: Any = Depends(get_db),
+) -> AdminSourcesRecentVideosResponse:
+    await require_admin_access(session, db)
+    return await fetch_sources_recent_videos(db, limit=limit)
 
 
 @router.post(
