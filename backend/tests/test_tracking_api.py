@@ -16,9 +16,36 @@ def _insert_tracking_link(database, short_id: str = "abc123xy") -> None:
             result_rank,
             unit_id,
             video_id,
-            target_url
+            target_url,
+            title,
+            thumbnail_url,
+            source,
+            speaker,
+            unit_type,
+            timestamp_start,
+            timestamp_end,
+            transcript,
+            visual_desc,
+            keyframe_url
         )
-        VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6)
+        VALUES (
+            $1,
+            $2,
+            $3,
+            $4::uuid,
+            $5::uuid,
+            $6,
+            'OpenAI Dev Day Keynote',
+            'https://img.youtube.com/vi/openai-devday/hqdefault.jpg',
+            'youtube',
+            'Sam Altman',
+            'speech',
+            120,
+            178.5,
+            'Agents can use reasoning models to plan and execute tasks more reliably.',
+            'Speaker on stage in front of a conference screen.',
+            'https://cdn.cerul.ai/frames/openai-devday/000.jpg'
+        )
         RETURNING short_id
         """,
         short_id,
@@ -78,3 +105,35 @@ def test_tracking_not_found_returns_branded_404() -> None:
 
     assert response.status_code == 404
     assert "Cerul tracking link not found." in response.text
+
+
+def test_tracking_links_keep_working_after_video_and_unit_are_removed(database) -> None:
+    _insert_tracking_link(database, short_id="persist123")
+    database.fetchval(
+        """
+        DELETE FROM retrieval_units
+        WHERE id = $1::uuid
+        RETURNING id::text
+        """,
+        TEST_UNIFIED_KNOWLEDGE_UNIT_ID,
+    )
+    database.fetchval(
+        """
+        DELETE FROM videos
+        WHERE id = $1::uuid
+        RETURNING id::text
+        """,
+        TEST_KNOWLEDGE_VIDEO_ID,
+    )
+
+    with TestClient(app) as client:
+        redirect_response = client.get("/v/persist123", follow_redirects=False)
+        detail_response = client.get("/v/persist123/detail")
+
+    assert redirect_response.status_code == 302
+    assert (
+        redirect_response.headers["location"]
+        == "https://www.youtube.com/watch?v=openai-devday&t=120"
+    )
+    assert detail_response.status_code == 200
+    assert "OpenAI Dev Day Keynote" in detail_response.text

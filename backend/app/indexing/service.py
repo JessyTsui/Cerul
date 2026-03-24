@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncpg
 import hashlib
 import json
 import re
@@ -44,97 +45,105 @@ class UnifiedIndexService:
         await self._enforce_submit_rate_limit(auth.user_id)
 
         resolved = self.resolve_source(payload.url)
-        existing_video = await self._find_video_by_source(
-            resolved["source"],
-            resolved["source_video_id"],
+        await self._enforce_max_duration(
+            url=payload.url,
+            source=resolved["source"],
+            source_video_id=resolved["source_video_id"],
         )
         request_id = self.generate_request_id()
-        created_placeholder = False
-
-        if existing_video is None:
-            await self._enforce_max_duration(
-                url=payload.url,
+        async with self.db.transaction():
+            await self._acquire_submit_lock(
                 source=resolved["source"],
                 source_video_id=resolved["source_video_id"],
             )
-            placeholder_video_id = str(uuid4())
-            video_id, created_placeholder = await self._insert_placeholder_video(
-                video_id=placeholder_video_id,
-                url=payload.url,
-                source=resolved["source"],
-                source_video_id=resolved["source_video_id"],
+            existing_video = await self._find_video_by_source(
+                resolved["source"],
+                resolved["source_video_id"],
             )
-        else:
-            video_id = str(existing_video["id"])
+            created_placeholder = False
 
-        has_access = await self._has_video_access(video_id, auth.user_id)
-        if not has_access:
+            if existing_video is None:
+                placeholder_video_id = str(uuid4())
+                video_id, created_placeholder = await self._insert_placeholder_video(
+                    video_id=placeholder_video_id,
+                    url=payload.url,
+                    source=resolved["source"],
+                    source_video_id=resolved["source_video_id"],
+                )
+            else:
+                video_id = str(existing_video["id"])
+
+            has_access = await self._has_video_access(video_id, auth.user_id)
+            if not has_access:
+                try:
+                    await self._enforce_video_limit(auth.user_id, auth.tier)
+                except Exception:
+                    if created_placeholder:
+                        await self._delete_placeholder_video_if_unowned(video_id)
+                    raise
+                await self._ensure_video_access(video_id, auth.user_id)
+
+            existing_job = await self._find_active_job(video_id)
+            if existing_job is not None:
+                return SubmitIndexResponse(
+                    video_id=video_id,
+                    status=str(existing_job["status"]),
+                    request_id=str(existing_job["request_id"]),
+                )
+
+            completed_units = await self._count_retrieval_units(video_id)
+            if completed_units > 0 and not payload.force:
+                return SubmitIndexResponse(
+                    video_id=video_id,
+                    status="completed",
+                    request_id=request_id,
+                )
+
             try:
-                await self._enforce_video_limit(auth.user_id, auth.tier)
-            except Exception:
-                if created_placeholder:
-                    await self._delete_placeholder_video_if_unowned(video_id)
-                raise
-            await self._ensure_video_access(video_id, auth.user_id)
+                await self.db.execute(
+                    """
+                    INSERT INTO processing_jobs (
+                        track,
+                        source_id,
+                        job_type,
+                        status,
+                        input_payload
+                    )
+                    VALUES (
+                        'unified',
+                        NULL,
+                        'index_video',
+                        'pending',
+                        $1::jsonb
+                    )
+                    """,
+                    json.dumps(
+                        {
+                            "request_id": request_id,
+                            "video_id": video_id,
+                            "owner_id": auth.user_id,
+                            "url": payload.url,
+                            "source": resolved["source"],
+                            "source_video_id": resolved["source_video_id"],
+                            "force": payload.force,
+                        }
+                    ),
+                )
+            except asyncpg.UniqueViolationError:
+                existing_job = await self._find_active_job(video_id)
+                if existing_job is None:
+                    raise
+                return SubmitIndexResponse(
+                    video_id=video_id,
+                    status=str(existing_job["status"]),
+                    request_id=str(existing_job["request_id"]),
+                )
 
-        existing_job = await self._find_active_job(video_id)
-        if existing_job is not None and not payload.force:
             return SubmitIndexResponse(
                 video_id=video_id,
-                status=str(existing_job["status"]),
-                request_id=str(existing_job["request_id"]),
-            )
-
-        completed_units = await self._count_retrieval_units(video_id)
-        if completed_units > 0 and not payload.force:
-            return SubmitIndexResponse(
-                video_id=video_id,
-                status="completed",
+                status="processing",
                 request_id=request_id,
             )
-
-        if existing_video is not None:
-            await self._enforce_max_duration(
-                url=payload.url,
-                source=resolved["source"],
-                source_video_id=resolved["source_video_id"],
-            )
-
-        await self.db.execute(
-            """
-            INSERT INTO processing_jobs (
-                track,
-                source_id,
-                job_type,
-                status,
-                input_payload
-            )
-            VALUES (
-                'unified',
-                NULL,
-                'index_video',
-                'pending',
-                $1::jsonb
-            )
-            """,
-            json.dumps(
-                {
-                    "request_id": request_id,
-                    "video_id": video_id,
-                    "owner_id": auth.user_id,
-                    "url": payload.url,
-                    "source": resolved["source"],
-                    "source_video_id": resolved["source_video_id"],
-                    "force": payload.force,
-                }
-            ),
-        )
-
-        return SubmitIndexResponse(
-            video_id=video_id,
-            status="processing",
-            request_id=request_id,
-        )
 
     async def get_status(
         self,
@@ -496,6 +505,15 @@ class UnifiedIndexService:
             """,
             video_id,
             owner_id,
+        )
+
+    async def _acquire_submit_lock(self, *, source: str, source_video_id: str) -> None:
+        await self.db.fetchval(
+            """
+            SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))
+            """,
+            source,
+            source_video_id,
         )
 
     async def _has_video_access(self, video_id: str, owner_id: str) -> bool:

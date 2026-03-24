@@ -137,6 +137,16 @@ class UnifiedSearchService:
                     "unit_id": row["id"],
                     "video_id": row["video_id"],
                     "target_url": target_url,
+                    "title": str(row.get("title") or ""),
+                    "thumbnail_url": row.get("thumbnail_url"),
+                    "source": str(row.get("source") or ""),
+                    "speaker": row.get("speaker"),
+                    "unit_type": str(row.get("unit_type") or "speech"),
+                    "timestamp_start": self._coerce_optional_float(row.get("timestamp_start")),
+                    "timestamp_end": self._coerce_optional_float(row.get("timestamp_end")),
+                    "transcript": row.get("transcript"),
+                    "visual_desc": row.get("visual_desc"),
+                    "keyframe_url": row.get("keyframe_url"),
                 }
             )
             results.append(

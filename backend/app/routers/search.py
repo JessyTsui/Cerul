@@ -127,9 +127,36 @@ async def append_tracking_links(
                 result_rank,
                 unit_id,
                 video_id,
-                target_url
+                target_url,
+                title,
+                thumbnail_url,
+                source,
+                speaker,
+                unit_type,
+                timestamp_start,
+                timestamp_end,
+                transcript,
+                visual_desc,
+                keyframe_url
             )
-            VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6)
+            VALUES (
+                $1,
+                $2,
+                $3,
+                $4::uuid,
+                $5::uuid,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10,
+                $11,
+                $12,
+                $13,
+                $14,
+                $15,
+                $16
+            )
             ON CONFLICT (short_id) DO NOTHING
             """,
             tracking_link["short_id"],
@@ -138,6 +165,16 @@ async def append_tracking_links(
             tracking_link["unit_id"],
             tracking_link["video_id"],
             tracking_link["target_url"],
+            tracking_link.get("title"),
+            tracking_link.get("thumbnail_url"),
+            tracking_link.get("source"),
+            tracking_link.get("speaker"),
+            tracking_link.get("unit_type"),
+            tracking_link.get("timestamp_start"),
+            tracking_link.get("timestamp_end"),
+            tracking_link.get("transcript"),
+            tracking_link.get("visual_desc"),
+            tracking_link.get("keyframe_url"),
         )
 
 

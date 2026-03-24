@@ -117,6 +117,16 @@ class DeletedJobRepository(InMemoryUnifiedRepository):
         return False
 
 
+class CancelDuringPersistRepository(InMemoryUnifiedRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self._job_exists_calls = 0
+
+    async def job_exists(self, job_id: str | None) -> bool:
+        self._job_exists_calls += 1
+        return self._job_exists_calls < 3
+
+
 def test_unified_pipeline_transforms_knowledge_segments_into_retrieval_units() -> None:
     repository = InMemoryUnifiedRepository()
     embedding_backend = StubEmbeddingBackend()
@@ -280,6 +290,74 @@ def test_unified_pipeline_skips_persist_when_job_was_deleted() -> None:
     assert repository.access_by_video_id == {}
     assert context.data["indexed_unit_count"] == 0
     assert context.data["stored_unified_video"]["id"] == "video-123"
+
+
+def test_unified_pipeline_skips_unit_replace_when_job_is_cancelled_mid_persist() -> None:
+    repository = CancelDuringPersistRepository()
+    embedding_backend = StubEmbeddingBackend()
+    summary_generator = StubSummaryGenerator()
+    pipeline = UnifiedIndexingPipeline(
+        repository=repository,
+        embedding_backend=embedding_backend,
+        summary_generator=summary_generator,
+        frame_uploader=StubFrameUploader(),
+    )
+
+    knowledge_context = PipelineContext(
+        data={
+            "stored_video": {
+                "source_video_id": "abc123xyz00",
+                "source_url": "https://www.youtube.com/watch?v=abc123xyz00",
+                "video_url": "https://www.youtube.com/watch?v=abc123xyz00",
+                "thumbnail_url": "https://img.youtube.com/vi/abc123xyz00/hqdefault.jpg",
+                "title": "AGI Timeline",
+                "description": "A long-form interview about AGI.",
+                "speaker": "Sam Altman",
+                "published_at": None,
+                "duration_seconds": 600,
+                "license": None,
+                "metadata": {"creator": "Lex Fridman"},
+            },
+            "stored_segments": [
+                {
+                    "segment_index": 0,
+                    "timestamp_start": 12.0,
+                    "timestamp_end": 48.0,
+                    "transcript_text": "AGI is coming sooner than most people expect.",
+                    "visual_description": "Slide with an AGI roadmap and milestone arrows.",
+                    "visual_text_content": "AGI roadmap",
+                    "visual_type": "slide",
+                    "title": "AGI timeline",
+                    "metadata": {"keywords": ["agi", "timeline"]},
+                    "embedding": [0.11, 0.22, 0.33],
+                }
+            ],
+        },
+        completed_steps=["StoreKnowledgeSegmentsStep"],
+    )
+
+    mocked_pipeline = Mock()
+    mocked_pipeline.run = AsyncMock(return_value=knowledge_context)
+
+    with patch(
+        "workers.unified.pipeline.KnowledgeIndexingPipeline",
+        return_value=mocked_pipeline,
+    ):
+        context = run_async(
+            pipeline.run(
+                url="https://www.youtube.com/watch?v=abc123xyz00",
+                source="youtube",
+                source_video_id="abc123xyz00",
+                owner_id="user-123",
+                video_id="video-123",
+                job_id="job-cancelled-mid-persist",
+                conf={"scene_threshold": 0.2},
+            )
+        )
+
+    assert repository.units_by_video_id == {}
+    assert repository.completed_jobs == {}
+    assert context.data["indexed_unit_count"] == 0
 
 
 def test_unified_pipeline_builds_visual_units_for_direct_video(tmp_path) -> None:

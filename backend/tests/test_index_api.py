@@ -71,6 +71,28 @@ def test_submit_index_reuses_existing_pending_job(database) -> None:
     assert database.fetchval("SELECT COUNT(*) FROM processing_jobs WHERE track = 'unified'") == 1
 
 
+def test_force_submit_reuses_existing_active_job(database) -> None:
+    app.dependency_overrides[require_api_key] = override_auth
+
+    with TestClient(app) as client:
+        first_response = client.post(
+            "/v1/index",
+            json={"url": TEST_INDEX_URL},
+        )
+        second_response = client.post(
+            "/v1/index",
+            json={"url": TEST_INDEX_URL, "force": True},
+        )
+
+    app.dependency_overrides.clear()
+
+    assert first_response.status_code == 202
+    assert second_response.status_code == 202
+    assert first_response.json()["video_id"] == second_response.json()["video_id"]
+    assert first_response.json()["request_id"] == second_response.json()["request_id"]
+    assert database.fetchval("SELECT COUNT(*) FROM processing_jobs WHERE track = 'unified'") == 1
+
+
 def test_force_reindex_keeps_existing_units_until_replacement(database) -> None:
     video_id = "11111111-1111-1111-1111-111111111111"
     vector = build_placeholder_vector(

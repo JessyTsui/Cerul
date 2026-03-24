@@ -25,20 +25,20 @@ async def _fetch_tracking_row(db: Any, short_id: str) -> dict[str, Any] | None:
             tl.unit_id::text AS unit_id,
             tl.video_id::text AS video_id,
             tl.target_url,
-            ru.unit_type,
-            ru.timestamp_start,
-            ru.timestamp_end,
-            ru.transcript,
-            ru.visual_desc,
-            ru.keyframe_url,
-            v.title,
-            v.thumbnail_url,
-            v.source,
-            v.speaker
+            COALESCE(ru.unit_type, tl.unit_type) AS unit_type,
+            COALESCE(ru.timestamp_start, tl.timestamp_start) AS timestamp_start,
+            COALESCE(ru.timestamp_end, tl.timestamp_end) AS timestamp_end,
+            COALESCE(ru.transcript, tl.transcript) AS transcript,
+            COALESCE(ru.visual_desc, tl.visual_desc) AS visual_desc,
+            COALESCE(ru.keyframe_url, tl.keyframe_url) AS keyframe_url,
+            COALESCE(v.title, tl.title) AS title,
+            COALESCE(v.thumbnail_url, tl.thumbnail_url) AS thumbnail_url,
+            COALESCE(v.source, tl.source) AS source,
+            COALESCE(v.speaker, tl.speaker) AS speaker
         FROM tracking_links AS tl
-        JOIN retrieval_units AS ru
+        LEFT JOIN retrieval_units AS ru
             ON ru.id = tl.unit_id
-        JOIN videos AS v
+        LEFT JOIN videos AS v
             ON v.id = tl.video_id
         WHERE tl.short_id = $1
         """,
@@ -106,7 +106,13 @@ def _build_snippet(tracking_row: dict[str, Any]) -> str:
 def _render_detail_page(tracking_row: dict[str, Any], *, short_id: str) -> str:
     title = html.escape(str(tracking_row.get("title") or "Cerul video"))
     snippet = html.escape(_build_snippet(tracking_row))
-    thumbnail_url = html.escape(str(tracking_row.get("thumbnail_url") or ""))
+    media_url = html.escape(
+        str(
+            tracking_row.get("thumbnail_url")
+            or tracking_row.get("keyframe_url")
+            or ""
+        )
+    )
     speaker = html.escape(str(tracking_row.get("speaker") or ""))
     source = html.escape(str(tracking_row.get("source") or ""))
     timestamp_start = tracking_row.get("timestamp_start")
@@ -211,7 +217,7 @@ def _render_detail_page(tracking_row: dict[str, Any], *, short_id: str) -> str:
   </head>
   <body>
     <main class="card">
-      <div class="media">{f'<img src="{thumbnail_url}" alt="{title}" />' if thumbnail_url else ''}</div>
+      <div class="media">{f'<img src="{media_url}" alt="{title}" />' if media_url else ''}</div>
       <div class="content">
         <div class="eyebrow">Cerul Tracking Link</div>
         <h1>{title}</h1>

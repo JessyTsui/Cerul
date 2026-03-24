@@ -1399,7 +1399,17 @@ def test_admin_delete_indexed_video_removes_video_and_related_jobs(
     assert database.fetchval("SELECT COUNT(*) FROM processing_jobs WHERE id = $1::uuid", job_id) == 0
     assert database.fetchval("SELECT COUNT(*) FROM processing_job_steps WHERE job_id = $1::uuid", job_id) == 0
     assert database.fetchval("SELECT COUNT(*) FROM video_access WHERE video_id = $1::uuid", video_id) == 0
-    assert database.fetchval("SELECT COUNT(*) FROM tracking_links WHERE short_id = 'delete01'") == 0
+    assert database.fetchval("SELECT COUNT(*) FROM tracking_links WHERE short_id = 'delete01'") == 1
+    assert (
+        database.fetchval(
+            """
+            SELECT target_url
+            FROM tracking_links
+            WHERE short_id = 'delete01'
+            """
+        )
+        == "https://www.youtube.com/watch?v=delete-me-123&t=0"
+    )
 
 
 def test_admin_retry_failed_job_resets_failed_state(

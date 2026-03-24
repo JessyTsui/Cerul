@@ -1165,7 +1165,11 @@ class UnifiedIndexingPipeline:
         if job_id is not None and not await self._repository.job_exists(job_id):
             return dict(video), []
         stored_video = await self._repository.upsert_video(video)
+        if job_id is not None and not await self._repository.job_exists(job_id):
+            return stored_video, []
         await self._repository.ensure_video_access(str(stored_video["id"]), owner_id)
+        if job_id is not None and not await self._repository.job_exists(job_id):
+            return stored_video, []
         stored_units = await self._repository.replace_units(
             video_id=str(stored_video["id"]),
             units=units,
