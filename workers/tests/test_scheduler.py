@@ -292,7 +292,6 @@ def test_run_once_supports_youtube_search_sources() -> None:
         max_results=5,
         published_after="2026-03-01T00:00:00Z",
         relevance_language="en",
-        event_type="completed",
     )
     assert len(db.inserted_jobs) == 1
     payload = db.inserted_jobs[0]["payload"]

@@ -295,7 +295,6 @@ class ContentScheduler:
             max_results=max_results,
             published_after=published_after,
             relevance_language=relevance_language,
-            event_type="completed",
         )
 
         self._logger.info(
