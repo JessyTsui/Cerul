@@ -204,6 +204,12 @@ run_migrations() {
 
   echo "[rebuild] Applying database migrations..."
   "${ROOT_DIR}/scripts/migrate-db.sh" --env-file "${ENV_FILE}"
+
+  if [ -f "${ROOT_DIR}/scripts/seed-sources.sql" ]; then
+    echo "[rebuild] Seeding content sources..."
+    psql "${DATABASE_URL}" -f "${ROOT_DIR}/scripts/seed-sources.sql" 2>/dev/null || \
+      echo "[rebuild] Content source seeding skipped (non-fatal)."
+  fi
 }
 
 ensure_local_infra() {

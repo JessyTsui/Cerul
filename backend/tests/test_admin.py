@@ -832,7 +832,6 @@ def test_admin_sources_reject_duplicate_slug_and_missing_source(
     assert missing_response.status_code == 404
     assert missing_response.json()["detail"] == "Content source not found."
 
-
 def test_admin_sources_metadata_patch_preserves_existing_config(
     admin_client: TestClient,
     database,
@@ -886,8 +885,6 @@ def test_admin_sources_metadata_patch_preserves_existing_config(
         json.loads(raw_metadata) if isinstance(raw_metadata, str) else dict(raw_metadata)
     )
     assert stored_metadata == {"kind": "archive", "priority": 2}
-
-
 def test_admin_worker_live_includes_retrying_jobs_and_steps(
     admin_client: TestClient,
     database,
