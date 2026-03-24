@@ -8,6 +8,8 @@ import {
   type AdminSourceRecentVideosEntry,
   type CreateSourceInput,
   type SourceAnalyticsRange,
+  type SubmitVideoResult,
+  type VideoJobStatus,
 } from "@/lib/admin-api";
 import { getApiErrorMessage } from "@/lib/api";
 import { AdminLayout } from "./admin-layout";
@@ -168,6 +170,13 @@ export function AdminSourcesScreen() {
   // Quick-add by URL
   const [quickAddUrl, setQuickAddUrl] = useState("");
   const [quickAddError, setQuickAddError] = useState<string | null>(null);
+
+  // Video submission
+  const [videoUrl, setVideoUrl] = useState("");
+  const [videoSubmitting, setVideoSubmitting] = useState(false);
+  const [videoSubmitResult, setVideoSubmitResult] = useState<SubmitVideoResult | null>(null);
+  const [videoSubmitError, setVideoSubmitError] = useState<string | null>(null);
+  const [videoJobs, setVideoJobs] = useState<VideoJobStatus[]>([]);
 
   // Analytics
   const [analyticsRange, setAnalyticsRange] = useState<SourceAnalyticsRange>("7d");
@@ -368,6 +377,36 @@ export function AdminSourcesScreen() {
     }
   }
 
+  async function handleSubmitVideo() {
+    if (!videoUrl.trim()) return;
+    setVideoSubmitting(true);
+    setVideoSubmitError(null);
+    setVideoSubmitResult(null);
+    setVideoJobs([]);
+    try {
+      const result = await admin.submitVideo(videoUrl.trim());
+      setVideoSubmitResult(result);
+      // Fetch job status
+      if (result.videoId) {
+        const jobs = await admin.getVideoJobStatus(result.videoId);
+        setVideoJobs(jobs);
+      }
+    } catch (err) {
+      setVideoSubmitError(getApiErrorMessage(err, "Failed to submit video."));
+    } finally {
+      setVideoSubmitting(false);
+    }
+  }
+
+  async function handleCheckVideoStatus(videoId: string) {
+    try {
+      const jobs = await admin.getVideoJobStatus(videoId);
+      setVideoJobs(jobs);
+    } catch {
+      // silent
+    }
+  }
+
   function getAnalyticsForSource(sourceId: string): AdminSourceAnalytics | null {
     return analyticsData.find((a) => a.sourceId === sourceId) ?? null;
   }
@@ -482,6 +521,124 @@ export function AdminSourcesScreen() {
           </div>
           {quickAddError ? (
             <p className="mt-2 text-xs text-red-300">{quickAddError}</p>
+          ) : null}
+        </article>
+      </section>
+
+      {/* Submit individual video */}
+      <section>
+        <article className="surface rounded-[28px] px-6 py-5">
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+            Submit video for indexing
+          </p>
+          <div className="mt-3 flex gap-3">
+            <input
+              type="text"
+              value={videoUrl}
+              onChange={(e) => {
+                setVideoUrl(e.target.value);
+                setVideoSubmitError(null);
+                setVideoSubmitResult(null);
+              }}
+              placeholder="Paste YouTube video URL (e.g. youtube.com/watch?v=...)"
+              className="h-12 flex-1 rounded-[14px] border border-[var(--border)] bg-[var(--surface)] px-4 text-white outline-none transition focus:border-[var(--brand)]"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSubmitVideo();
+              }}
+            />
+            <button
+              className="button-primary shrink-0"
+              type="button"
+              disabled={videoSubmitting}
+              onClick={() => void handleSubmitVideo()}
+            >
+              {videoSubmitting ? "Submitting..." : "Submit"}
+            </button>
+          </div>
+          {videoSubmitError ? (
+            <p className="mt-2 text-xs text-red-300">{videoSubmitError}</p>
+          ) : null}
+
+          {videoSubmitResult ? (
+            <div className="mt-3 rounded-[14px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-4">
+              <div className="flex gap-3">
+                {videoSubmitResult.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={videoSubmitResult.thumbnailUrl}
+                    alt=""
+                    className="h-16 w-28 shrink-0 rounded-[8px] object-cover"
+                  />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-white">{videoSubmitResult.title}</p>
+                  <p className="mt-0.5 text-xs text-[var(--foreground-tertiary)]">
+                    {videoSubmitResult.channelTitle}
+                    {videoSubmitResult.durationSeconds != null
+                      ? ` · ${formatDuration(videoSubmitResult.durationSeconds)}`
+                      : ""}
+                  </p>
+                  <p className={`mt-1 text-xs ${videoSubmitResult.alreadyExists ? "text-amber-300" : "text-emerald-300"}`}>
+                    {videoSubmitResult.alreadyExists
+                      ? "This video already has a processing job."
+                      : "Job created successfully. The worker will pick it up shortly."}
+                  </p>
+                </div>
+                <button
+                  className="button-secondary shrink-0 self-start"
+                  type="button"
+                  onClick={() => void handleCheckVideoStatus(videoSubmitResult.videoId)}
+                >
+                  Refresh status
+                </button>
+              </div>
+
+              {videoJobs.length > 0 ? (
+                <div className="mt-3 space-y-1.5">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+                    Job history
+                  </p>
+                  {videoJobs.map((job) => (
+                    <div
+                      key={job.jobId}
+                      className="flex items-center gap-4 rounded-[10px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs"
+                    >
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] ${
+                          job.status === "completed"
+                            ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                            : job.status === "failed"
+                              ? "border border-red-500/30 bg-red-500/10 text-red-300"
+                              : job.status === "running"
+                                ? "border border-blue-500/30 bg-blue-500/10 text-blue-300"
+                                : "border border-[var(--border)] bg-[rgba(255,255,255,0.04)] text-[var(--foreground-tertiary)]"
+                        }`}
+                      >
+                        {job.status}
+                      </span>
+                      <span className="text-[var(--foreground-tertiary)]">
+                        Created {new Date(job.createdAt).toLocaleString()}
+                      </span>
+                      {job.completedAt ? (
+                        <span className="text-[var(--foreground-tertiary)]">
+                          Completed {new Date(job.completedAt).toLocaleString()}
+                        </span>
+                      ) : null}
+                      {job.attempts > 0 ? (
+                        <span className="text-[var(--foreground-tertiary)]">
+                          Attempts: {job.attempts}
+                        </span>
+                      ) : null}
+                      {job.errorMessage ? (
+                        <span className="truncate text-red-300" title={job.errorMessage}>
+                          {job.errorMessage}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </article>
       </section>

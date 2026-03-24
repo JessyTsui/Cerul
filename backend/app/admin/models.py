@@ -516,6 +516,39 @@ class AdminSourcesRecentVideosResponse(BaseModel):
     sources: list[AdminSourceRecentVideosEntry] = Field(default_factory=list)
 
 
+class SubmitVideoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1, max_length=500)
+
+
+class SubmitVideoResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    job_id: str
+    video_id: str
+    title: str
+    thumbnail_url: str | None = None
+    duration_seconds: int | None = None
+    channel_title: str | None = None
+    already_exists: bool = False
+
+
+class AdminVideoJobStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    video_id: str
+    title: str | None = None
+    status: str
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+    attempts: int = 0
+
+
 class AdminMetricTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

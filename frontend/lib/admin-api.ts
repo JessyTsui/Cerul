@@ -420,6 +420,29 @@ export type AdminSourcesRecentVideosResponse = {
   sources: AdminSourceRecentVideosEntry[];
 };
 
+export type SubmitVideoResult = {
+  ok: boolean;
+  jobId: string;
+  videoId: string;
+  title: string;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  channelTitle: string | null;
+  alreadyExists: boolean;
+};
+
+export type VideoJobStatus = {
+  jobId: string;
+  videoId: string;
+  title: string | null;
+  status: string;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  errorMessage: string | null;
+  attempts: number;
+};
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -1374,5 +1397,45 @@ export const admin = {
       generatedAt: typeof raw.generated_at === "string" ? raw.generated_at : "",
       sources,
     };
+  },
+
+  async submitVideo(url: string): Promise<SubmitVideoResult> {
+    const payload = await fetchWithAuth<unknown>("/admin/videos/submit", {
+      method: "POST",
+      body: { url },
+    });
+    const v = ensureObject(payload, "Invalid submit video response.");
+    return {
+      ok: v.ok === true,
+      jobId: typeof v.job_id === "string" ? v.job_id : "",
+      videoId: typeof v.video_id === "string" ? v.video_id : "",
+      title: typeof v.title === "string" ? v.title : "",
+      thumbnailUrl: typeof v.thumbnail_url === "string" ? v.thumbnail_url : null,
+      durationSeconds: isFiniteNumber(v.duration_seconds) ? v.duration_seconds : null,
+      channelTitle: typeof v.channel_title === "string" ? v.channel_title : null,
+      alreadyExists: v.already_exists === true,
+    };
+  },
+
+  async getVideoJobStatus(videoId: string): Promise<VideoJobStatus[]> {
+    const payload = await fetchWithAuth<unknown>(
+      `/admin/videos/job-status/${videoId}`,
+      { method: "GET", cache: "no-store" },
+    );
+    if (!Array.isArray(payload)) return [];
+    return payload.map((item) => {
+      const v = ensureObject(item, "Invalid video job status.");
+      return {
+        jobId: typeof v.job_id === "string" ? v.job_id : "",
+        videoId: typeof v.video_id === "string" ? v.video_id : "",
+        title: typeof v.title === "string" ? v.title : null,
+        status: typeof v.status === "string" ? v.status : "",
+        createdAt: typeof v.created_at === "string" ? v.created_at : "",
+        startedAt: typeof v.started_at === "string" ? v.started_at : null,
+        completedAt: typeof v.completed_at === "string" ? v.completed_at : null,
+        errorMessage: typeof v.error_message === "string" ? v.error_message : null,
+        attempts: isFiniteNumber(v.attempts) ? v.attempts : 0,
+      };
+    });
   },
 };

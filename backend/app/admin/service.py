@@ -7,6 +7,11 @@ from typing import Any
 
 import asyncpg
 
+import os
+import re as _re
+
+import httpx
+
 from .models import (
     AdminActiveUser,
     AdminContentSummaryResponse,
@@ -23,6 +28,8 @@ from .models import (
     AdminMetricTarget,
     AdminMetricTargetUpsert,
     AdminMetricValue,
+    AdminVideoJobStatus,
+    SubmitVideoResponse,
     AdminNamedCount,
     AdminNotice,
     AdminOverviewMetrics,
@@ -2770,3 +2777,204 @@ async def fetch_sources_recent_videos(
         generated_at=_utc_now(),
         sources=list(sources_map.values()),
     )
+
+
+_YT_VIDEO_ID_RE = _re.compile(
+    r"(?:youtube\.com/watch\?.*v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)"
+    r"([A-Za-z0-9_-]{11})"
+)
+
+
+def _extract_youtube_video_id(url: str) -> str | None:
+    """Extract video ID from various YouTube URL formats."""
+    url = url.strip()
+    if _re.fullmatch(r"[A-Za-z0-9_-]{11}", url):
+        return url
+    match = _YT_VIDEO_ID_RE.search(url)
+    return match.group(1) if match else None
+
+
+async def _fetch_youtube_video_metadata(video_id: str) -> dict[str, Any]:
+    """Fetch video metadata from YouTube Data API v3."""
+    api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("YOUTUBE_API_KEY is not configured.")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={
+                "key": api_key,
+                "id": video_id,
+                "part": "snippet,contentDetails,statistics",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    items = data.get("items", [])
+    if not items:
+        raise ValueError(f"YouTube video not found: {video_id}")
+
+    item = items[0]
+    snippet = item.get("snippet") or {}
+    stats = item.get("statistics") or {}
+    content = item.get("contentDetails") or {}
+
+    # Parse duration
+    duration_seconds = 0
+    raw_dur = content.get("duration", "")
+    dur_match = _re.fullmatch(
+        r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", raw_dur
+    )
+    if dur_match:
+        h, m, s = (int(v or 0) for v in dur_match.groups())
+        duration_seconds = h * 3600 + m * 60 + s
+
+    # Pick best thumbnail
+    thumbs = snippet.get("thumbnails") or {}
+    thumbnail_url = None
+    for key in ("maxres", "standard", "high", "medium", "default"):
+        t = thumbs.get(key)
+        if isinstance(t, dict) and t.get("url"):
+            thumbnail_url = t["url"]
+            break
+
+    return {
+        "source": "youtube",
+        "source_video_id": video_id,
+        "video_id": video_id,
+        "source_url": f"https://www.youtube.com/watch?v={video_id}",
+        "video_url": f"https://www.youtube.com/watch?v={video_id}",
+        "thumbnail_url": thumbnail_url,
+        "title": snippet.get("title", ""),
+        "description": snippet.get("description", ""),
+        "channel_title": snippet.get("channelTitle"),
+        "channel_id": snippet.get("channelId"),
+        "published_at": snippet.get("publishedAt"),
+        "duration_seconds": duration_seconds,
+        "view_count": int(stats["viewCount"]) if stats.get("viewCount") else None,
+        "like_count": int(stats["likeCount"]) if stats.get("likeCount") else None,
+    }
+
+
+async def submit_video(db: Any, *, url: str) -> SubmitVideoResponse:
+    """Submit a YouTube video URL for indexing. Creates a processing job."""
+    video_id = _extract_youtube_video_id(url)
+    if not video_id:
+        raise ValueError(
+            "Invalid YouTube URL. Supported formats: "
+            "youtube.com/watch?v=..., youtu.be/..., or a bare video ID."
+        )
+
+    # Check if job already exists
+    existing = await db.fetchrow(
+        """
+        SELECT id::text AS job_id, status
+        FROM processing_jobs
+        WHERE input_payload->>'source_video_id' = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        video_id,
+    )
+
+    # Fetch metadata from YouTube
+    meta = await _fetch_youtube_video_metadata(video_id)
+
+    if existing:
+        return SubmitVideoResponse(
+            ok=True,
+            job_id=existing["job_id"],
+            video_id=video_id,
+            title=meta.get("title", ""),
+            thumbnail_url=meta.get("thumbnail_url"),
+            duration_seconds=meta.get("duration_seconds"),
+            channel_title=meta.get("channel_title"),
+            already_exists=True,
+        )
+
+    # Create processing job
+    payload = json.dumps({
+        "track": "unified",
+        "discovery_track": "unified",
+        "source_slug": "manual",
+        "source_type": "youtube",
+        "source_item_id": video_id,
+        "source": "youtube",
+        "source_video_id": video_id,
+        "url": meta["video_url"],
+        "owner_id": None,
+        "item": meta,
+        "source_metadata": meta,
+        "manual_submit": True,
+    }, default=str)
+
+    job_id = await db.fetchval(
+        """
+        INSERT INTO processing_jobs (track, source_id, job_type, status, input_payload)
+        VALUES ('unified', NULL, 'index_video', 'pending', $1::jsonb)
+        RETURNING id::text
+        """,
+        payload,
+    )
+
+    return SubmitVideoResponse(
+        ok=True,
+        job_id=job_id,
+        video_id=video_id,
+        title=meta.get("title", ""),
+        thumbnail_url=meta.get("thumbnail_url"),
+        duration_seconds=meta.get("duration_seconds"),
+        channel_title=meta.get("channel_title"),
+        already_exists=False,
+    )
+
+
+async def get_video_job_status(
+    db: Any,
+    *,
+    video_id: str,
+) -> list[AdminVideoJobStatus]:
+    """Get processing job status for a video ID."""
+    rows = await db.fetch(
+        """
+        SELECT
+            id::text AS job_id,
+            COALESCE(
+                input_payload->>'source_video_id',
+                input_payload->>'video_id'
+            ) AS video_id,
+            COALESCE(
+                input_payload->'item'->>'title',
+                input_payload->>'title'
+            ) AS title,
+            status,
+            created_at,
+            started_at,
+            completed_at,
+            error_message,
+            attempts
+        FROM processing_jobs
+        WHERE input_payload->>'source_video_id' = $1
+           OR input_payload->>'video_id' = $1
+        ORDER BY created_at DESC
+        LIMIT 5
+        """,
+        video_id,
+    )
+
+    return [
+        AdminVideoJobStatus(
+            job_id=str(row["job_id"]),
+            video_id=str(row["video_id"] or video_id),
+            title=row["title"],
+            status=str(row["status"]),
+            created_at=row["created_at"],
+            started_at=row.get("started_at"),
+            completed_at=row.get("completed_at"),
+            error_message=row.get("error_message"),
+            attempts=int(row.get("attempts") or 0),
+        )
+        for row in rows
+    ]

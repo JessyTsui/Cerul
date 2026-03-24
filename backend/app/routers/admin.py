@@ -17,8 +17,11 @@ from app.admin import (
     AdminSummaryResponse,
     AdminTargetsResponse,
     AdminTargetsUpsertRequest,
+    AdminVideoJobStatus,
     AdminWorkerLiveResponse,
     CreateSourceRequest,
+    SubmitVideoRequest,
+    SubmitVideoResponse,
     UpdateSourceRequest,
     create_source,
     delete_source,
@@ -35,9 +38,11 @@ from app.admin import (
     fetch_targets_summary,
     fetch_users_summary,
     fetch_worker_live,
+    get_video_job_status,
     kill_job,
     require_admin_access,
     retry_job,
+    submit_video,
     update_source,
     upsert_targets,
 )
@@ -181,6 +186,32 @@ async def get_sources_recent_videos(
 ) -> AdminSourcesRecentVideosResponse:
     await require_admin_access(session, db)
     return await fetch_sources_recent_videos(db, limit=limit)
+
+
+@router.post("/videos/submit", response_model=SubmitVideoResponse)
+async def post_submit_video(
+    payload: SubmitVideoRequest,
+    session: SessionContext = Depends(require_session),
+    db: Any = Depends(get_db),
+) -> SubmitVideoResponse:
+    await require_admin_access(session, db)
+    try:
+        return await submit_video(db, url=payload.url)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get("/videos/job-status/{video_id}", response_model=list[AdminVideoJobStatus])
+async def get_video_job_status_route(
+    video_id: str,
+    session: SessionContext = Depends(require_session),
+    db: Any = Depends(get_db),
+) -> list[AdminVideoJobStatus]:
+    await require_admin_access(session, db)
+    return await get_video_job_status(db, video_id=video_id)
 
 
 @router.post(
