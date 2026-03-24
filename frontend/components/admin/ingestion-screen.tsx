@@ -20,8 +20,6 @@ type SourceProgressRow = {
   track: string;
   isActive: boolean;
   jobsCompleted: number;
-  running: number;
-  pending: number;
   jobsFailed: number;
   backlog: number;
   lastJobAt: string | null;
@@ -30,8 +28,7 @@ type SourceProgressRow = {
 
 type SourceProgressTotals = {
   completed: number;
-  running: number;
-  pending: number;
+  backlog: number;
   failed: number;
 };
 
@@ -61,48 +58,6 @@ function ProgressBar({ completed, total }: { completed: number; total: number })
   );
 }
 
-function allocateRunningCounts(backlogs: number[], runningTotal: number) {
-  const totalBacklog = backlogs.reduce((sum, value) => sum + value, 0);
-
-  if (totalBacklog === 0 || runningTotal <= 0) {
-    return backlogs.map(() => 0);
-  }
-
-  const cappedRunning = Math.min(runningTotal, totalBacklog);
-  const allocations = backlogs.map((backlog) =>
-    Math.floor((backlog / totalBacklog) * cappedRunning),
-  );
-  let assigned = allocations.reduce((sum, value) => sum + value, 0);
-
-  const remainders = backlogs
-    .map((backlog, index) => ({
-      index,
-      backlog,
-      remainder: (backlog / totalBacklog) * cappedRunning - allocations[index],
-    }))
-    .sort(
-      (left, right) =>
-        right.remainder - left.remainder ||
-        right.backlog - left.backlog ||
-        left.index - right.index,
-    );
-
-  for (const item of remainders) {
-    if (assigned >= cappedRunning) {
-      break;
-    }
-
-    if (allocations[item.index] >= item.backlog) {
-      continue;
-    }
-
-    allocations[item.index] += 1;
-    assigned += 1;
-  }
-
-  return allocations;
-}
-
 function buildSourceProgressModel(data: AdminIngestionSummary) {
   const sortedSources = [...data.sourceHealth].sort(
     (left, right) =>
@@ -110,41 +65,27 @@ function buildSourceProgressModel(data: AdminIngestionSummary) {
       right.backlog - left.backlog ||
       left.displayName.localeCompare(right.displayName),
   );
-  const runningPool = Math.max(0, data.statusCounts.running + data.statusCounts.retrying);
-  const runningCounts = allocateRunningCounts(
-    sortedSources.map((source) => source.backlog),
-    runningPool,
-  );
 
-  const rows: SourceProgressRow[] = sortedSources.map((source, index) => {
-    const running = Math.min(source.backlog, runningCounts[index] ?? 0);
-    const pending = Math.max(source.backlog - running, 0);
-
-    return {
-      ...source,
-      running,
-      pending,
-      progressTotal: source.jobsCompleted + source.backlog + source.jobsFailed,
-    };
-  });
+  const rows: SourceProgressRow[] = sortedSources.map((source) => ({
+    ...source,
+    progressTotal: source.jobsCompleted + source.backlog + source.jobsFailed,
+  }));
 
   const totals = rows.reduce<SourceProgressTotals>(
     (result, row) => {
       result.completed += row.jobsCompleted;
-      result.running += row.running;
-      result.pending += row.pending;
+      result.backlog += row.backlog;
       result.failed += row.jobsFailed;
       return result;
     },
     {
       completed: 0,
-      running: 0,
-      pending: 0,
+      backlog: 0,
       failed: 0,
     },
   );
 
-  const overallTotal = totals.completed + totals.running + totals.pending + totals.failed;
+  const overallTotal = totals.completed + totals.backlog + totals.failed;
   const overallCompletion = overallTotal === 0 ? null : Math.round((totals.completed / overallTotal) * 100);
 
   return {
@@ -252,8 +193,7 @@ export function AdminIngestionScreen() {
                           "Source",
                           "Type",
                           "Completed",
-                          "Running",
-                          "Pending",
+                          "Backlog",
                           "Failed",
                           "Progress",
                           "Last Job",
@@ -292,10 +232,7 @@ export function AdminIngestionScreen() {
                             {formatCount(source.jobsCompleted)}
                           </td>
                           <td className="px-4 py-4 font-mono text-sm text-amber-200">
-                            {formatCount(source.running)}
-                          </td>
-                          <td className="px-4 py-4 font-mono text-sm text-[var(--foreground-secondary)]">
-                            {formatCount(source.pending)}
+                            {formatCount(source.backlog)}
                           </td>
                           <td className="px-4 py-4 font-mono text-sm">
                             <span className={source.jobsFailed > 0 ? "text-red-400" : "text-[var(--foreground-secondary)]"}>
@@ -331,10 +268,7 @@ export function AdminIngestionScreen() {
                           {formatCount(sourceProgress.totals.completed)}
                         </td>
                         <td className="px-4 py-4 font-mono text-sm text-amber-200">
-                          {formatCount(sourceProgress.totals.running)}
-                        </td>
-                        <td className="px-4 py-4 font-mono text-sm text-[var(--foreground-secondary)]">
-                          {formatCount(sourceProgress.totals.pending)}
+                          {formatCount(sourceProgress.totals.backlog)}
                         </td>
                         <td className="px-4 py-4 font-mono text-sm text-red-400">
                           {formatCount(sourceProgress.totals.failed)}
