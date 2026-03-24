@@ -7,6 +7,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -228,103 +229,112 @@ class UnifiedIndexingPipeline:
                 "source_video_id": source_video_id,
             }
         )
-        video_metadata = await self._run_context_step(
-            context,
-            step_name="FetchUnifiedMetadataStep",
-            operation=lambda: self._fetch_visual_video_metadata(
-                url=url,
-                source=source,
-                source_video_id=source_video_id,
-                requested_video_id=video_id,
-            ),
-        )
-        context.data["video_metadata"] = video_metadata
+        temp_dir: Path | None = None
+        try:
+            video_metadata = await self._run_context_step(
+                context,
+                step_name="FetchUnifiedMetadataStep",
+                operation=lambda: self._fetch_visual_video_metadata(
+                    url=url,
+                    source=source,
+                    source_video_id=source_video_id,
+                    requested_video_id=video_id,
+                ),
+            )
+            context.data["video_metadata"] = video_metadata
 
-        temp_dir = Path(tempfile.mkdtemp(prefix="cerul-unified-", dir=self._temp_dir_root or None))
-        download_metadata = dict(video_metadata)
-        download_metadata["download_url"] = video_metadata["video_url"]
-        video_path = await self._run_context_step(
-            context,
-            step_name="DownloadKnowledgeVideoStep",
-            operation=lambda: self._video_downloader.download_video(download_metadata, temp_dir),
-        )
-        context.data["video_path"] = str(video_path)
-        context.data["temp_dir"] = str(temp_dir)
+            temp_dir = Path(
+                tempfile.mkdtemp(prefix="cerul-unified-", dir=self._temp_dir_root or None)
+            )
+            download_metadata = dict(video_metadata)
+            download_metadata["download_url"] = video_metadata["video_url"]
+            video_path = await self._run_context_step(
+                context,
+                step_name="DownloadKnowledgeVideoStep",
+                operation=lambda: self._video_downloader.download_video(
+                    download_metadata, temp_dir
+                ),
+            )
+            context.data["video_path"] = str(video_path)
+            context.data["temp_dir"] = str(temp_dir)
 
-        duration_seconds = await self._probe_duration_seconds(Path(video_path))
-        if duration_seconds and not video_metadata.get("duration_seconds"):
-            video_metadata["duration_seconds"] = duration_seconds
-        self._validate_max_duration(video_metadata.get("duration_seconds"))
+            duration_seconds = await self._probe_duration_seconds(Path(video_path))
+            if duration_seconds and not video_metadata.get("duration_seconds"):
+                video_metadata["duration_seconds"] = duration_seconds
+            self._validate_max_duration(video_metadata.get("duration_seconds"))
 
-        scenes = await self._run_context_step(
-            context,
-            step_name="DetectKnowledgeScenesStep",
-            operation=lambda: self._scene_detector.detect_scenes(
-                video_path,
-                transcript_segments=[],
-                video_metadata=video_metadata,
-                threshold=0.25,
-            ),
-        )
-        context.data["scenes"] = list(scenes)
-        context.data["scene_count"] = len(scenes)
+            scenes = await self._run_context_step(
+                context,
+                step_name="DetectKnowledgeScenesStep",
+                operation=lambda: self._scene_detector.detect_scenes(
+                    video_path,
+                    transcript_segments=[],
+                    video_metadata=video_metadata,
+                    threshold=0.25,
+                ),
+            )
+            context.data["scenes"] = list(scenes)
+            context.data["scene_count"] = len(scenes)
 
-        analyses = await self._run_context_step(
-            context,
-            step_name="AnalyzeKnowledgeFramesStep",
-            operation=lambda: self._analyze_visual_scenes(
-                context=context,
-                video_path=video_path,
-                scenes=scenes,
-                video_metadata=video_metadata,
-            ),
-        )
-        context.data["scene_analyses"] = analyses
+            analyses = await self._run_context_step(
+                context,
+                step_name="AnalyzeKnowledgeFramesStep",
+                operation=lambda: self._analyze_visual_scenes(
+                    context=context,
+                    video_path=video_path,
+                    scenes=scenes,
+                    video_metadata=video_metadata,
+                ),
+            )
+            context.data["scene_analyses"] = analyses
 
-        units = await self._run_context_step(
-            context,
-            step_name="BuildUnifiedRetrievalUnitsStep",
-            operation=lambda: self._build_units_from_visual_scene(
-                video_metadata=video_metadata,
-                scenes=scenes,
-                scene_analyses=analyses,
-                video_path=video_path,
-            ),
-        )
-        context.data["units"] = units
+            units = await self._run_context_step(
+                context,
+                step_name="BuildUnifiedRetrievalUnitsStep",
+                operation=lambda: self._build_units_from_visual_scene(
+                    video_metadata=video_metadata,
+                    scenes=scenes,
+                    scene_analyses=analyses,
+                    video_path=video_path,
+                ),
+            )
+            context.data["units"] = units
 
-        embedded_units = await self._run_context_step(
-            context,
-            step_name="EmbedUnifiedUnitsStep",
-            operation=lambda: self._embed_units(units),
-        )
-        context.data["embedded_units"] = embedded_units
+            embedded_units = await self._run_context_step(
+                context,
+                step_name="EmbedUnifiedUnitsStep",
+                operation=lambda: self._embed_units(units),
+            )
+            context.data["embedded_units"] = embedded_units
 
-        stored_unified_video, stored_units = await self._run_context_step(
-            context,
-            step_name="PersistUnifiedUnitsStep",
-            operation=lambda: self._persist_units(
-                video=video_metadata,
-                owner_id=owner_id,
-                units=embedded_units,
-                job_id=job_id,
-            ),
-        )
-        context.data["stored_unified_video"] = stored_unified_video
-        context.data["stored_unified_units"] = stored_units
-        context.data["indexed_unit_count"] = len(stored_units)
-        context.data["job_status"] = "completed"
-        context.data["job_artifacts"] = {
-            "video_id": stored_unified_video["id"],
-            "units_created": len(stored_units),
-            "source": stored_unified_video["source"],
-        }
-        await self._run_context_step(
-            context,
-            step_name="MarkUnifiedJobCompletedStep",
-            operation=self._noop_operation,
-        )
-        return context
+            stored_unified_video, stored_units = await self._run_context_step(
+                context,
+                step_name="PersistUnifiedUnitsStep",
+                operation=lambda: self._persist_units(
+                    video=video_metadata,
+                    owner_id=owner_id,
+                    units=embedded_units,
+                    job_id=job_id,
+                ),
+            )
+            context.data["stored_unified_video"] = stored_unified_video
+            context.data["stored_unified_units"] = stored_units
+            context.data["indexed_unit_count"] = len(stored_units)
+            context.data["job_status"] = "completed"
+            context.data["job_artifacts"] = {
+                "video_id": stored_unified_video["id"],
+                "units_created": len(stored_units),
+                "source": stored_unified_video["source"],
+            }
+            await self._run_context_step(
+                context,
+                step_name="MarkUnifiedJobCompletedStep",
+                operation=self._noop_operation,
+            )
+            return context
+        finally:
+            if temp_dir is not None:
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
     async def _run_context_step(
         self,

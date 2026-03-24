@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.auth import AuthContext, require_api_key
@@ -638,6 +640,28 @@ def test_submit_index_rejects_malformed_direct_video_host(database) -> None:
 
     assert response.status_code == 422
     assert response.json()["error"]["message"] == "Direct video host could not be resolved"
+
+
+def test_resolve_source_rejects_lookalike_pexels_host(database) -> None:
+    del database
+    service = UnifiedIndexService(None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.resolve_source("https://pexels.com.evil.example/video/demo-123/")
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "Unsupported URL format"
+
+
+def test_resolve_source_rejects_lookalike_pixabay_host(database) -> None:
+    del database
+    service = UnifiedIndexService(None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.resolve_source("https://notpixabay.com/videos/id-123/")
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "Unsupported URL format"
 
 
 def test_delete_indexed_video_removes_owner_access_and_video(database) -> None:

@@ -407,7 +407,7 @@ class UnifiedIndexService:
 
     def resolve_source(self, url: str) -> dict[str, str]:
         parsed = urlparse(url)
-        host = parsed.netloc.lower()
+        hostname = str(parsed.hostname or "").strip().lower()
         path = parsed.path.strip()
 
         youtube_id = self._extract_youtube_video_id(parsed)
@@ -415,11 +415,11 @@ class UnifiedIndexService:
             return {"source": "youtube", "source_video_id": youtube_id}
 
         pexels_match = re.search(r"/video/[^/]*-([0-9]+)/?$", path)
-        if "pexels.com" in host and pexels_match is not None:
+        if self._host_matches_domain(hostname, "pexels.com") and pexels_match is not None:
             return {"source": "pexels", "source_video_id": pexels_match.group(1)}
 
         pixabay_match = re.search(r"/videos/(?:[^/]*-)?([0-9]+)/?$", path)
-        if "pixabay.com" in host and pixabay_match is not None:
+        if self._host_matches_domain(hostname, "pixabay.com") and pixabay_match is not None:
             return {"source": "pixabay", "source_video_id": pixabay_match.group(1)}
 
         if path.lower().endswith(DIRECT_VIDEO_EXTENSIONS):
@@ -430,6 +430,15 @@ class UnifiedIndexService:
             }
 
         raise HTTPException(status_code=422, detail="Unsupported URL format")
+
+    def _host_matches_domain(self, hostname: str, domain: str) -> bool:
+        if not hostname:
+            return False
+        normalized_host = hostname.rstrip(".")
+        normalized_domain = domain.rstrip(".")
+        return normalized_host == normalized_domain or normalized_host.endswith(
+            f".{normalized_domain}"
+        )
 
     def generate_request_id(self) -> str:
         return f"req_{secrets.token_hex(12)}"

@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from workers.common.pipeline import PipelineContext
-from workers.unified import InMemoryUnifiedRepository, UnifiedIndexingPipeline
+from workers.unified import (
+    AsyncpgUnifiedRepository,
+    InMemoryUnifiedRepository,
+    UnifiedIndexingPipeline,
+)
 
 
 def run_async(coro):
@@ -125,6 +129,33 @@ class CancelDuringPersistRepository(InMemoryUnifiedRepository):
     async def job_exists(self, job_id: str | None) -> bool:
         self._job_exists_calls += 1
         return self._job_exists_calls < 3
+
+
+class _FakeTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class FakeUnifiedRepositoryConnection:
+    def __init__(self, update_result: str) -> None:
+        self.update_result = update_result
+        self.execute_calls: list[tuple[str, tuple[object, ...]]] = []
+        self.closed = False
+
+    def transaction(self) -> _FakeTransaction:
+        return _FakeTransaction()
+
+    async def execute(self, query: str, *params: object) -> str:
+        self.execute_calls.append((query, params))
+        if "UPDATE processing_jobs" in query:
+            return self.update_result
+        return "INSERT 0 1"
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 def test_unified_pipeline_transforms_knowledge_segments_into_retrieval_units() -> None:
@@ -511,6 +542,39 @@ def test_unified_pipeline_builds_visual_units_for_direct_video(tmp_path) -> None
     assert frame_uploader.calls[0][1][0][0] == 0
     assert frame_uploader.calls[0][1][0][1].endswith("/frame-000.jpg")
     assert summary_generator.calls[0]["source"] == "upload"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_unified_pipeline_cleans_temp_dir_after_visual_pipeline_failure(tmp_path) -> None:
+    repository = InMemoryUnifiedRepository()
+    pipeline = UnifiedIndexingPipeline(
+        repository=repository,
+        embedding_backend=StubEmbeddingBackend(),
+        frame_analyzer=StubFrameAnalyzer(),
+        scene_detector=StubSceneDetector(),
+        summary_generator=StubSummaryGenerator(),
+        video_downloader=StubVideoDownloader(),
+        temp_dir_root=str(tmp_path),
+    )
+
+    with patch.object(
+        pipeline,
+        "_probe_duration_seconds",
+        AsyncMock(return_value=4 * 60 * 60 + 1),
+    ):
+        with pytest.raises(ValueError, match="4 hours"):
+            run_async(
+                pipeline.run(
+                    url="https://cdn.example.com/too-long.mp4",
+                    source="upload",
+                    source_video_id="upload-too-long",
+                    owner_id="user-456",
+                    job_id="job-upload-fail",
+                    conf=None,
+                )
+            )
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_unified_pipeline_uploads_segment_keyframes_when_r2_is_available(tmp_path) -> None:
@@ -893,3 +957,21 @@ def test_unified_pipeline_rejects_videos_longer_than_four_hours(tmp_path) -> Non
                         conf=None,
                     )
                 )
+
+
+def test_asyncpg_unified_repository_skips_completion_step_for_cancelled_job() -> None:
+    repository = AsyncpgUnifiedRepository("postgresql://example")
+    connection = FakeUnifiedRepositoryConnection(update_result="UPDATE 0")
+
+    with patch.object(repository, "job_exists", AsyncMock(return_value=True)):
+        with patch.object(repository, "_connect", AsyncMock(return_value=connection)):
+            run_async(
+                repository.mark_job_completed(
+                    "11111111-1111-1111-1111-111111111111",
+                    {"units_created": 3},
+                )
+            )
+
+    assert len(connection.execute_calls) == 1
+    assert "UPDATE processing_jobs" in connection.execute_calls[0][0]
+    assert connection.closed is True

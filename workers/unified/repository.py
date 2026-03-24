@@ -329,7 +329,7 @@ class AsyncpgUnifiedRepository:
         connection = await self._connect()
         try:
             async with connection.transaction():
-                await connection.execute(
+                update_result = await connection.execute(
                     """
                     UPDATE processing_jobs
                     SET
@@ -341,9 +341,15 @@ class AsyncpgUnifiedRepository:
                         locked_at = NULL,
                         updated_at = NOW()
                     WHERE id = $1::uuid
+                      AND COALESCE(
+                          (input_payload->>'cancelled_by_user')::boolean,
+                          FALSE
+                      ) = FALSE
                     """,
                     job_id,
                 )
+                if str(update_result).endswith("0"):
+                    return
                 await connection.execute(
                     """
                     INSERT INTO processing_job_steps (
