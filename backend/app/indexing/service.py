@@ -470,7 +470,7 @@ class UnifiedIndexService:
                 ) from None
             try:
                 infos = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-            except socket.gaierror as exc:
+            except (socket.gaierror, UnicodeError) as exc:
                 raise HTTPException(
                     status_code=422,
                     detail="Direct video host could not be resolved.",

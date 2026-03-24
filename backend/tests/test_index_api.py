@@ -625,6 +625,21 @@ def test_submit_index_rejects_private_direct_video_host(database) -> None:
     )
 
 
+def test_submit_index_rejects_malformed_direct_video_host(database) -> None:
+    app.dependency_overrides[require_api_key] = override_auth
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/index",
+            json={"url": "https://example..com/video.mp4"},
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json()["error"]["message"] == "Direct video host could not be resolved"
+
+
 def test_delete_indexed_video_removes_owner_access_and_video(database) -> None:
     app.dependency_overrides[require_api_key] = override_auth
 
