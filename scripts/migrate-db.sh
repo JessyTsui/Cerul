@@ -218,6 +218,9 @@ migration_matches_schema() {
     004_admin_console.sql)
       result="$(psql_query "SELECT CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'user_profiles' AND column_name = 'console_role') AND to_regclass('public.admin_metric_targets') IS NOT NULL THEN 'true' ELSE 'false' END")"
       ;;
+    010_hnsw_index.sql)
+      result="$(psql_query "SELECT CASE WHEN (SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'retrieval_units' AND a.attname = 'embedding' AND a.attnum > 0 AND NOT a.attisdropped) = 'vector(3072)' THEN 'true' ELSE 'false' END")"
+      ;;
     *)
       result="false"
       ;;
