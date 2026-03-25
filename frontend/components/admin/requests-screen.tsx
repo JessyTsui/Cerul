@@ -24,12 +24,7 @@ export function AdminRequestsScreen() {
       title="Requests"
       description="API demand, latency, and search quality."
       actions={
-        <>
-          <AdminRangePicker value={range} onChange={setRange} />
-          <button className="button-primary" onClick={() => void refresh()} type="button">
-            Refresh
-          </button>
-        </>
+        <AdminRangePicker value={range} onChange={setRange} />
       }
     >
       {isLoading && !data ? (

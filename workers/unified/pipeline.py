@@ -683,7 +683,14 @@ class UnifiedIndexingPipeline:
         )
 
         visual_unit_index = 0
+        try:
+            video_duration_seconds = float(stored_video.get("duration_seconds") or 0.0)
+        except (TypeError, ValueError):
+            video_duration_seconds = 0.0
         for segment in stored_segments:
+            segment_metadata = dict(segment.get("metadata") or {})
+            segment_title = str(segment.get("title") or stored_video["title"])
+            video_description = str(stored_video.get("description") or "").strip()
             transcript_text = str(segment.get("transcript_text") or "").strip()
             visual_desc = str(
                 segment.get("visual_description")
@@ -691,17 +698,47 @@ class UnifiedIndexingPipeline:
                 or ""
             ).strip()
             visible_text = str(segment.get("visual_text_content") or "").strip()
+            search_queries = str(
+                segment_metadata.get("search_queries")
+                or segment.get("search_queries")
+                or ""
+            ).strip()
+            if not search_queries:
+                search_queries = "; ".join(
+                    str(keyword).strip()
+                    for keyword in segment_metadata.get("keywords", [])
+                    if str(keyword).strip()
+                ).strip()
             speech_embedding = segment.get("embedding")
             segment_index = int(segment["segment_index"])
             keyframe_url = uploaded_urls.get(segment_index) or stored_video.get("thumbnail_url")
             if transcript_text and speech_embedding is not None:
+                use_description_fallback = (
+                    len(transcript_text) < 50
+                    and bool(video_description)
+                    and 0 < video_duration_seconds < 120
+                )
+                speech_content_text = "\n".join(
+                    part
+                    for part in [
+                        segment_title,
+                        video_description if use_description_fallback else None,
+                        transcript_text,
+                    ]
+                    if part
+                )
+                speech_unit_embedding = (
+                    await self._embed_content_text(speech_content_text)
+                    if use_description_fallback
+                    else list(speech_embedding)
+                )
                 units.append(
                     {
                         "unit_type": "speech",
                         "unit_index": segment_index,
                         "timestamp_start": segment.get("timestamp_start"),
                         "timestamp_end": segment.get("timestamp_end"),
-                        "content_text": str(segment.get("title") or stored_video["title"]) + "\n" + transcript_text,
+                        "content_text": speech_content_text,
                         "transcript": transcript_text,
                         "visual_desc": visual_desc or None,
                         "visual_type": segment.get("visual_type"),
@@ -709,9 +746,12 @@ class UnifiedIndexingPipeline:
                         "metadata": {
                             "segment_title": segment.get("title"),
                             "visual_text_content": visible_text or None,
-                            "keywords": (segment.get("metadata") or {}).get("keywords", []),
+                            "keywords": segment_metadata.get("keywords", []),
+                            "speech_embedding_source": (
+                                "fallback_text" if use_description_fallback else "segment"
+                            ),
                         },
-                        "embedding": list(speech_embedding),
+                        "embedding": speech_unit_embedding,
                     }
                 )
 
@@ -722,6 +762,7 @@ class UnifiedIndexingPipeline:
                         str(stored_video["title"]),
                         visual_desc,
                         f"Visible text: {visible_text}" if visible_text else None,
+                        f"Search terms: {search_queries}" if search_queries else None,
                     ]
                     if part
                 )
@@ -749,6 +790,7 @@ class UnifiedIndexingPipeline:
                         "metadata": {
                             "visual_text_content": visible_text or None,
                             "segment_title": segment.get("title"),
+                            "search_queries": search_queries or None,
                             "embedding_source": (
                                 "segment"
                                 if segment.get("embedding") is not None
@@ -1150,6 +1192,14 @@ class UnifiedIndexingPipeline:
             embedded_units.append(payload)
         return embedded_units
 
+    async def _embed_content_text(self, content_text: str) -> list[float]:
+        return list(
+            await asyncio.to_thread(
+                self._embedding_backend.embed_text,
+                content_text,
+            )
+        )
+
     async def _embed_visual_unit(
         self,
         *,
@@ -1216,6 +1266,12 @@ class UnifiedIndexingPipeline:
         stored_video: Mapping[str, Any],
         stored_segments: Sequence[Mapping[str, Any]],
     ) -> tuple[str, str]:
+        description = str(stored_video.get("description") or "").strip()
+        try:
+            duration_seconds = float(stored_video.get("duration_seconds") or 0.0)
+        except (TypeError, ValueError):
+            duration_seconds = 0.0
+        description_text = description if duration_seconds < 120 else description
         transcript = " ".join(
             str(segment.get("transcript_text") or "").strip()
             for segment in stored_segments[:4]
@@ -1230,7 +1286,7 @@ class UnifiedIndexingPipeline:
             part
             for part in [
                 str(stored_video["title"]),
-                str(stored_video.get("description") or "").strip() or None,
+                description_text or None,
                 summarize_text(transcript, max_words=32) if transcript else None,
                 summarize_text(visual_descriptions, max_words=24)
                 if visual_descriptions
@@ -1240,7 +1296,7 @@ class UnifiedIndexingPipeline:
         )
         return await self._generate_summary_text(
             title=str(stored_video["title"]),
-            description=str(stored_video.get("description") or "").strip(),
+            description=description_text,
             source=str(stored_video.get("source") or "youtube"),
             duration_seconds=stored_video.get("duration_seconds"),
             transcript_excerpt=transcript,

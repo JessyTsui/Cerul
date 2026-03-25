@@ -24,12 +24,7 @@ export function AdminUsersScreen() {
       title="Users"
       description="Account growth, activity, and access distribution."
       actions={
-        <>
-          <AdminRangePicker value={range} onChange={setRange} />
-          <button className="button-primary" onClick={() => void refresh()} type="button">
-            Refresh
-          </button>
-        </>
+        <AdminRangePicker value={range} onChange={setRange} />
       }
     >
       {isLoading && !data ? (

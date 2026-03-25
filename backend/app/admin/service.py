@@ -2543,24 +2543,60 @@ async def fetch_worker_live(
     completed_rows = await db.fetch("""
         SELECT
             pj.id,
-            pj.input_payload->>'video_id'                          AS video_id,
+            COALESCE(
+                pj.input_payload->>'source_video_id',
+                pj.input_payload->'item'->>'video_id',
+                pj.input_payload->>'video_id'
+            )                                                       AS video_id,
             COALESCE(
                 v.title,
                 pj.input_payload->'source_metadata'->>'title',
+                pj.input_payload->'item'->>'title',
                 pj.input_payload->>'title',
-                pj.input_payload->>'video_id'
+                pj.input_payload->>'source_video_id'
             )                                                       AS title,
             pj.completed_at,
             pj.started_at,
             pj.created_at,
             pj.updated_at,
-            COUNT(ru.id)                                            AS segment_count
+            COUNT(ru.id) FILTER (WHERE ru.unit_type = 'speech')     AS segment_count
         FROM processing_jobs pj
-        LEFT JOIN videos v
-            ON v.id::text = pj.input_payload->>'video_id'
+        LEFT JOIN content_sources cs
+            ON cs.id = pj.source_id
+        LEFT JOIN LATERAL (
+            SELECT v.*
+            FROM videos v
+            WHERE v.source_video_id = COALESCE(
+                pj.input_payload->>'source_video_id',
+                pj.input_payload->'item'->>'video_id',
+                pj.input_payload->>'video_id'
+            )
+            ORDER BY
+                CASE
+                    WHEN COALESCE(
+                        NULLIF(BTRIM(pj.input_payload->>'source'), ''),
+                        NULLIF(BTRIM(cs.source_type), ''),
+                        NULLIF(BTRIM(cs.metadata->>'source_type'), ''),
+                        NULLIF(BTRIM(cs.metadata->>'provider'), ''),
+                        NULLIF(BTRIM(cs.metadata->>'source'), '')
+                    ) IS NOT NULL
+                    AND v.source = COALESCE(
+                        NULLIF(BTRIM(pj.input_payload->>'source'), ''),
+                        NULLIF(BTRIM(cs.source_type), ''),
+                        NULLIF(BTRIM(cs.metadata->>'source_type'), ''),
+                        NULLIF(BTRIM(cs.metadata->>'provider'), ''),
+                        NULLIF(BTRIM(cs.metadata->>'source'), '')
+                    )
+                    THEN 0
+                    ELSE 1
+                END,
+                v.updated_at DESC,
+                v.created_at DESC
+            LIMIT 1
+        ) v
+            ON TRUE
         LEFT JOIN retrieval_units ru
             ON ru.video_id = v.id
-            AND ru.unit_type = 'speech'
         WHERE pj.status = 'completed'
         GROUP BY pj.id, pj.input_payload, pj.completed_at, v.title
         ORDER BY pj.completed_at DESC NULLS LAST
