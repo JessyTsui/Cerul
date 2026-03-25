@@ -73,7 +73,8 @@ class UnifiedSearchService:
         if request.include_summary:
             allowed_unit_types.insert(0, "summary")
 
-        candidate_limit = min(max(request.max_results * 8, 24), 120)
+        candidate_limit_per_type = min(max(request.max_results * 8, 24), 120)
+        candidate_limit = candidate_limit_per_type * len(allowed_unit_types)
         candidate_rows = await self._fetch_unit_rows(
             filters=request.filters,
             query_vector=resolved_query_vector,

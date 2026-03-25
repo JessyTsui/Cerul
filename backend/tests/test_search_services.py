@@ -310,6 +310,7 @@ def test_unified_search_embeds_query_text_and_returns_tracking_url(
     assert "ru.unit_type = ANY($2::text[])" in database.fetch_calls[0][0]
     assert database.fetch_calls[0][1][0] == vector_to_literal(query_vector)
     assert database.fetch_calls[0][1][1] == ["speech", "visual"]
+    assert database.fetch_calls[0][1][-1] == 48
     assert "Resolved unified query vector with 3072 dimensions via fake-gemini" in caplog.text
 
 
@@ -515,6 +516,7 @@ def test_unified_search_can_include_summary_results_when_requested() -> None:
     assert len(database.fetch_calls) == 1
     assert "ru.unit_type = ANY($2::text[])" in database.fetch_calls[0][0]
     assert database.fetch_calls[0][1][1] == ["summary", "speech", "visual"]
+    assert database.fetch_calls[0][1][-1] == 72
 
 
 def test_unified_search_visual_snippet_prefers_scene_description_over_ocr() -> None:
