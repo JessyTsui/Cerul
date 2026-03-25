@@ -26,12 +26,7 @@ export function AdminOverviewScreen() {
       title="Overview"
       description="Demand, content, and worker health at a glance."
       actions={
-        <>
-          <AdminRangePicker value={range} onChange={setRange} />
-          <button className="button-primary" onClick={() => void refresh()} type="button">
-            Refresh
-          </button>
-        </>
+        <AdminRangePicker value={range} onChange={setRange} />
       }
     >
       {isLoading && !data ? (

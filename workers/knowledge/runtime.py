@@ -47,14 +47,18 @@ DEFAULT_FRAME_EXTRACTION_CACHE_SIZE = 512
 DEFAULT_GEMINI_FLASH_MODEL = "gemini-3.1-flash-image-preview"
 
 FRAME_ANNOTATION_PROMPT = """
-You are analyzing a screenshot from a technical talk, interview, demo, or keynote.
-Return JSON only with this exact schema:
+Analyze this screenshot from a tech video. Focus on WHAT is being shown, not how it looks.
+Return JSON only:
 {
-  "description": "1-2 sentences describing the frame",
-  "text_content": "All visible text from slides, charts, UI, numbers, bullets, or code",
-  "visual_type": "slide|chart|diagram|code|product_demo|whiteboard|other",
-  "key_entities": ["model", "product", "company", "metric"]
+  "description": "What concept/product/idea is demonstrated. 1-2 sentences.",
+  "search_queries": "5 short phrases a user would type to find this frame",
+  "text_content": "All visible text (slides, UI, code, charts)",
+  "visual_type": "slide|chart|diagram|code|product_demo|screencast|photo|other",
+  "key_entities": ["names of products, companies, people, or terms shown"]
 }
+For slides: describe the topic, not "a slide with text".
+For demos: describe what product does what.
+For charts: describe what data shows.
 """.strip()
 
 logger = logging.getLogger(__name__)
@@ -813,7 +817,11 @@ class GeminiFlashFrameAnnotator:
         model_name: str = DEFAULT_GEMINI_FLASH_MODEL,
         client: Any | None = None,
     ) -> None:
-        self._api_key = (api_key or os.getenv("GEMINI_API_KEY", "")).strip()
+        self._api_key = (
+            api_key
+            or os.getenv("GEMINI_FLASH_API_KEY", "").strip()
+            or os.getenv("GEMINI_API_KEY", "")
+        ).strip()
         self._model_name = model_name
         self._client = client
         self._sdk_types: Any | None = None
@@ -860,7 +868,17 @@ class GeminiFlashFrameAnnotator:
         if not self._api_key:
             raise RuntimeError("GEMINI_API_KEY is required for frame annotation.")
         genai_module = self._load_sdk()[0]
-        self._client = genai_module.Client(api_key=self._api_key)
+        base_url = os.getenv("GEMINI_FLASH_BASE_URL", os.getenv("GEMINI_BASE_URL", "")).strip()
+        api_version = os.getenv("GEMINI_FLASH_API_VERSION", os.getenv("GEMINI_API_VERSION", "")).strip()
+        http_options: dict[str, str] = {}
+        if base_url:
+            http_options["base_url"] = base_url
+        if api_version:
+            http_options["api_version"] = api_version
+        self._client = genai_module.Client(
+            api_key=self._api_key,
+            http_options=http_options if http_options else None,
+        )
         return self._client
 
     def _get_sdk_types(self) -> Any | None:
@@ -1192,11 +1210,17 @@ class HeuristicFrameAnalyzer:
             for frame_path in (prepared_scene.get("selected_frames") or [])
             if str(frame_path).strip()
         ]
+        annotation_search_queries = _extract_search_queries(
+            aggregated_annotation["search_queries"]
+        )
         return self._build_scene_result(
             scene_index=int(prepared_scene["scene_index"]),
             keywords=_merge_keywords(
                 prepared_scene.get("keywords") or [],
-                aggregated_annotation["visual_entities"],
+                [
+                    *annotation_search_queries,
+                    *aggregated_annotation["visual_entities"],
+                ],
             ),
             route=route,
             frame_paths=selected_frames if route != "text_only" else [],
@@ -1228,6 +1252,7 @@ class HeuristicFrameAnalyzer:
             visual_type=aggregated_annotation["visual_type"],
             visual_summary=aggregated_annotation["visual_description"] or fallback_visual_summary,
             visual_description=aggregated_annotation["visual_description"],
+            search_queries=aggregated_annotation["search_queries"],
             visual_text_content=aggregated_annotation["visual_text_content"],
             visual_entities=aggregated_annotation["visual_entities"],
         )
@@ -1346,6 +1371,7 @@ class HeuristicFrameAnalyzer:
         visual_type: str | None = None,
         visual_summary: str | None = None,
         visual_description: str | None = None,
+        search_queries: str | None = None,
         visual_text_content: str | None = None,
         visual_entities: Sequence[str] | None = None,
     ) -> dict[str, Any]:
@@ -1357,6 +1383,7 @@ class HeuristicFrameAnalyzer:
             "has_visual_embedding": has_visual_embedding,
             "visual_type": visual_type,
             "visual_description": visual_description,
+            "search_queries": search_queries,
             "visual_text_content": visual_text_content,
             "visual_entities": list(visual_entities or []),
             "candidate_frame_count": candidate_frame_count,
@@ -2667,6 +2694,7 @@ def _aggregate_frame_annotations(
         return {
             "visual_type": None,
             "visual_description": None,
+            "search_queries": None,
             "visual_text_content": None,
             "visual_entities": [],
         }
@@ -2688,10 +2716,16 @@ def _aggregate_frame_annotations(
         for annotation in annotations
         for entity in (annotation.get("visual_entities") or [])
     )
+    search_queries = _ordered_unique_strings(
+        query
+        for annotation in annotations
+        for query in _extract_search_queries(annotation.get("search_queries"))
+    )
 
     return {
         "visual_type": Counter(visual_types).most_common(1)[0][0] if visual_types else None,
         "visual_description": " ".join(descriptions[:2]).strip() or None,
+        "search_queries": "; ".join(search_queries[:8]).strip() or None,
         "visual_text_content": "\n".join(text_fragments[:3]).strip() or None,
         "visual_entities": visual_entities,
     }
@@ -2730,6 +2764,29 @@ def _merge_keywords(
     return merged
 
 
+def _extract_search_queries(value: Any) -> list[str]:
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        raw_values = list(value)
+    else:
+        raw_values = [value]
+
+    queries: list[str] = []
+    for raw_value in raw_values:
+        cleaned_value = str(raw_value or "").strip()
+        if not cleaned_value:
+            continue
+        fragments = re.split(r"[\n;,]+", cleaned_value)
+        for fragment in fragments:
+            normalized_fragment = re.sub(
+                r"^\s*(?:[-*]|\d+[.)])\s*",
+                "",
+                str(fragment or "").strip(),
+            ).strip()
+            if normalized_fragment:
+                queries.append(normalized_fragment)
+    return _ordered_unique_strings(queries)
+
+
 def _normalize_frame_annotation_payload(payload: Any) -> dict[str, Any]:
     if isinstance(payload, str):
         cleaned_payload = payload.strip()
@@ -2750,11 +2807,26 @@ def _normalize_frame_annotation_payload(payload: Any) -> dict[str, Any]:
         raw_entities = []
 
     visual_type = str(parsed_payload.get("visual_type") or "").strip().lower() or None
-    if visual_type not in {"slide", "chart", "diagram", "code", "product_demo", "whiteboard", "other", None}:
+    if visual_type not in {
+        "slide",
+        "chart",
+        "diagram",
+        "code",
+        "product_demo",
+        "screencast",
+        "photo",
+        "whiteboard",
+        "other",
+        None,
+    }:
         visual_type = "other"
 
     return {
         "description": str(parsed_payload.get("description") or "").strip() or None,
+        "search_queries": "; ".join(
+            _extract_search_queries(parsed_payload.get("search_queries"))
+        ).strip()
+        or None,
         "text_content": str(parsed_payload.get("text_content") or "").strip() or None,
         "visual_type": visual_type,
         "visual_entities": _ordered_unique_strings(raw_entities),

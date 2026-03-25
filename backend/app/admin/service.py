@@ -2543,12 +2543,17 @@ async def fetch_worker_live(
     completed_rows = await db.fetch("""
         SELECT
             pj.id,
-            pj.input_payload->>'video_id'                          AS video_id,
+            COALESCE(
+                pj.input_payload->>'source_video_id',
+                pj.input_payload->'item'->>'video_id',
+                pj.input_payload->>'video_id'
+            )                                                       AS video_id,
             COALESCE(
                 v.title,
                 pj.input_payload->'source_metadata'->>'title',
+                pj.input_payload->'item'->>'title',
                 pj.input_payload->>'title',
-                pj.input_payload->>'video_id'
+                pj.input_payload->>'source_video_id'
             )                                                       AS title,
             pj.completed_at,
             pj.started_at,
@@ -2557,10 +2562,13 @@ async def fetch_worker_live(
             COUNT(ru.id)                                            AS segment_count
         FROM processing_jobs pj
         LEFT JOIN videos v
-            ON v.id::text = pj.input_payload->>'video_id'
+            ON v.source_video_id = COALESCE(
+                pj.input_payload->>'source_video_id',
+                pj.input_payload->'item'->>'video_id',
+                pj.input_payload->>'video_id'
+            )
         LEFT JOIN retrieval_units ru
             ON ru.video_id = v.id
-            AND ru.unit_type = 'speech'
         WHERE pj.status = 'completed'
         GROUP BY pj.id, pj.input_payload, pj.completed_at, v.title
         ORDER BY pj.completed_at DESC NULLS LAST

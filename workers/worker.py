@@ -20,7 +20,7 @@ from workers.unified import UnifiedIndexingPipeline
 
 LOGGER = logging.getLogger(__name__)
 MAX_STEP_LOG_ENTRIES = 25
-DEFAULT_WORKER_CONCURRENCY = 2
+DEFAULT_WORKER_CONCURRENCY = 6
 
 
 CLAIM_JOB_SQL = """

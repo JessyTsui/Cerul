@@ -112,12 +112,7 @@ export function AdminIngestionScreen() {
       title="Ingestion"
       description="Worker queue, source progress, and failure log."
       actions={
-        <>
-          <AdminRangePicker value={range} onChange={setRange} />
-          <button className="button-primary" onClick={() => void refresh()} type="button">
-            Refresh
-          </button>
-        </>
+        <AdminRangePicker value={range} onChange={setRange} />
       }
     >
       {isLoading && !data ? (

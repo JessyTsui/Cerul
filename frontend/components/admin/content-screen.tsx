@@ -24,12 +24,7 @@ export function AdminContentScreen() {
       title="Content"
       description="Indexed supply, growth, and source freshness."
       actions={
-        <>
-          <AdminRangePicker value={range} onChange={setRange} />
-          <button className="button-primary" onClick={() => void refresh()} type="button">
-            Refresh
-          </button>
-        </>
+        <AdminRangePicker value={range} onChange={setRange} />
       }
     >
       {isLoading && !data ? (
