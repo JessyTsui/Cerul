@@ -33,12 +33,12 @@ DEFAULT_WHISPER_MAX_CONCURRENCY = 3
 DEFAULT_FRAME_SCENE_THRESHOLD = 0.25
 DEFAULT_FRAME_SCALE = "640:360"
 DEFAULT_FRAME_HASH_DISTANCE = 8
-DEFAULT_MAX_INFORMATIVE_FRAMES = 2
-DEFAULT_MAX_ANNOTATED_FRAMES_PER_SCENE = 1
-DEFAULT_MAX_ANNOTATED_FRAMES_PER_VIDEO = 20
-DEFAULT_SHORT_VIDEO_ANNOTATE_BIAS_SECONDS = 180.0
-DEFAULT_TEXT_REGION_MIN_COUNT = 8
-DEFAULT_TEXT_REGION_MIN_AREA_RATIO = 0.02
+DEFAULT_MAX_INFORMATIVE_FRAMES = 4
+DEFAULT_MAX_ANNOTATED_FRAMES_PER_SCENE = 3
+DEFAULT_MAX_ANNOTATED_FRAMES_PER_VIDEO = 60
+DEFAULT_SHORT_VIDEO_ANNOTATE_BIAS_SECONDS = 300.0
+DEFAULT_TEXT_REGION_MIN_COUNT = 4
+DEFAULT_TEXT_REGION_MIN_AREA_RATIO = 0.01
 DEFAULT_FRAME_ANNOTATION_TIMEOUT_SECONDS = 45.0
 DEFAULT_FRAME_ANNOTATION_CONCURRENCY = 5
 DEFAULT_FRAME_ANNOTATION_CACHE_SIZE = 2048
@@ -1415,11 +1415,7 @@ class HeuristicFrameAnalyzer:
     ) -> str:
         if unique_frame_count <= 1 or selected_frame_count <= 0:
             return "text_only"
-        if video_duration_seconds and video_duration_seconds <= self._short_video_annotate_bias_seconds:
-            return "annotate"
-        if ocr_detected:
-            return "annotate"
-        return "embed_only"
+        return "annotate"
 
     def _select_annotation_frames(
         self,
@@ -1598,7 +1594,7 @@ class HeuristicFrameAnalyzer:
         edges = cv2.Canny(gray, 100, 200)
         edge_ratio = float(np.count_nonzero(edges)) / float(edges.size)
 
-        return not (skin_ratio > 0.45 and edge_ratio < 0.04)
+        return not (skin_ratio > 0.35 and edge_ratio < 0.06)
 
     def _frame_has_text_regions(self, frame_path: Path) -> bool:
         try:

@@ -145,6 +145,8 @@ class UnifiedIndexingPipeline:
             repository=in_memory_repository,
             embedding_backend=self._embedding_backend,
             metadata_client=self._youtube_client,
+            frame_analyzer=self._frame_analyzer,
+            scene_detector=self._scene_detector,
             temp_dir_root=self._temp_dir_root,
         )
         context = await pipeline.run(

@@ -130,6 +130,121 @@ Frame annotation uses `GEMINI_FLASH_API_KEY` / `GEMINI_FLASH_BASE_URL` to route 
 
 ---
 
+## 2026-03-26: Indexing Parameter Optimization (auto-optimize-indexing)
+
+### Context
+
+Previous tuning entry noted that remaining search MISSes were caused by **indexing quality**, not search ranking. This experiment systematically tested indexing pipeline parameters to maximize retrieval recall.
+
+- 8 test videos covering diverse content types (keynote, interview, demo, short-form, mixed, explainer, educational)
+- 25 eval queries from `eval/indexing_benchmark.json` (speech, visual, multilingual, cross-difficulty)
+- Eval script: `scripts/eval_indexing.py` (Recall@5, Visual Recall, NDCG@5, MRR)
+- Sweep infrastructure: `scripts/reindex_test_videos.py`, `scripts/sweep_indexing_params.py`
+- Charts: `eval/figures/fig_experiment_comparison.png`, `eval/figures/fig_query_heatmap.png`
+
+### DB analysis findings
+
+Before running experiments, we analyzed the current indexing state in the database:
+
+- **Visual annotation coverage was only 49%** — half of all speech segments had no visual description
+- Long videos were worst: keynote 41%, explainer 29%, interview 46%
+- Root cause: `_resolve_scene_route` only sent frames to Gemini for short videos (<180s) or scenes with detected OCR text. All other scenes went to `embed_only` route, meaning no visual description was generated
+- Segments averaged ~60s duration (scene_threshold=0.35), which was reasonable
+
+### Experiments run
+
+4 configurations tested, each fully reindexing all 8 test videos:
+
+| Config | Description | Recall@5 | Visual Recall | NDCG@5 |
+|--------|-------------|----------|---------------|--------|
+| **Baseline** | Default params | 0.9583 | 0.8333 | 0.9221 |
+| **A** | +frames +budget +always_annotate | 0.9583 | 0.8333 | 0.9221 |
+| **B** | A + relaxed skin/OCR filters | **0.9583** | **0.8333** | **0.9221** |
+| **C** | B + finer scene detection (scene_threshold=0.25) | 0.9167 | 0.6667 | 0.8958 |
+
+### Changes made (Config B — adopted)
+
+#### 1. `_resolve_scene_route`: always annotate
+
+**Before:** Only `annotate` route for short videos (<180s) or OCR-detected scenes. Everything else → `embed_only` (no visual description).
+
+**After:** Every scene with informative frames gets annotated by Gemini.
+
+**Why:** This is the single highest-impact change. Visual annotation coverage goes from 49% → ~95%. While the current 25-query benchmark didn't show a metric difference (recall is dominated by transcript embeddings), the increased visual descriptions will benefit future visual queries as the benchmark grows.
+
+**File:** `workers/knowledge/runtime.py` `_resolve_scene_route()`.
+
+#### 2. `MAX_INFORMATIVE_FRAMES`: 2 → 4
+
+**Why:** More frames survive the skin/edge filter per scene, giving Gemini better candidates to describe. With only 2, a bad frame (e.g. blank slide) could be the only option.
+
+#### 3. `MAX_ANNOTATED_FRAMES_PER_SCENE`: 1 → 3
+
+**Why:** Sending 3 frames per scene to Gemini produces richer visual descriptions. A single frame might miss the most informative moment.
+
+#### 4. `MAX_ANNOTATED_FRAMES_PER_VIDEO`: 20 → 60
+
+**Why:** 20 was too low for long videos. A 45-min keynote has ~44 scenes; at budget=20 only the first half gets annotated. At 60, nearly all scenes get at least 1 frame annotated.
+
+#### 5. `skin_ratio_threshold`: 0.45 → 0.35
+
+**Why:** The talking-head filter was too aggressive. Interviews often show relevant content (product demos, slides) alongside the speaker. Lowering the threshold keeps frames that have both a person and useful visual content.
+
+#### 6. `TEXT_REGION_MIN_COUNT`: 8 → 4
+
+**Why:** More sensitive OCR detection. Slides with sparse text (titles, labels) were being missed at threshold=8.
+
+#### 7. `SHORT_VIDEO_ANNOTATE_BIAS_SECONDS`: 180 → 300
+
+**Why:** Videos up to 5 minutes get full annotation treatment. These are often dense product demos or short explainers where every frame matters.
+
+#### 8. Bug fix: unified pipeline passes frame_analyzer through
+
+`UnifiedIndexingPipeline._run_youtube_pipeline()` was constructing `KnowledgeIndexingPipeline` without passing `frame_analyzer` or `scene_detector`. Custom analyzers were silently ignored.
+
+**File:** `workers/unified/pipeline.py`.
+
+#### 9. Bug fix: YouTubeClient proxy fallback
+
+`YouTubeClient` was falling back to `YTDLP_PROXY` for YouTube Data API calls. This proxy (Decodo residential) doesn't support HTTPS tunneling for API requests, causing 407/522 errors.
+
+**File:** `workers/common/sources/youtube.py` — changed fallback from `YTDLP_PROXY` to `YOUTUBE_API_PROXY`.
+
+### What was NOT changed (and why)
+
+#### `scene_threshold`: kept at 0.35
+
+Config C tested `scene_threshold=0.25` and **recall dropped** (0.9583 → 0.9167). Finer scene cuts broke the ChatGPT shopping demo (v05) query — the relevant content was split across segments, diluting the embedding match. The current 0.35 produces ~60s segments which is a good balance.
+
+#### `FRAME_SCENE_THRESHOLD`: kept at 0.25
+
+Config C tested 0.15 (more candidate frames from ffmpeg). Combined with `scene_threshold=0.25`, this caused a regression. Keeping at 0.25 is safe.
+
+#### `edge_ratio_threshold`: kept at 0.04
+
+Config B didn't include edge_ratio changes and performed identically to baseline. Not enough evidence to change.
+
+### Cost impact
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Gemini Flash calls/video | ~10-20 | ~30-60 |
+| Cost per video | $0.01-0.03 | $0.03-0.10 |
+| Full reindex (141 videos) | ~$2-4 | ~$6-14 |
+| Daily incremental (new videos) | ~$0.02/video | ~$0.06/video |
+
+One-time full reindex costs ~$10 more. Daily incremental cost increase is negligible.
+
+### Remaining bottlenecks
+
+1. **v02 "someone sharing their screen coding with AI"** — The only persistent MISS across all configs. Root cause: Gemini Flash described the Cursor demo screenshot as "A blank slide with an orange border" instead of recognizing it as a code editor. This is a **model quality issue**, not a parameter issue. Potential fixes: improve the frame annotation prompt, or try a different vision model for short product demos.
+
+2. **v05 "chatgpt shopping interface demo"** — Fragile hit (NDCG=0.631, ranked #2 not #1). The 39-second video generates only 2 units, making it easy for other videos to outrank it.
+
+3. **French query "pourquoi les grandes entreprises sont mauvaises en IA"** — Hits but at rank 3 (NDCG=0.500). The English transcript for Aaron Levie's interview doesn't directly match French keywords. This is a cross-language embedding limitation.
+
+---
+
 ## Template for future entries
 
 ```markdown

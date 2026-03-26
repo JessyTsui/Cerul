@@ -28,7 +28,7 @@ class YouTubeClient:
     ) -> None:
         self._api_key = api_key or os.getenv("YOUTUBE_API_KEY")
         self._timeout = timeout
-        self._proxy = proxy or os.getenv("YTDLP_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY") or None
+        self._proxy = proxy or os.getenv("YOUTUBE_API_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY") or None
 
     async def get_channels_info(
         self,
