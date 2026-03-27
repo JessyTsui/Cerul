@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any, Mapping, Sequence
 
-DEFAULT_GEMINI_FLASH_SUMMARY_MODEL = "gemini-2.0-flash"
+DEFAULT_GEMINI_FLASH_SUMMARY_MODEL = "gemini-2.5-flash-preview-05-20"
 
 SUMMARY_PROMPT_TEMPLATE = """You are generating one retrieval summary for a video.
 
