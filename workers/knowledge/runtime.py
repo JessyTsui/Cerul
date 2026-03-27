@@ -35,7 +35,7 @@ DEFAULT_FRAME_SCALE = "640:360"
 DEFAULT_FRAME_HASH_DISTANCE = 8
 DEFAULT_MAX_INFORMATIVE_FRAMES = 2
 DEFAULT_MAX_ANNOTATED_FRAMES_PER_SCENE = 1
-DEFAULT_MAX_ANNOTATED_FRAMES_PER_VIDEO = 20
+DEFAULT_MAX_ANNOTATED_FRAMES_PER_VIDEO = 0
 DEFAULT_SHORT_VIDEO_ANNOTATE_BIAS_SECONDS = 180.0
 DEFAULT_TEXT_REGION_MIN_COUNT = 8
 DEFAULT_TEXT_REGION_MIN_AREA_RATIO = 0.02
@@ -935,8 +935,8 @@ class HeuristicFrameAnalyzer:
         self._frame_scale = frame_scale
         self._hash_distance_threshold = hash_distance_threshold
         self._max_informative_frames = max(1, int(max_informative_frames))
-        self._max_annotated_frames_per_scene = max(1, int(max_annotated_frames_per_scene))
-        self._max_annotated_frames_per_video = max(1, int(max_annotated_frames_per_video))
+        self._max_annotated_frames_per_scene = max(0, int(max_annotated_frames_per_scene))
+        self._max_annotated_frames_per_video = max(0, int(max_annotated_frames_per_video))
         self._short_video_annotate_bias_seconds = max(
             float(short_video_annotate_bias_seconds),
             0.0,
@@ -1415,7 +1415,10 @@ class HeuristicFrameAnalyzer:
     ) -> str:
         if unique_frame_count <= 1 or selected_frame_count <= 0:
             return "text_only"
-        if video_duration_seconds and video_duration_seconds <= self._short_video_annotate_bias_seconds:
+        if (
+            video_duration_seconds
+            and video_duration_seconds <= self._short_video_annotate_bias_seconds
+        ):
             return "annotate"
         if ocr_detected:
             return "annotate"
