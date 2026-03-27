@@ -104,7 +104,10 @@ export function createWebhookRouter(): any {
     return db.transaction(async (tx) => {
       const inserted = await insertLoggedEvent(tx, stripeEventId, eventType, payload);
       if (inserted == null) {
-        const lockedEvent = await fetchLoggedEvent(tx, stripeEventId);
+        const lockedEvent = await tx.fetchrow(
+          `SELECT stripe_event_id, processed_at FROM stripe_events WHERE stripe_event_id = $1 FOR UPDATE`,
+          stripeEventId
+        );
         if (lockedEvent?.processed_at != null) {
           return c.json({ status: "duplicate", duplicate: true });
         }

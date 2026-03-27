@@ -1,7 +1,7 @@
 import type { DatabaseClient } from "../db/client";
 import type { AuthContext, Bindings, DeleteIndexResponse, IndexListResponse, IndexStatusResponse, SubmitIndexResponse } from "../types";
 import { apiError } from "../utils/http";
-import { randomHex } from "../utils/crypto";
+import { randomHex, sha256Hex } from "../utils/crypto";
 
 const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]);
 const DIRECT_VIDEO_EXTENSIONS = [".mp4", ".webm", ".mov", ".m4v"];
@@ -157,7 +157,7 @@ export class UnifiedIndexService {
     return `req_${randomHex(24)}`;
   }
 
-  resolveSource(url: string): { source: string; source_video_id: string } {
+  async resolveSource(url: string): Promise<{ source: string; source_video_id: string }> {
     let parsed: URL;
     try {
       parsed = new URL(url);
@@ -184,9 +184,10 @@ export class UnifiedIndexService {
 
     if (DIRECT_VIDEO_EXTENSIONS.some((extension) => path.toLowerCase().endsWith(extension))) {
       this.validateDirectVideoUrlStructure(parsed);
+      const urlHash = await sha256Hex(url);
       return {
         source: "upload",
-        source_video_id: crypto.randomUUID().replace(/-/g, "").slice(0, 24)
+        source_video_id: urlHash.slice(0, 24)
       };
     }
 
@@ -195,7 +196,7 @@ export class UnifiedIndexService {
 
   async submit(url: string, force: boolean, auth: AuthContext): Promise<SubmitIndexResponse> {
     await this.enforceSubmitRateLimit(auth.userId);
-    const resolved = this.resolveSource(url);
+    const resolved = await this.resolveSource(url);
     if (resolved.source === "upload") {
       await this.validateDirectVideoUrl(url);
     }

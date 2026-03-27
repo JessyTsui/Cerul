@@ -97,10 +97,14 @@ async function buildSearchRequestFromHttpRequest(request: Request): Promise<{ pa
     let image = null;
     const imageFile = form.get("image_file");
     if (imageFile instanceof File) {
-      image = await resolveImageToBytes({
-        fileBytes: new Uint8Array(await imageFile.arrayBuffer()),
-        fileContentType: imageFile.type
-      });
+      try {
+        image = await resolveImageToBytes({
+          fileBytes: new Uint8Array(await imageFile.arrayBuffer()),
+          fileContentType: imageFile.type
+        });
+      } catch (err) {
+        apiError(422, err instanceof Error ? err.message : "Invalid image file.");
+      }
     }
 
     const payload: Record<string, unknown> = {
@@ -134,12 +138,17 @@ async function buildSearchRequestFromHttpRequest(request: Request): Promise<{ pa
   }
   const payload = ensureJsonObject(rawPayload, "Request body must be a JSON object.");
   const validatedPayload = validateSearchRequest(payload);
-  const image = validatedPayload.image
-    ? await resolveImageToBytes({
-      url: validatedPayload.image.url ?? null,
-      base64: validatedPayload.image.base64 ?? null
-    })
-    : null;
+  let image: Awaited<ReturnType<typeof resolveImageToBytes>> | null = null;
+  if (validatedPayload.image) {
+    try {
+      image = await resolveImageToBytes({
+        url: validatedPayload.image.url ?? null,
+        base64: validatedPayload.image.base64 ?? null
+      });
+    } catch (err) {
+      apiError(422, err instanceof Error ? err.message : "Invalid image input.");
+    }
+  }
   return { payload: validatedPayload, image };
 }
 
