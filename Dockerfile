@@ -19,7 +19,10 @@ WORKDIR /app
 
 COPY backend/requirements.txt backend/requirements.txt
 COPY workers/requirements.txt workers/requirements.txt
-RUN pip install --no-cache-dir -r workers/requirements.txt
+# Install Python deps but skip yt-dlp (already pinned via curl above)
+RUN grep -v '^yt-dlp' workers/requirements.txt > /tmp/workers-filtered.txt \
+    && pip install --no-cache-dir -r /tmp/workers-filtered.txt \
+    && rm /tmp/workers-filtered.txt
 
 COPY backend/ backend/
 COPY workers/ workers/
