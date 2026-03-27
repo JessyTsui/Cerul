@@ -26,6 +26,8 @@ from workers.knowledge.runtime import (
     HeuristicFrameAnalyzer,
     HeuristicSceneDetector,
     HttpVideoDownloader,
+    KnowledgeVideoDownloader,
+    YtDlpVideoDownloader,
     extract_keywords,
     summarize_text,
 )
@@ -74,7 +76,7 @@ class UnifiedIndexingPipeline:
         pixabay_client: PixabayClient | None = None,
         frame_analyzer: HeuristicFrameAnalyzer | None = None,
         scene_detector: HeuristicSceneDetector | None = None,
-        video_downloader: HttpVideoDownloader | None = None,
+        video_downloader: KnowledgeVideoDownloader | None = None,
         summary_generator: GeminiFlashSummaryGenerator | None = None,
         frame_uploader: R2FrameUploader | None = None,
         temp_dir_root: str | None = None,
@@ -89,7 +91,7 @@ class UnifiedIndexingPipeline:
         self._pixabay_client = pixabay_client or PixabayClient()
         self._frame_analyzer = frame_analyzer or HeuristicFrameAnalyzer()
         self._scene_detector = scene_detector or HeuristicSceneDetector()
-        self._video_downloader = video_downloader or HttpVideoDownloader()
+        self._video_downloader = video_downloader or YtDlpVideoDownloader()
         self._summary_generator = summary_generator or GeminiFlashSummaryGenerator()
         self._frame_uploader = frame_uploader or R2FrameUploader()
         self._temp_dir_root = temp_dir_root
