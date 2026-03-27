@@ -24,3 +24,6 @@ ARCHITECTURE.md
 PIPELINE_PATTERN.md
 scripts/.seed_broll_state.json
 eval/.video_cache/
+eval/*_log.txt
+eval/*_details.json
+eval/*_results.tsv

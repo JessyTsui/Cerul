@@ -137,7 +137,7 @@ Frame annotation uses `GEMINI_FLASH_API_KEY` / `GEMINI_FLASH_BASE_URL` to route 
 Previous tuning entry noted that remaining search MISSes were caused by **indexing quality**, not search ranking. We ran three rounds of experiments on 8 test videos / 25 eval queries to find the best indexing strategy.
 
 - Benchmark: `eval/indexing_benchmark.json` (8 videos, 25 queries across speech/visual/multilingual)
-- Eval scripts: `scripts/eval_indexing.py`, `scripts/experiment_dense_visual_embed.py`
+- Eval scripts: `scripts/eval_indexing.py`, `scripts/experiment_dense_visual_embed.py`, `scripts/run_full_experiment.py`
 - Charts: `eval/figures/`
 
 ### Round 1: Parameter tuning (Gemini Flash annotation)
@@ -157,6 +157,8 @@ Tested whether increasing Gemini Flash annotation budget improves retrieval.
 
 Tested a new strategy: instead of paying Gemini Flash to describe frames in text, embed raw frames directly using Gemini Embedding 2's multimodal capability. Each frame becomes its own retrieval unit (transcript context + frame image → multimodal vector).
 
+**Initial experiment (1, 5, 10 frames):**
+
 | Config | Dense frames/seg | Extra units | Recall@5 | NDCG@5 | Extra cost |
 |--------|:---:|:---:|:---:|:---:|:---:|
 | Baseline | 0 | 0 | 0.9583 | 0.9138 | — |
@@ -164,19 +166,38 @@ Tested a new strategy: instead of paying Gemini Flash to describe frames in text
 | D: 5 frames | 5 | 832 | 0.9583 | **0.9375** | ~$0.001 |
 | E: 10 frames | 10 | 1664 | 0.9583 | **0.9375** | ~$0.002 |
 
-**Key finding: 1 frame/segment is sufficient.** NDCG jumps from 0.9138 → 0.9375 at 1 frame and plateaus. The fr01 French query flipped from MISS to HIT. 5 and 10 frames showed no additional improvement.
+**Fine-grained sweep (0–5 frames, completed 2026-03-27):**
+
+| Dense frames/seg | DB vectors | Recall@5 | NDCG@5 | MRR | Cost/video |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| 0 (baseline) | 0 | 0.9583 | 0.9138 | 0.8993 | $0.030 |
+| **1** | **167** | **0.9583** | **0.9375** | **0.9306** | **$0.0002** |
+| 2 | 333 | 0.9583 | 0.9375 | 0.9306 | $0.0004 |
+| 3 | 500 | 0.9583 | 0.9375 | 0.9306 | $0.0006 |
+| 4 | 663 | 0.9583 | 0.9375 | 0.9306 | $0.0008 |
+| 5 | 832 | 0.9583 | 0.9375 | 0.9306 | $0.001 |
+
+**Key finding: 1 frame/segment is sufficient.** NDCG jumps from 0.9138 → 0.9375 at 1 frame and plateaus completely through 1–5 frames. All metrics (Recall@5, NDCG@5, MRR) are identical across 1–5 frames. The improvement comes from two queries:
+- **fr01** (French, "pourquoi les grandes entreprises sont mauvaises en IA"): NDCG 0.500 → 1.000 (MISS→HIT)
+- **v05** (visual, "chatgpt shopping interface demo"): NDCG 0.431 → 0.500 (rank improved)
+
+**Decision: Use 1 frame/segment in production** (set `dense_visual_frames_per_segment: 1` in `config/base.yaml`). This minimizes DB storage and embedding cost while achieving full NDCG improvement. Currently set to 3 as a safety margin, but 1 is optimal on this benchmark.
+
+Charts: `eval/figures/frames_sweep_ndcg.png`, `eval/figures/per_query_ndcg_heatmap.png`
 
 ### Round 3: Can we remove Gemini Flash annotation entirely?
 
-Tested whether Gemini Flash annotation is needed when dense visual embedding is present.
+Tested whether Gemini Flash annotation is needed when dense visual embedding is present. Re-ran on 2026-03-27 with clean methodology (DB manipulation, no reindex variance).
 
-| Config | Flash annotation | Dense embed | Recall@5 | NDCG@5 |
-|--------|:---:|:---:|:---:|:---:|
-| Baseline | Yes (~20 calls) | No | 0.9583 | 0.9138 |
-| **No annotation + 5 dense embed** | **No (0 calls)** | **5 frames** | **0.9583** | **0.9375** |
-| Annotation + 5 dense embed | Yes (~20 calls) | 5 frames | 0.9583 | 0.9375 |
+| Config | Flash annotation | Dense embed | Recall@5 | Visual Recall | NDCG@5 | MRR |
+|--------|:---:|:---:|:---:|:---:|:---:|:---:|
+| Baseline (annotation only) | Yes (~20 calls) | No | 0.9583 | 0.8333 | 0.9138 | 0.8993 |
+| **No annotation + 3 dense** | **No (0 calls)** | **3 frames** | **0.9583** | **0.8333** | **0.9375** | **0.9306** |
+| Annotation + 3 dense | Yes (~20 calls) | 3 frames | 0.9583 | 0.8333 | 0.9375 | 0.9306 |
 
-**Conclusion: Gemini Flash annotation can be completely removed.** With dense visual embedding, annotation contributes zero additional retrieval quality. The multimodal embedding model handles text↔image matching natively.
+**Conclusion: Gemini Flash annotation can be completely removed.** All four metrics are identical between "no annotation + dense" and "annotation + dense". The multimodal embedding model handles text↔image matching natively, making text-based frame descriptions redundant for retrieval.
+
+Chart: `eval/figures/annotation_removal_comparison.png`
 
 ### Changes to adopt
 
@@ -215,11 +236,12 @@ Alternatively, keep minimal annotation (budget=5-10 per video) for generating `v
 
 ### Remaining work
 
-- [ ] Finalize dense frames/segment count (1 vs 3 vs 5 — experiment interrupted by network issues, need to sweep 2-4)
-- [ ] Integrate dense visual embedding into the production pipeline as a new step
-- [ ] Decide whether to keep Gemini Flash for UI metadata (visual_type) or remove entirely
+- [x] ~~Finalize dense frames/segment count~~ → **1 frame/segment is optimal** (sweep completed 2026-03-27)
+- [x] ~~Integrate dense visual embedding into production pipeline~~ → `DenseVisualEmbedStep` added (PR #87)
+- [x] ~~Decide on Gemini Flash annotation~~ → **Remove entirely** (confirmed zero retrieval impact)
 - [ ] Full reindex of 141 videos with new pipeline
 - [ ] v02 "screen coding with AI" still MISS — Gemini Embedding can't match text→code-editor-screenshot well enough
+- [ ] Consider reducing `dense_visual_frames_per_segment` from 3 to 1 in `config/base.yaml` (saves ~60% embedding cost with no quality loss on current benchmark)
 
 ---
 
