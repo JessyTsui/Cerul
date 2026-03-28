@@ -480,7 +480,7 @@ Visual units:
           "Cerul is built on modern infrastructure designed for scalability and reliability.",
         bullets: [
           "Frontend: Next.js 16 with React Server Components",
-          "API: FastAPI with async request handling",
+          "API: Hono running on Cloudflare Workers",
           "Database: Neon PostgreSQL with pgvector",
           "Search: Vector similarity with HNSW indexing",
           "Workers: Python for video processing and indexing",

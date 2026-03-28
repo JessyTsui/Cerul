@@ -29,7 +29,7 @@ Cerul has two tracks, `broll` and `knowledge`, but they should share one platfor
 Default architectural assumptions:
 
 - frontend: Next.js
-- backend: FastAPI
+- api: Hono on Cloudflare Workers
 - database: Neon PostgreSQL with pgvector
 - auth: Better Auth
 - heavy ingestion and media processing: Python workers
@@ -45,9 +45,9 @@ For agent integrations, keep the first phase simple:
 
 Keep these boundaries intact:
 
-- `backend/` handles request orchestration, auth, usage, and API responses
+- `api/` handles request orchestration, auth, usage, and API responses
 - `workers/` handles ingestion, indexing, and media-heavy processing
-- `backend/app/` holds backend domain modules and shared backend logic
+- `workers/common/` holds shared Python runtime helpers used by workers and evaluation scripts
 - frontend pages should not become the primary business logic layer
 
 Worker-side ingestion should continue to follow a shared step-pipeline approach:
@@ -73,7 +73,7 @@ Do not commit:
 If material is useful internally but not suitable for the repository, keep it under the local private workspace rather than adding it here.
 
 ## Project Structure & Module Organization
-Cerul is organized as a lightweight monorepo with root-level product entrypoints. Put the Next.js app in `frontend/` (`app/`, `components/`, `lib/`) and the FastAPI app in `backend/` (`app/routers`, `app/services`, `app/middleware`). Backend domain modules live under `backend/app/` (`auth/`, `billing/`, `db/`, `embedding/`, `search/`, `telemetry/`). Shared pipeline infrastructure belongs in `workers/common/pipeline`, while track-specific indexing flows live in `workers/broll` and `workers/knowledge`. Keep public-safe docs in `docs/`, migrations and seed data in `db/`, installable agent skills in `skills/`, public-safe config files in `config/`, and local automation scripts in `scripts/`.
+Cerul is organized as a lightweight monorepo with root-level product entrypoints. Put the Next.js app in `frontend/` (`app/`, `components/`, `lib/`) and the public API in `api/` (`src/routes`, `src/services`, `src/middleware`). Shared Python runtime helpers belong under `workers/common/` (`config/`, `embedding/`, `pipeline/`, `search/`, `sources/`, `storage.py`), while track-specific indexing flows live in `workers/broll` and `workers/knowledge`. Keep public-safe docs in `docs/`, migrations and seed data in `db/`, installable agent skills in `skills/`, public-safe config files in `config/`, and local automation scripts in `scripts/`.
 
 Do not create a top-level `sdk/` just to wrap Cerul's own backend calls. An SDK only belongs in the repo once there is a real public client package to ship and version independently. Until then, frontend code should call backend APIs directly, and agent integrations should prefer a documented skill plus direct HTTP access. Treat MCP the same way: it is a future adapter, not a required first-class module in the initial repository layout.
 
@@ -84,7 +84,7 @@ This repository is still scaffold-first: no root `package.json`, `pyproject.toml
 cp .env.example .env
 ```
 
-Use it to seed local secrets, runtime profile selection, and any optional env overrides before running new app code. Public-safe default config should live in `config/*.yaml`, not in `.env`. Frontend browser code must consume a derived public config subset rather than reading raw repo config files directly. When you add runnable modules, expose explicit commands close to that module and document them in both `README.md` and this file (for example, `pnpm --dir frontend dev` or `pytest backend`).
+Use it to seed local secrets, runtime profile selection, and any optional env overrides before running new app code. Public-safe default config should live in `config/*.yaml`, not in `.env`. Frontend browser code must consume a derived public config subset rather than reading raw repo config files directly. When you add runnable modules, expose explicit commands close to that module and document them in both `README.md` and this file (for example, `pnpm --dir frontend dev` or `npm --prefix api run check`).
 
 Current frontend commands:
 
@@ -96,13 +96,12 @@ pnpm --dir frontend test
 pnpm --dir frontend build
 ```
 
-Current backend commands:
+Current API commands:
 
 ```sh
-python3 -m venv backend/.venv
-backend/.venv/bin/python -m pip install -r backend/requirements.txt
-backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
-backend/.venv/bin/pytest backend/tests
+npm --prefix api install
+npm --prefix api run dev -- --env development --ip 127.0.0.1 --port 8787
+npm --prefix api run check
 ```
 
 Repository-level reset:
@@ -113,7 +112,7 @@ Repository-level reset:
 ```
 
 ## Coding Style & Naming Conventions
-Match the target stack. Use `snake_case` for Python modules, functions, and worker steps (`knowledge`, `scene_threshold`), and `PascalCase` for React components with `camelCase` helpers. Prefer 4-space indentation in Python and 2 spaces in TypeScript, JSON, and YAML. Keep files narrowly scoped: API routing stays in `backend/app/routers`, shared retrieval logic stays in `backend/app/search`, pipeline primitives stay in `workers/common/pipeline`, and app-only utilities stay inside the owning app.
+Match the target stack. Use `snake_case` for Python modules, functions, and worker steps (`knowledge`, `scene_threshold`), and `PascalCase` for React components with `camelCase` helpers. Prefer 4-space indentation in Python and 2 spaces in TypeScript, JSON, and YAML. Keep files narrowly scoped: API routing stays in `api/src/routes`, shared worker-side retrieval logic stays in `workers/common/search`, pipeline primitives stay in `workers/common/pipeline`, and app-only utilities stay inside the owning app.
 
 Additional Cerul-specific expectations:
 
@@ -167,7 +166,7 @@ Commit messages should be short, imperative, and in English.
 
 Good patterns:
 
-- `Add initial FastAPI entrypoint`
+- `Add initial API route`
 - `Fix API key hash lookup`
 - `Document public repo scope`
 - `Refactor pipeline context handling`

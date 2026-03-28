@@ -1,9 +1,6 @@
 import os
 
-try:
-    from app.config import get_settings
-except ImportError:  # pragma: no cover - worker-side import path
-    from backend.app.config import get_settings
+from workers.common.config import get_settings
 
 from .base import EmbeddingBackend
 from .clip import ClipEmbeddingBackend

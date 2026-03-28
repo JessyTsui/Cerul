@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.app.config import reset_settings_cache
-from backend.app.embedding import GeminiEmbeddingBackend
+from workers.common.config import reset_settings_cache
+from workers.common.embedding import GeminiEmbeddingBackend
 from workers.common.pipeline import PipelineContext
 from workers.knowledge import InMemoryKnowledgeRepository, KnowledgeIndexingPipeline
 from workers.knowledge.pipeline import DEFAULT_KNOWLEDGE_EMBEDDING_DIMENSION

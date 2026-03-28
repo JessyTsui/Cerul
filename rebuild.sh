@@ -4,16 +4,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="${ROOT_DIR}/frontend"
-BACKEND_DIR="${ROOT_DIR}/backend"
-BACKEND_VENV="${BACKEND_DIR}/.venv"
+API_DIR="${ROOT_DIR}/api"
 WORKERS_DIR="${ROOT_DIR}/workers"
 WORKERS_VENV="${WORKERS_DIR}/.venv"
 FAST_MODE="false"
 SKIP_MIGRATIONS="false"
 ENV_FILE="${CERUL_ENV_FILE:-${ROOT_DIR}/.env}"
 
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-BACKEND_PORT="${BACKEND_PORT:-8000}"
+FRONTEND_PORT="${FRONTEND_PORT:-}"
+API_PORT="${API_PORT:-}"
 
 print_help() {
   cat <<'EOF'
@@ -57,9 +56,10 @@ if [ -f "${ENV_FILE}" ]; then
   set -a
   . "${ENV_FILE}"
   set +a
-  FRONTEND_PORT="${FRONTEND_PORT:-${WEB_PORT:-3000}}"
-  BACKEND_PORT="${BACKEND_PORT:-${API_PORT:-8000}}"
 fi
+
+FRONTEND_PORT="${FRONTEND_PORT:-${WEB_PORT:-3000}}"
+API_PORT="${API_PORT:-8787}"
 
 require_command() {
   local name="$1"
@@ -88,6 +88,13 @@ run_frontend_pnpm() {
   fi
 
   pnpm --dir "${FRONTEND_DIR}" "$@"
+}
+
+run_api_npm() {
+  (
+    cd "${API_DIR}"
+    npm "$@"
+  )
 }
 
 kill_port() {
@@ -121,6 +128,11 @@ kill_port() {
 }
 
 clean_frontend() {
+  if [ "${FAST_MODE}" = "true" ]; then
+    echo "[clean] Fast mode: keeping frontend caches."
+    return 0
+  fi
+
   echo "[clean] Removing frontend generated files..."
   rm -rf "${FRONTEND_DIR}/.next"
   rm -rf "${FRONTEND_DIR}/coverage"
@@ -128,38 +140,33 @@ clean_frontend() {
   rm -rf "${FRONTEND_DIR}/.turbo"
   rm -rf "${FRONTEND_DIR}/.vercel"
   rm -f "${FRONTEND_DIR}/tsconfig.tsbuildinfo"
-
-  if [ "${FAST_MODE}" = "false" ]; then
-    rm -rf "${FRONTEND_DIR}/node_modules"
-  fi
+  rm -rf "${FRONTEND_DIR}/node_modules"
 }
 
-clean_backend() {
-  echo "[clean] Removing backend generated files..."
-  find "${BACKEND_DIR}" -type d -name "__pycache__" -prune -exec rm -rf {} +
-  find "${BACKEND_DIR}" -type f -name "*.pyc" -delete
-  rm -rf "${BACKEND_DIR}/.pytest_cache"
-  rm -rf "${BACKEND_DIR}/.mypy_cache"
-  rm -rf "${BACKEND_DIR}/.ruff_cache"
-  rm -rf "${BACKEND_DIR}/htmlcov"
-  rm -f "${BACKEND_DIR}/.coverage"
-
-  if [ "${FAST_MODE}" = "false" ]; then
-    rm -rf "${BACKEND_VENV}"
+clean_api() {
+  if [ "${FAST_MODE}" = "true" ]; then
+    echo "[clean] Fast mode: keeping API caches."
+    return 0
   fi
+
+  echo "[clean] Removing API generated files..."
+  rm -rf "${API_DIR}/.wrangler"
+  rm -rf "${API_DIR}/node_modules"
 }
 
 clean_workers() {
+  if [ "${FAST_MODE}" = "true" ]; then
+    echo "[clean] Fast mode: keeping worker caches."
+    return 0
+  fi
+
   echo "[clean] Removing worker generated files..."
   find "${WORKERS_DIR}" -type d -name "__pycache__" -prune -exec rm -rf {} +
   find "${WORKERS_DIR}" -type f -name "*.pyc" -delete
   rm -rf "${WORKERS_DIR}/.pytest_cache"
   rm -rf "${WORKERS_DIR}/.mypy_cache"
   rm -rf "${WORKERS_DIR}/.ruff_cache"
-
-  if [ "${FAST_MODE}" = "false" ]; then
-    rm -rf "${WORKERS_VENV}"
-  fi
+  rm -rf "${WORKERS_VENV}"
 }
 
 install_frontend() {
@@ -168,13 +175,10 @@ install_frontend() {
   run_frontend_pnpm install --frozen-lockfile
 }
 
-install_backend() {
-  require_command python3
-  echo "[install] Creating backend virtualenv..."
-  python3 -m venv "${BACKEND_VENV}"
-  echo "[install] Installing backend dependencies..."
-  "${BACKEND_VENV}/bin/python" -m pip install --upgrade pip
-  "${BACKEND_VENV}/bin/python" -m pip install -r "${BACKEND_DIR}/requirements.txt"
+install_api() {
+  require_command npm
+  echo "[install] Installing API dependencies..."
+  run_api_npm ci
 }
 
 install_workers() {
@@ -231,22 +235,22 @@ echo "=========================================="
 echo "[rebuild] env file: ${ENV_FILE}"
 
 kill_port "${FRONTEND_PORT}"
-kill_port "${BACKEND_PORT}"
+kill_port "${API_PORT}"
 clean_frontend
-clean_backend
+clean_api
 clean_workers
 
 if [ "${FAST_MODE}" = "false" ]; then
   install_frontend
-  install_backend
+  install_api
   install_workers
 else
   if [ ! -d "${FRONTEND_DIR}/node_modules" ]; then
     install_frontend
   fi
 
-  if [ ! -x "${BACKEND_VENV}/bin/python" ]; then
-    install_backend
+  if [ ! -d "${API_DIR}/node_modules" ]; then
+    install_api
   fi
 
   if [ ! -x "${WORKERS_VENV}/bin/python" ]; then
@@ -255,6 +259,10 @@ else
 fi
 
 ensure_local_infra
+
+if [ "${FAST_MODE}" = "true" ]; then
+  SKIP_MIGRATIONS="true"
+fi
 run_migrations
 
 echo ""

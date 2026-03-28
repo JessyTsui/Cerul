@@ -114,8 +114,8 @@ curl "https://api.cerul.ai/v1/search" \
 
 ```text
 frontend/     Next.js app — landing page, docs, dashboard
-backend/      FastAPI service — API layer and core logic
-workers/      Indexing pipelines — video ingestion and processing
+api/          Hono / Cloudflare Workers API — public HTTP surface
+workers/      Indexing pipelines and shared Python runtime helpers
 docs/         Architecture, API specs, and runbooks
 db/           Migrations and seed data
 skills/       Agent skills for Codex / Claude-style clients
@@ -139,9 +139,9 @@ scripts/      Bootstrap and utility scripts
 ./rebuild.sh --env-file ./.env.production
 ./scripts/migrate-db.sh --env-file ./.env.production
 
-# Or run frontend and backend separately
+# Or run frontend and API separately
 pnpm --dir frontend dev
-backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload
+npm --prefix api run dev -- --env development --ip 127.0.0.1 --port 8787
 ```
 
 <details>
@@ -157,17 +157,12 @@ pnpm --dir frontend test
 pnpm --dir frontend build
 ```
 
-**Backend**
+**API**
 
 ```bash
-python3 -m venv backend/.venv
-backend/.venv/bin/python -m pip install -r backend/requirements.txt
-# Optional: run migrations explicitly when you only need a schema update
-./scripts/migrate-db.sh
-backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
-# Tests keep the same app environment and only swap the database.
-# By default they derive an isolated database from DATABASE_URL, e.g. cerul -> cerul_test.
-backend/.venv/bin/pytest backend/tests
+npm --prefix api install
+npm --prefix api run dev -- --env development --ip 127.0.0.1 --port 8787
+npm --prefix api run check
 ```
 
 **Workers**
@@ -190,7 +185,9 @@ Deploy the frontend on Vercel:
 2. Keep the included `frontend/vercel.json`
 3. Optionally set `NEXT_PUBLIC_SITE_URL` for custom domain metadata
 
-For backend or worker deployments, run `./scripts/migrate-db.sh` once against the target
+Deploy the API from `api/` with `wrangler deploy`.
+
+For API or worker deployments, run `./scripts/migrate-db.sh` once against the target
 database as a release/predeploy step before rolling out code that depends on the new schema.
 
 ## Project Status

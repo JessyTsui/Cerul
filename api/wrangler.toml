@@ -39,6 +39,24 @@ binding = "QUERY_IMAGES_BUCKET"
 bucket_name = "cerul-cdn"
 preview_bucket_name = "cerul-cdn"
 
+[env.development.vars]
+CERUL_ENV = "development"
+API_BASE_URL = "http://localhost:8787"
+WEB_BASE_URL = "http://localhost:3000"
+DEMO_MODE = "true"
+EMBEDDING_BACKEND = "gemini"
+EMBEDDING_MODEL = "gemini-embedding-2-preview"
+EMBEDDING_DIMENSION = "3072"
+EMBEDDING_NORMALIZE = "true"
+RERANK_MODEL = "jina-reranker-v3"
+R2_BUCKET_NAME = "cerul-cdn"
+R2_PUBLIC_URL = "https://cdn.cerul.ai"
+
+[[env.development.r2_buckets]]
+binding = "QUERY_IMAGES_BUCKET"
+bucket_name = "cerul-cdn"
+preview_bucket_name = "cerul-cdn"
+
 [env.staging]
 name = "cerul-api-staging"
 routes = [

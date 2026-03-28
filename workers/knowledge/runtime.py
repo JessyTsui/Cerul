@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from backend.app.config import get_settings
+from workers.common.config import get_settings
 from workers.common.sources.youtube import resolve_ytdlp_cookies_file
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"

@@ -21,9 +21,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-# Ensure repo root is on the path so backend imports work.
+# Ensure repo root is on the path so shared workers/common imports work.
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "backend"))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 # Load .env before any app imports.
 from dotenv import load_dotenv
@@ -32,13 +33,13 @@ load_dotenv(REPO_ROOT / ".env")
 
 import asyncpg
 
-from app.config import get_settings
-from app.embedding import create_embedding_backend
-from app.search.base import (
+from workers.common.config import get_settings
+from workers.common.embedding import create_embedding_backend
+from workers.common.search.base import (
     DEFAULT_KNOWLEDGE_VECTOR_DIMENSION,
     vector_to_literal,
 )
-from app.search.rerank import LLMReranker
+from workers.common.search.rerank import LLMReranker
 
 BENCHMARK_PATH = REPO_ROOT / "eval" / "search_benchmark.json"
 RESULTS_PATH = REPO_ROOT / "eval" / "results.tsv"

@@ -69,7 +69,7 @@ export function allowedWebOrigins(env: Bindings): string[] {
 export function getConfig(env: Bindings): AppConfig {
   const environment = firstNonEmpty(env.CERUL_ENV, "development") ?? "development";
   const webBaseUrl = firstNonEmpty(env.WEB_BASE_URL, env.NEXT_PUBLIC_SITE_URL, "http://localhost:3000") ?? "http://localhost:3000";
-  const apiBaseUrl = firstNonEmpty(env.API_BASE_URL, env.NEXT_PUBLIC_API_BASE_URL, "http://localhost:8000") ?? "http://localhost:8000";
+  const apiBaseUrl = firstNonEmpty(env.API_BASE_URL, env.NEXT_PUBLIC_API_BASE_URL, "http://localhost:8787") ?? "http://localhost:8787";
   const embeddingBackend = normalizeEmbeddingBackend(env.EMBEDDING_BACKEND);
 
   return {

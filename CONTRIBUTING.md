@@ -34,8 +34,8 @@ Please do not add an MCP layer unless there is a documented reason and a clear u
 
 ```text
 frontend/     Next.js application
-backend/      FastAPI service and backend modules
-workers/      Indexing pipelines and ingestion workers
+api/          Hono / Cloudflare Workers API
+workers/      Indexing pipelines, ingestion workers, and shared Python helpers
 docs/         Public project docs
 db/           Migrations and public-safe seeds
 skills/       Installable agent skills
@@ -70,7 +70,7 @@ Write commit messages in short, imperative English.
 
 Examples:
 
-- `Add initial FastAPI entrypoint`
+- `Add initial API route`
 - `Fix API key hash lookup`
 - `Document public repo scope`
 

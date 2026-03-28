@@ -24,17 +24,17 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "backend"))
-sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from dotenv import load_dotenv
 load_dotenv(REPO_ROOT / ".env")
 
 import asyncpg
 
-from app.config import get_settings
-from app.embedding import create_embedding_backend
-from app.search.base import DEFAULT_KNOWLEDGE_VECTOR_DIMENSION
+from workers.common.config import get_settings
+from workers.common.embedding import create_embedding_backend
+from workers.common.search.base import DEFAULT_KNOWLEDGE_VECTOR_DIMENSION
 
 from scripts.reindex_test_videos import IndexingConfig, reindex_videos, load_test_video_ids
 from scripts.eval_indexing import run_eval

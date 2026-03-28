@@ -27,8 +27,8 @@ FetchKnowledgeMetadataStep
 - `workers/knowledge/pipeline.py` — 组装 pipeline
 - `workers/knowledge/steps/` — 各 step 实现
 - `workers/knowledge/repository.py` — DB 写入（asyncpg）
-- `backend/app/search/knowledge.py` — 搜索服务
-- `backend/app/embedding/gemini.py` — Gemini embedding 封装（`embed_text`/`embed_image`/`embed_video` 已实现）
+- `api/src/services/search.ts` — 生产搜索服务
+- `workers/common/embedding/gemini.py` — Gemini embedding 封装（`embed_text`/`embed_image`/`embed_video` 已实现）
 
 启动 worker：
 ```bash

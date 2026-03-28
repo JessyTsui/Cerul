@@ -34,7 +34,7 @@ export const capabilityHighlights = [
     kicker: "Thin orchestration",
     title: "Keep the API layer narrow",
     description:
-      "FastAPI handles auth, usage, and response shaping. Ingestion, indexing, and media-heavy work stay in Python workers.",
+      "Hono on Cloudflare Workers handles auth, usage, and response shaping. Ingestion, indexing, and media-heavy work stay in Python workers.",
   },
   {
     kicker: "Replaceable models",

@@ -76,7 +76,7 @@ describe("fetchWithAuth", () => {
     );
   });
 
-  it("parses FastAPI detail errors for dashboard endpoints", async () => {
+  it("parses detail-style errors for dashboard endpoints", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({

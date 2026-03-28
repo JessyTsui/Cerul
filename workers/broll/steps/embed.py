@@ -1,4 +1,4 @@
-from backend.app.embedding import EmbeddingBackend
+from workers.common.embedding import EmbeddingBackend
 from workers.common.pipeline import PipelineContext, PipelineStep
 
 
