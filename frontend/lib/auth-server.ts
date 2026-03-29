@@ -154,6 +154,7 @@ export function getAuth() {
 
 async function runAuthOperationWithRecovery<T>(
   operation: (auth: ReturnType<typeof createAuth>) => Promise<T>,
+  retryOperation?: (auth: ReturnType<typeof createAuth>) => Promise<T>,
 ): Promise<T> {
   try {
     return await operation(getAuth());
@@ -165,7 +166,7 @@ async function runAuthOperationWithRecovery<T>(
     sessionCache.clear();
     await resetAuthDatabaseState();
 
-    return operation(getAuth());
+    return (retryOperation ?? operation)(getAuth());
   }
 }
 
@@ -177,8 +178,11 @@ export function getAuthRouteHandlers() {
       );
     },
     POST(request: Request) {
+      const retryRequest = request.clone();
+
       return runAuthOperationWithRecovery((auth) =>
         toNextJsHandler(auth).POST(request),
+        (auth) => toNextJsHandler(auth).POST(retryRequest),
       );
     },
   };
