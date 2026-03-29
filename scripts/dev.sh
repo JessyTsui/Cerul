@@ -13,6 +13,29 @@ FRONTEND_PORT="${FRONTEND_PORT:-}"
 API_HOST="${API_HOST:-127.0.0.1}"
 API_PORT="${API_PORT:-}"
 
+public_host_for_url() {
+  local host="$1"
+
+  case "${host}" in
+    ""|"0.0.0.0"|"::"|"[::]")
+      echo "127.0.0.1"
+      return 0
+      ;;
+    *:*)
+      if [[ "${host}" == \[*\] ]]; then
+        echo "${host}"
+      else
+        echo "[${host}]"
+      fi
+      return 0
+      ;;
+    *)
+      echo "${host}"
+      return 0
+      ;;
+  esac
+}
+
 load_env() {
   if [ -f "${ENV_FILE}" ]; then
     set -a
@@ -25,10 +48,14 @@ load_env() {
 
   export CERUL_ENV="${CERUL_ENV:-development}"
   export DEMO_MODE="${DEMO_MODE:-true}"
-  export WEB_BASE_URL="http://${FRONTEND_HOST}:${FRONTEND_PORT}"
-  export NEXT_PUBLIC_SITE_URL="${WEB_BASE_URL}"
-  export API_BASE_URL="http://${API_HOST}:${API_PORT}"
-  export NEXT_PUBLIC_API_BASE_URL="${API_BASE_URL}"
+
+  local default_web_base_url="http://$(public_host_for_url "${FRONTEND_HOST}"):${FRONTEND_PORT}"
+  local default_api_base_url="http://$(public_host_for_url "${API_HOST}"):${API_PORT}"
+
+  export WEB_BASE_URL="${WEB_BASE_URL:-${NEXT_PUBLIC_SITE_URL:-${default_web_base_url}}}"
+  export NEXT_PUBLIC_SITE_URL="${NEXT_PUBLIC_SITE_URL:-${WEB_BASE_URL}}"
+  export API_BASE_URL="${API_BASE_URL:-${NEXT_PUBLIC_API_BASE_URL:-${default_api_base_url}}}"
+  export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-${API_BASE_URL}}"
 }
 
 require_command() {
@@ -179,8 +206,8 @@ echo "=========================================="
 echo "  Cerul Development Environment"
 echo "=========================================="
 echo "[dev] env file: ${ENV_FILE}"
-echo "[dev] frontend: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
-echo "[dev] api:      http://${API_HOST}:${API_PORT}"
+echo "[dev] frontend: ${NEXT_PUBLIC_SITE_URL} (bind ${FRONTEND_HOST}:${FRONTEND_PORT})"
+echo "[dev] api:      ${NEXT_PUBLIC_API_BASE_URL} (bind ${API_HOST}:${API_PORT})"
 echo "[dev] worker:   use ./run-worker.sh separately"
 echo ""
 
