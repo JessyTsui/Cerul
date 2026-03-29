@@ -19,7 +19,7 @@ export function SiteHeader({ currentPath }: SiteHeaderProps) {
         </div>
 
         {/* Navigation - centered */}
-        <nav className="hidden items-center gap-1 lg:flex">
+        <nav className="hidden items-center gap-1 lg:flex lg:mx-6">
           {visibleNavigation.map((item) => {
             const isActive = isPrimaryNavigationActive(currentPath, item.href);
 
