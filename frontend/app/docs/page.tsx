@@ -29,9 +29,9 @@ const docsTocItems: TocItem[] = [
 ];
 
 const fastStartSteps = [
-  "Create an API key in the dashboard and keep it server-side.",
-  "Send one authenticated request to POST /v1/search.",
-  "Read GET /v1/usage before you automate higher traffic.",
+  "Sign up and create an API key from the dashboard.",
+  "Send a search request to POST /v1/search.",
+  "Check GET /v1/usage before you scale traffic.",
 ];
 
 export default function DocsPage() {
@@ -55,14 +55,14 @@ export default function DocsPage() {
                 </BlurFade>
                 <BlurFade delay={100}>
                   <h1 className="mt-5 text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
-                    Cerul API docs
+                    Build with Cerul
                   </h1>
                 </BlurFade>
                 <BlurFade delay={200}>
                   <p className="mt-4 max-w-3xl text-[16px] leading-8 text-[var(--foreground-secondary)]">
-                    Public guides and endpoint references for building against Cerul&apos;s
-                    video-search platform. Start with one authenticated request, understand the
-                    response envelope, and only move deeper when your integration needs it.
+                    Add video understanding to your AI agents with one API call.
+                    Search across visual scenes, speech, and on-screen text — get back
+                    timestamped results with relevance scores and source links.
                   </p>
                 </BlurFade>
 
@@ -110,17 +110,11 @@ export default function DocsPage() {
                     <CodeBlock
                       code={`curl "https://api.cerul.ai/v1/search" \\
   -H "Authorization: Bearer YOUR_CERUL_API_KEY" \\
-  -H "Content-Type: application/json" \\
   -d '{
-    "query": "Sam Altman views on AI video generation tools",
-    "max_results": 3,
-    "include_answer": true,
-    "filters": {
-      "speaker": "Sam Altman",
-      "source": "youtube"
-    }
+    "query": "Sam Altman views on AI video generation",
+    "include_answer": true
   }'`}
-                      filename="quickstart.sh"
+                      filename="search.sh"
                       language="bash"
                     />
                   </FadeIn>
@@ -142,7 +136,7 @@ export default function DocsPage() {
                     <div>
                       <span className="eyebrow">Getting started</span>
                       <h2 className="mt-3 text-2xl font-bold text-[var(--foreground)]">
-                        Read in the order most integrations happen
+                        Guides
                       </h2>
                     </div>
                     <Link

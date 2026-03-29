@@ -26,7 +26,7 @@ function isDocsTabActive(currentPath: string, href: string): boolean {
   }
 
   if (href === "/docs/quickstart") {
-    return currentPath.startsWith("/docs/quickstart") || currentPath.startsWith("/docs/architecture");
+    return currentPath.startsWith("/docs/quickstart");
   }
 
   return currentPath === href;

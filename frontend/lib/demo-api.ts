@@ -146,7 +146,7 @@ const templateResults: Record<DemoMode, Omit<DemoSearchResult, "score">[]> = {
       source: "Industry panel",
       detail:
         "Combines spoken analysis with a chart visible in the frame, useful for evidence-backed summaries.",
-      href: "/docs/architecture",
+      href: "/docs/search-api",
     },
   ],
   broll: [
