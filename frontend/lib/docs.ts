@@ -192,93 +192,6 @@ export const docsLandingSections = [
 
 export const docsPages: DocPage[] = [
   {
-    slug: "search-api",
-    title: "Search",
-    summary: "Full reference for POST /v1/search — parameters, filters, response fields, and examples.",
-    kicker: "API reference",
-    readingTime: "5 min",
-    sections: [
-      {
-        title: "Endpoint",
-        body:
-          "Send a POST request with a JSON body. Cerul returns ranked video segments that match your query across speech, visual, and summary evidence.",
-        code: `POST https://api.cerul.ai/v1/search
-Authorization: Bearer YOUR_CERUL_API_KEY`,
-        language: "http",
-        filename: "endpoint.http",
-      },
-      {
-        title: "Request body",
-        body:
-          "Only query is required. All other fields are optional.",
-        code: `{
-  "query": "string (required)",
-  "max_results": 10,         // 1–50, default 10
-  "include_answer": false,   // AI summary from matched evidence
-  "filters": {
-    "speaker": "string",
-    "source": "string",
-    "published_after": "YYYY-MM-DD",
-    "min_duration": 0,
-    "max_duration": 0
-  }
-}`,
-        language: "json",
-        filename: "params.json",
-      },
-      {
-        title: "Basic search",
-        body:
-          "The simplest request — just a query string.",
-        code: `curl "https://api.cerul.ai/v1/search" \\
-  -H "Authorization: Bearer YOUR_CERUL_API_KEY" \\
-  -d '{"query": "how transformers work explained visually"}'`,
-        language: "bash",
-        filename: "basic.sh",
-      },
-      {
-        title: "Search with answer",
-        body:
-          "Set include_answer to true to get a grounded summary synthesized from the matched evidence.",
-        code: `curl "https://api.cerul.ai/v1/search" \\
-  -H "Authorization: Bearer YOUR_CERUL_API_KEY" \\
-  -d '{
-    "query": "Sam Altman explains the AGI timeline",
-    "include_answer": true,
-    "max_results": 5
-  }'`,
-        language: "bash",
-        filename: "with-answer.sh",
-      },
-      {
-        title: "Response",
-        body:
-          "Each result in the array represents a matched video segment. The unit_type field tells you whether the match came from a summary, speech transcript, or visual keyframe.",
-        code: `{
-  "results": [{
-    "id": "string",
-    "score": 0.92,             // 0.0–1.0
-    "url": "string",           // Cerul tracking URL → redirects to source
-    "title": "string",
-    "snippet": "string",
-    "thumbnail_url": "string",
-    "source": "string",
-    "speaker": "string | null",
-    "timestamp_start": 1223.0,
-    "timestamp_end": 1345.0,
-    "unit_type": "speech"      // summary | speech | visual
-  }],
-  "answer": "string | null",   // only if include_answer: true
-  "credits_used": 1,
-  "credits_remaining": 999,
-  "request_id": "req_abc123xyz"
-}`,
-        language: "json",
-        filename: "response.json",
-      },
-    ],
-  },
-  {
     slug: "usage-api",
     title: "Usage",
     summary: "Monitor your credit balance, billing window, and rate limits with GET /v1/usage.",
@@ -456,18 +369,24 @@ export const docsFeatureCards: DocsFeatureCard[] = [
 
 export function getDocsSearchEntries(): DocsSearchEntry[] {
   return [
+    {
+      title: "Quickstart",
+      description: "Get your API key and make your first search request.",
+      href: "/docs",
+      category: "Get started",
+    },
+    {
+      title: "Search API",
+      description: "Full reference for POST /v1/search — parameters, filters, response fields.",
+      href: "/docs/search-api",
+      category: "API reference",
+    },
     ...docsPages.map((page) => ({
       title: page.title,
       description: page.summary,
       href: `/docs/${page.slug}`,
       category: page.kicker,
     })),
-    {
-      title: "Documentation overview",
-      description: "Landing page and quick navigation for the Cerul public docs.",
-      href: "/docs",
-      category: "Home",
-    },
     ...apiReferenceEndpoints.map((endpoint) => ({
       title: `${endpoint.method} ${endpoint.path}`,
       description: endpoint.title,
@@ -507,6 +426,13 @@ export const apiReferenceEndpoints: ApiReferenceEndpoint[] = [
         type: "boolean",
         required: "Optional",
         description: "Generate an AI summary grounded in the matched evidence. Default: false.",
+      },
+      {
+        name: "ranking_mode",
+        type: "string",
+        required: "Optional",
+        description:
+          "\"embedding\" (default) for vector similarity, or \"rerank\" for LLM-based reranking.",
       },
       {
         name: "filters",
