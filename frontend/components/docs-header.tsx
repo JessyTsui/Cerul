@@ -14,22 +14,14 @@ type DocsHeaderProps = {
 
 function isDocsTabActive(currentPath: string, href: string): boolean {
   if (href === "/docs") {
-    return currentPath === "/docs";
+    return currentPath === "/docs" || currentPath.startsWith("/docs/quickstart");
   }
 
   if (href === "/docs/api-reference") {
-    return (
-      currentPath.startsWith("/docs/api-reference")
-      || currentPath.startsWith("/docs/search-api")
-      || currentPath.startsWith("/docs/usage-api")
-    );
+    return currentPath.startsWith("/docs/api-reference");
   }
 
-  if (href === "/docs/quickstart") {
-    return currentPath.startsWith("/docs/quickstart");
-  }
-
-  return currentPath === href;
+  return currentPath === href || currentPath.startsWith(`${href}/`);
 }
 
 export function DocsHeader({ currentPath }: DocsHeaderProps) {
@@ -71,12 +63,6 @@ export function DocsHeader({ currentPath }: DocsHeaderProps) {
           <div className="flex items-center gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <BrandMark />
-              <Link
-                href="/docs"
-                className="hidden rounded-full border border-[var(--border)] bg-white/72 px-3 py-1 text-xs uppercase tracking-[0.16em] text-[var(--foreground-secondary)] md:inline-flex"
-              >
-                Docs
-              </Link>
             </div>
 
             <div className="hidden min-w-0 flex-1 items-center gap-2 lg:flex">

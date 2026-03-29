@@ -200,7 +200,7 @@ export default function HomePage() {
                       <Link href="/signup" className="button-gradient">
                         Get API key
                       </Link>
-                      <Link href="/docs/quickstart" className="button-secondary">
+                      <Link href="/docs" className="button-secondary">
                         Read quickstart
                       </Link>
                     </div>

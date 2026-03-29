@@ -18,7 +18,7 @@ export function SiteFooter() {
       links: [
         { label: "Documentation", href: "/docs" },
         { label: "API Reference", href: "/docs/api-reference" },
-        { label: "Quickstart", href: "/docs/quickstart" },
+        { label: "Quickstart", href: "/docs" },
         { label: "GitHub", href: "https://github.com/JessyTsui/cerul" },
       ],
     },

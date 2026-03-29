@@ -123,7 +123,7 @@ export const docsLandingSections = [
       "Send a natural-language query, get back timestamped video segments with relevance scores and source links. Cerul blends visual, speech, and summary evidence automatically.",
     list: [
       "query (required): natural-language search",
-      "max_results: 1–20 (default 5)",
+      "max_results: 1–50 (default 10)",
       "include_answer: AI-generated summary from matched evidence",
     ],
     code: `curl "${API_BASE_URL}/v1/search" \\
@@ -192,74 +192,6 @@ export const docsLandingSections = [
 
 export const docsPages: DocPage[] = [
   {
-    slug: "quickstart",
-    title: "Quickstart",
-    summary: "Get your API key and make your first search request in under 5 minutes.",
-    kicker: "Get started",
-    readingTime: "3 min",
-    sections: [
-      {
-        title: "Get your API key",
-        body:
-          "Sign up at cerul.ai and create an API key from the dashboard. The free tier gives you 1,000 requests per month — no credit card required.",
-        bullets: [
-          "Sign up at cerul.ai/signup",
-          "Go to Dashboard → Settings → API Keys",
-          "Create a key and copy it (starts with cerul_)",
-        ],
-      },
-      {
-        title: "Make your first search",
-        body:
-          "Replace YOUR_CERUL_API_KEY with your actual key. This searches across visual scenes, speech, and on-screen text in one call.",
-        code: `curl "https://api.cerul.ai/v1/search" \\
-  -H "Authorization: Bearer YOUR_CERUL_API_KEY" \\
-  -d '{
-    "query": "Sam Altman views on AI video generation",
-    "max_results": 3
-  }'`,
-        language: "bash",
-        filename: "search.sh",
-      },
-      {
-        title: "Understand the response",
-        body:
-          "Each result includes a relevance score, timestamps, source metadata, and a tracking URL that redirects to the original video.",
-        code: `{
-  "results": [
-    {
-      "id": "unit_hmtuvNfytjM_1223",
-      "score": 0.92,
-      "url": "https://cerul.ai/v/a8f3k2x",
-      "title": "Sam Altman on AGI Timeline",
-      "snippet": "AGI is coming sooner than most people expect.",
-      "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
-      "source": "youtube",
-      "speaker": "Sam Altman",
-      "timestamp_start": 1223.0,
-      "timestamp_end": 1345.0,
-      "unit_type": "speech"
-    }
-  ],
-  "credits_used": 1,
-  "credits_remaining": 999,
-  "request_id": "req_abc123xyz"
-}`,
-        language: "json",
-        filename: "response.json",
-      },
-      {
-        title: "Check your usage",
-        body:
-          "Monitor your request count and remaining quota before scaling traffic.",
-        code: `curl "https://api.cerul.ai/v1/usage" \\
-  -H "Authorization: Bearer YOUR_CERUL_API_KEY"`,
-        language: "bash",
-        filename: "usage.sh",
-      },
-    ],
-  },
-  {
     slug: "search-api",
     title: "Search",
     summary: "Full reference for POST /v1/search — parameters, filters, response fields, and examples.",
@@ -281,7 +213,7 @@ Authorization: Bearer YOUR_CERUL_API_KEY`,
           "Only query is required. All other fields are optional.",
         code: `{
   "query": "string (required)",
-  "max_results": 5,          // 1–20, default 5
+  "max_results": 10,         // 1–50, default 10
   "include_answer": false,   // AI summary from matched evidence
   "filters": {
     "speaker": "string",
@@ -349,14 +281,14 @@ Authorization: Bearer YOUR_CERUL_API_KEY`,
   {
     slug: "usage-api",
     title: "Usage",
-    summary: "Monitor your request count, remaining quota, and rate limits with GET /v1/usage.",
+    summary: "Monitor your credit balance, billing window, and rate limits with GET /v1/usage.",
     kicker: "API reference",
     readingTime: "2 min",
     sections: [
       {
         title: "Check usage",
         body:
-          "Returns your current billing period, request count, and rate limit. No request body needed.",
+          "Returns your current billing period, credit balance, active key count, and rate limit. No request body needed.",
         code: `curl "https://api.cerul.ai/v1/usage" \\
   -H "Authorization: Bearer YOUR_CERUL_API_KEY"`,
         language: "bash",
@@ -365,15 +297,16 @@ Authorization: Bearer YOUR_CERUL_API_KEY`,
       {
         title: "Response",
         body:
-          "The response includes your plan tier, billing window, and quota information.",
+          "The response includes your plan tier, billing window, credit balance, and active API key count.",
         code: `{
   "tier": "free",
   "period_start": "2026-03-01",
   "period_end": "2026-03-31",
-  "requests_limit": 1000,
-  "requests_used": 128,
-  "requests_remaining": 872,
-  "rate_limit_per_sec": 1
+  "credits_limit": 1000,
+  "credits_used": 128,
+  "credits_remaining": 872,
+  "rate_limit_per_sec": 1,
+  "api_keys_active": 1
 }`,
         language: "json",
         filename: "usage-response.json",
@@ -421,14 +354,8 @@ export const docsSidebarGroups: DocsNavGroup[] = [
     title: "Getting Started",
     items: [
       {
-        title: "Overview",
-        href: "/docs",
-        description: "Introduction and quick navigation",
-      },
-      {
         title: "Quickstart",
-        href: "/docs/quickstart",
-        slug: "quickstart",
+        href: "/docs",
         description: "Get your key and make the first request",
       },
     ],
@@ -459,16 +386,16 @@ export const docsSidebarGroups: DocsNavGroup[] = [
 ];
 
 export const docsShellTabs = [
-  { label: "Overview", href: "/docs" },
-  { label: "Quickstart", href: "/docs/quickstart" },
+  { label: "Quickstart", href: "/docs" },
+  { label: "Search", href: "/docs/search-api" },
+  { label: "Usage", href: "/docs/usage-api" },
   { label: "API Reference", href: "/docs/api-reference" },
-  { label: "Pricing", href: "/pricing" },
 ] as const;
 
 export const docsUtilityLinks = [
   {
     title: "Quickstart",
-    href: "/docs/quickstart",
+    href: "/docs",
     description: "Get your key and make the first request.",
   },
   {
@@ -486,7 +413,7 @@ export const docsUtilityLinks = [
 export const docsPopularTopics = [
   {
     title: "Make your first request",
-    href: "/docs/quickstart",
+    href: "/docs",
     description: "Get an API key and search videos in under 5 minutes.",
   },
   {
@@ -511,7 +438,7 @@ export const docsFeatureCards: DocsFeatureCard[] = [
     title: "Authentication",
     description: "Bearer token with API keys from the dashboard.",
     snippet: "Authorization: Bearer <KEY>",
-    href: "/docs/quickstart",
+    href: "/docs",
   },
   {
     title: "Search",
@@ -573,7 +500,7 @@ export const apiReferenceEndpoints: ApiReferenceEndpoint[] = [
         name: "max_results",
         type: "integer",
         required: "Optional",
-        description: "Number of results to return, 1–20. Default: 5.",
+        description: "Number of results to return, 1–50. Default: 10.",
       },
       {
         name: "include_answer",
@@ -733,19 +660,21 @@ console.log(data);`,
   "tier": "string",
   "period_start": "YYYY-MM-DD",
   "period_end": "YYYY-MM-DD",
-  "requests_limit": "integer",
-  "requests_used": "integer",
-  "requests_remaining": "integer",
-  "rate_limit_per_sec": "integer"
+  "credits_limit": "integer",
+  "credits_used": "integer",
+  "credits_remaining": "integer",
+  "rate_limit_per_sec": "integer",
+  "api_keys_active": "integer"
 }`,
     responseExample: `{
   "tier": "free",
   "period_start": "2026-03-01",
   "period_end": "2026-03-31",
-  "requests_limit": 1000,
-  "requests_used": 128,
-  "requests_remaining": 872,
-  "rate_limit_per_sec": 1
+  "credits_limit": 1000,
+  "credits_used": 128,
+  "credits_remaining": 872,
+  "rate_limit_per_sec": 1,
+  "api_keys_active": 1
 }`,
   },
 ] as const;

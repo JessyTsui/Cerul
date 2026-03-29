@@ -91,13 +91,10 @@ export default async function DocDetailPage({ params }: DocPageProps) {
 
                 <div className="mt-6 flex flex-wrap gap-3">
                   <Link href="/docs" className="button-secondary">
-                    Back to docs
+                    Quickstart
                   </Link>
                   <Link href="/docs/api-reference" className="button-secondary">
                     API Reference
-                  </Link>
-                  <Link href="/docs/quickstart" className="button-secondary">
-                    Quickstart
                   </Link>
                 </div>
 
@@ -165,7 +162,7 @@ export default async function DocDetailPage({ params }: DocPageProps) {
             subtitle="Jump to the part of the guide you need."
             actions={[
               { label: "Get API key", href: "/signup" },
-              { label: "Read quickstart", href: "/docs/quickstart" },
+              { label: "Quickstart", href: "/docs" },
             ]}
           />
         </div>

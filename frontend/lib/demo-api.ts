@@ -164,7 +164,7 @@ const templateResults: Record<DemoMode, Omit<DemoSearchResult, "score">[]> = {
       source: "Pixabay",
       detail:
         "Fast CLIP-style matching over preview frames without transcript requirements.",
-      href: "/docs/quickstart",
+      href: "/docs",
     },
   ],
   agent: [

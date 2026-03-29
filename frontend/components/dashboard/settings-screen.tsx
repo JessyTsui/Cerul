@@ -328,7 +328,7 @@ export function DashboardSettingsScreen() {
                       description: "Keep request shapes close to the settings surface users actually revisit.",
                     },
                     {
-                      href: "/docs/quickstart",
+                      href: "/docs",
                       title: "Quickstart guide",
                       description: "Walk through the first authenticated request before you scale traffic.",
                     },
