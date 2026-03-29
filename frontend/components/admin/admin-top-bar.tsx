@@ -7,11 +7,13 @@ import { UserAvatarMenu } from "./user-avatar-menu";
 
 type AdminTopBarProps = {
   currentPath: string;
+  title?: string;
 };
 
-export function AdminTopBar({ currentPath }: AdminTopBarProps) {
+export function AdminTopBar({ currentPath, title }: AdminTopBarProps) {
   const activeRoute =
     adminRoutes.find((item) => isAdminRouteActive(currentPath, item.href))?.label ??
+    title ??
     "Overview";
 
   return (

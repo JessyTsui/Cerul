@@ -12,6 +12,7 @@ import {
   fetchSourcesAnalytics,
   fetchSourcesRecentVideos,
   fetchWorkerLive,
+  fetchWorkerNodes,
   getVideoJobStatus,
   killJob,
   retryJob,
@@ -268,6 +269,11 @@ export function createAdminRouter(): any {
     const failedLimit = parseBoundedInteger(c.req.query("failed_limit"), "failed_limit", 10, 1, 100);
     const failedOffset = parseBoundedInteger(c.req.query("failed_offset"), "failed_offset", 0, 0);
     return c.json(await fetchWorkerLive(db, failedLimit, failedOffset));
+  });
+
+  router.get("/workers", async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    return c.json(await fetchWorkerNodes(db));
   });
 
   router.get("/videos", async (c: any) => {

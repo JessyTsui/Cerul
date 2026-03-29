@@ -60,10 +60,15 @@ function IconFilm({ className }: { className?: string }) {
   );
 }
 
-function IconDatabase({ className }: { className?: string }) {
+function IconServer({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+      <path
+        d="M4 6.5A1.5 1.5 0 015.5 5h13A1.5 1.5 0 0120 6.5v3A1.5 1.5 0 0118.5 11h-13A1.5 1.5 0 014 9.5v-3zm0 8A1.5 1.5 0 015.5 13h13a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5v-3zM8 8h.01M8 16h.01M12 8h6M12 16h6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+      />
     </svg>
   );
 }
@@ -91,7 +96,7 @@ const ROUTE_ICONS: Record<string, React.FC<{ className?: string }>> = {
   Requests: IconArrowPath,
   Users: IconUsers,
   Content: IconFilm,
-  Ingestion: IconDatabase,
+  Workers: IconServer,
   Sources: IconArchive,
   Targets: IconCog,
 };
@@ -123,7 +128,7 @@ export function AdminSidebar({ currentPath }: AdminSidebarProps) {
               Control Room
             </p>
             <p className="mt-3 text-sm leading-6 text-[var(--foreground-secondary)]">
-              Internal visibility for demand, ingestion, sources, and operator actions.
+              Internal visibility for demand, workers, content, and operator actions.
             </p>
             <Link
               href={"/dashboard" as Route}

@@ -7,6 +7,7 @@ import { AdminLayout } from "./admin-layout";
 import { AdminMetricCard } from "./admin-metric-card";
 import { AdminRangePicker } from "./admin-range-picker";
 import { AdminTrendChart } from "./admin-trend-chart";
+import { VideoLibraryPanel } from "./video-library-panel";
 import { DashboardNotice, DashboardSkeleton, DashboardState } from "@/components/dashboard/dashboard-state";
 import { useAdminResource } from "./use-admin-resource";
 
@@ -22,7 +23,7 @@ export function AdminContentScreen() {
     <AdminLayout
       currentPath="/admin/content"
       title="Content"
-      description="Indexed supply, growth, and source freshness."
+      description="Browse and manage indexed videos while tracking catalog growth and source freshness."
       actions={
         <AdminRangePicker value={range} onChange={setRange} />
       }
@@ -64,6 +65,8 @@ export function AdminContentScreen() {
             <AdminMetricCard label="Videos added" metric={data.metrics.knowledgeVideosAdded} />
             <AdminMetricCard label="Segments added" metric={data.metrics.knowledgeSegmentsAdded} />
           </section>
+
+          <VideoLibraryPanel />
 
           <AdminTrendChart
             title="Segment growth"
