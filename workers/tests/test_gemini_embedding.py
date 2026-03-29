@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.app.embedding import (
+from workers.common.embedding import (
     DEFAULT_GEMINI_EMBEDDING_DIMENSION,
     DEFAULT_GEMINI_EMBEDDING_MODEL,
     GeminiEmbeddingBackend,

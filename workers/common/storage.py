@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from backend.app.config import get_settings
+from workers.common.config import get_settings
 
 DEFAULT_R2_CONCURRENCY = 10
 

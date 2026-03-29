@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = "http://localhost:9104";
+const DEFAULT_API_BASE_URL = "http://localhost:8787";
 const CONSOLE_PROXY_PREFIX = "/api/console";
 const CONSOLE_PATH_PREFIXES = ["/dashboard", "/admin"] as const;
 

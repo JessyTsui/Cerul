@@ -47,7 +47,7 @@ describe("console proxy route", () => {
         email: "owner@example.com",
       },
     });
-    getBackendApiBaseUrlMock.mockReturnValue("http://127.0.0.1:8000");
+    getBackendApiBaseUrlMock.mockReturnValue("http://127.0.0.1:8787");
     isConsolePathMock.mockReturnValue(true);
   });
 
@@ -85,7 +85,7 @@ describe("console proxy route", () => {
 
     const [target, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];
     expect(target).toBeInstanceOf(URL);
-    expect(String(target)).toBe("http://127.0.0.1:8000/admin/targets?range=7d");
+    expect(String(target)).toBe("http://127.0.0.1:8787/admin/targets?range=7d");
     expect(init).toEqual(
       expect.objectContaining({
         method: "PUT",
@@ -107,7 +107,7 @@ describe("console proxy route", () => {
   });
 
   it("preserves a backend API base path prefix", async () => {
-    getBackendApiBaseUrlMock.mockReturnValue("http://127.0.0.1:8000/backend");
+    getBackendApiBaseUrlMock.mockReturnValue("http://127.0.0.1:8787/backend");
 
     const request = new NextRequest(
       "http://127.0.0.1:3000/api/console/admin/targets?range=7d",
@@ -135,7 +135,7 @@ describe("console proxy route", () => {
     const [target] = vi.mocked(global.fetch).mock.calls[0] ?? [];
     expect(target).toBeInstanceOf(URL);
     expect(String(target)).toBe(
-      "http://127.0.0.1:8000/backend/admin/targets?range=7d",
+      "http://127.0.0.1:8787/backend/admin/targets?range=7d",
     );
 
     const [, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];

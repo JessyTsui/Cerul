@@ -10,7 +10,7 @@ The frontend is responsible for:
 - public documentation pages
 - dashboard and demo surfaces
 
-The frontend should consume backend APIs instead of becoming the primary business logic layer.
+The frontend should consume Cerul's API instead of becoming the primary business logic layer.
 
 ## Stack
 

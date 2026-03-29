@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from backend.app.config import reset_settings_cache
+from workers.common.config import reset_settings_cache
 from workers.common.storage import R2FrameUploader
 
 
@@ -81,4 +81,3 @@ def test_r2_frame_uploader_batch_skips_missing_files(tmp_path: Path, monkeypatch
 
     assert uploaded == {1: "https://cdn.cerul.ai/frames/video-123/001.jpg"}
     assert len(client.put_calls) == 1
-

@@ -66,7 +66,7 @@ class PublicSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     app_env: str = "development"
-    api_base_url: str = "http://localhost:8000"
+    api_base_url: str = "http://localhost:8787"
     web_base_url: str = "http://localhost:3000"
     demo_mode: bool = False
     default_track: str

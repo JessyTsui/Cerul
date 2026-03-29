@@ -21,14 +21,14 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "backend"))
-sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from dotenv import load_dotenv
 load_dotenv(REPO_ROOT / ".env")
 
 import asyncpg
-from app.config import get_settings
+from workers.common.config import get_settings
 from scripts.eval_indexing import run_eval
 from scripts.experiment_dense_visual_embed import (
     create_dense_visual_units,

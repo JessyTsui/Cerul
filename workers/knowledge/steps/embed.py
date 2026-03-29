@@ -4,7 +4,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from backend.app.embedding import EmbeddingBackend
+from workers.common.embedding import EmbeddingBackend
 from workers.common.pipeline import PipelineContext, PipelineStep
 
 DEFAULT_SEGMENT_EMBEDDING_CONCURRENCY = 10

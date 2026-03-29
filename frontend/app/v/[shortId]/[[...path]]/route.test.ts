@@ -15,7 +15,7 @@ describe("tracking proxy route", () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
-    getBackendApiBaseUrlMock.mockReturnValue("http://127.0.0.1:8000");
+    getBackendApiBaseUrlMock.mockReturnValue("http://127.0.0.1:8787");
   });
 
   afterEach(() => {
@@ -51,7 +51,7 @@ describe("tracking proxy route", () => {
 
     const [target, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];
     expect(target).toBeInstanceOf(URL);
-    expect(String(target)).toBe("http://127.0.0.1:8000/v/abc123xy");
+    expect(String(target)).toBe("http://127.0.0.1:8787/v/abc123xy");
     expect(init).toEqual(
       expect.objectContaining({
         method: "GET",
@@ -90,7 +90,7 @@ describe("tracking proxy route", () => {
 
     const [target] = vi.mocked(global.fetch).mock.calls[0] ?? [];
     expect(target).toBeInstanceOf(URL);
-    expect(String(target)).toBe("http://127.0.0.1:8000/v/abc123xy/detail");
+    expect(String(target)).toBe("http://127.0.0.1:8787/v/abc123xy/detail");
   });
 
   it("rejects unsupported tracking suffixes", async () => {

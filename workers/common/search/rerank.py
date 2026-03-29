@@ -8,7 +8,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 import httpx
 
-from app.config import get_settings
+from workers.common.config import get_settings
 
 logger = logging.getLogger(__name__)
 

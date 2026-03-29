@@ -4,8 +4,8 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from backend.app.config import get_settings
-from backend.app.embedding import EmbeddingBackend
+from workers.common.config import get_settings
+from workers.common.embedding import EmbeddingBackend
 from workers.common.pipeline import PipelineContext, PipelineStep, emit_step_log
 
 DEFAULT_DENSE_VISUAL_FRAMES_PER_SEGMENT = 3

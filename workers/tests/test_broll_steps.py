@@ -3,7 +3,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from backend.app.embedding import GeminiEmbeddingBackend
+from workers.common.embedding import GeminiEmbeddingBackend
 from workers.broll import BrollIndexingPipeline
 from workers.broll.repository import BrollAssetRepository, InMemoryBrollAssetRepository
 from workers.broll.steps import (

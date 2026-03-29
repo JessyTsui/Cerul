@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from backend.app.embedding import EmbeddingBackend, create_embedding_backend
+from workers.common.embedding import EmbeddingBackend, create_embedding_backend
 from workers.broll.steps.fetch_asset_metadata import FetchAssetMetadataStep
 from workers.common.pipeline import PipelineContext
 from workers.common.storage import R2FrameUploader

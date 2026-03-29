@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from backend.app.embedding import EmbeddingBackend, create_embedding_backend
+from workers.common.embedding import EmbeddingBackend, create_embedding_backend
 from workers.common.pipeline import PipelineContext, PipelineExecutor
 from workers.common.sources import PexelsClient, PixabayClient
 

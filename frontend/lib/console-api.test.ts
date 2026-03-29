@@ -31,10 +31,10 @@ describe("console API helpers", () => {
   });
 
   it("prefers server-only API base URLs when resolving backend origin", () => {
-    process.env.API_BASE_URL = "http://127.0.0.1:8000/";
+    process.env.API_BASE_URL = "http://127.0.0.1:8787/";
     process.env.NEXT_PUBLIC_API_BASE_URL = "http://localhost:9000";
 
-    expect(getBackendApiBaseUrl()).toBe("http://127.0.0.1:8000");
+    expect(getBackendApiBaseUrl()).toBe("http://127.0.0.1:8787");
   });
 
   it("rejects non-console paths", () => {

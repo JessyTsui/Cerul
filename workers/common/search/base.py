@@ -7,8 +7,8 @@ import math
 from pathlib import Path
 from typing import Sequence, TypeVar
 
-from app.config import get_settings
-from app.embedding.base import EmbeddingBackend
+from workers.common.config import get_settings
+from workers.common.embedding.base import EmbeddingBackend
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
