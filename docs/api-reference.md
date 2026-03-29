@@ -107,7 +107,7 @@ curl "https://api.cerul.ai/v1/search" \
 | `results[].title` | string | Video title |
 | `results[].snippet` | string | Snippet derived from transcript or visual evidence |
 | `results[].thumbnail_url` | string | Video thumbnail |
-| `results[].keyframe_url` | string or null | Keyframe image when available |
+| `results[].keyframe_url` | string or null | Keyframe image when available. Direct HTTPS URL to a JPEG — agents running in a terminal can render this inline (see [Rendering keyframes in the terminal](#rendering-keyframes-in-the-terminal)) |
 | `results[].duration` | integer | Video duration in seconds |
 | `results[].source` | string | Source platform (`youtube`, `pexels`, `pixabay`, `upload`) |
 | `results[].speaker` | string or null | Speaker name when available |
@@ -210,6 +210,51 @@ Delete the current user's access to an indexed video.
   "deleted": true
 }
 ```
+
+---
+
+## Rendering keyframes in the terminal
+
+Each search result includes a `keyframe_url` pointing to a JPEG image of the most representative frame in that segment. AI agents running in a terminal can render this image inline — no browser required — using standard terminal graphics protocols.
+
+### iTerm2 / WezTerm
+
+```python
+import httpx, base64
+
+def show_keyframe(url: str, width_chars: int = 40) -> None:
+    data = httpx.get(url).content
+    b64 = base64.b64encode(data).decode()
+    print(f"\x1b]1337;File=inline=1;width={width_chars};preserveAspectRatio=1:{b64}\x07")
+```
+
+### Kitty / Ghostty / WezTerm
+
+```python
+import httpx, base64
+
+def show_keyframe(url: str) -> None:
+    data = httpx.get(url).content
+    b64 = base64.b64encode(data).decode()
+    chunks = [b64[i:i+4096] for i in range(0, len(b64), 4096)]
+    for i, chunk in enumerate(chunks):
+        m = 0 if i == len(chunks) - 1 else 1
+        header = f"a=T,f=100,m={m}" if i == 0 else f"m={m}"
+        print(f"\x1b_G{header};{chunk}\x1b\\", end="")
+    print()
+```
+
+### Usage in an agent tool
+
+```python
+results = cerul_search("Sam Altman on AGI", max_results=5)
+for r in results:
+    if r.get("keyframe_url"):
+        show_keyframe(r["keyframe_url"])
+    print(f"{r['title']} — {r['url']}\n")
+```
+
+Both protocols require a compatible terminal. iTerm2 and Kitty protocols are supported by iTerm2, Kitty, Ghostty, and WezTerm. If your terminal does not support either protocol, the escape sequences are silently ignored and only the text output is shown.
 
 ---
 
