@@ -3,7 +3,12 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { BrandMark } from "@/components/brand-mark";
-import { adminRoutes, isAdminRouteActive } from "@/lib/site";
+import { useConsoleViewer } from "@/components/console/console-viewer-context";
+import {
+  ACCOUNT_SETTINGS_ROUTE,
+  adminRoutes,
+  isAdminRouteActive,
+} from "@/lib/site";
 
 /* ---------- Icon map ---------- */
 
@@ -98,53 +103,131 @@ type AdminSidebarProps = {
 };
 
 export function AdminSidebar({ currentPath }: AdminSidebarProps) {
+  const viewer = useConsoleViewer();
+  const initials = (viewer.displayName ?? viewer.email ?? "A")
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col justify-between border-r border-slate-800 bg-[#0c1322]">
-      <div>
-        {/* Logo */}
-        <div className="flex h-16 items-center px-6">
+    <aside className="hidden w-[308px] shrink-0 xl:block">
+      <div className="sticky top-0 h-screen p-4 pr-0">
+        <div className="surface-elevated flex h-full flex-col overflow-hidden rounded-[34px] px-4 py-5">
           <BrandMark />
-        </div>
 
-        {/* Main nav */}
-        <nav className="mt-4 space-y-1 px-3">
-          <Link
-            href={"/dashboard" as Route}
-            className="flex items-center rounded-md px-3 py-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
-          >
-            <IconHome className="mr-3 h-5 w-5" />
-            Dashboard
-          </Link>
-        </nav>
+          <div className="mt-7 rounded-[22px] border border-[var(--border-brand)] bg-[var(--brand-subtle)] px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--brand-bright)]">
+              Control Room
+            </p>
+            <p className="mt-3 text-sm leading-6 text-[var(--foreground-secondary)]">
+              Internal visibility for demand, ingestion, sources, and operator actions.
+            </p>
+            <Link
+              href={"/dashboard" as Route}
+              className="mt-4 flex items-center justify-between rounded-full bg-white/78 px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-white"
+            >
+              <span>Back to dashboard</span>
+              <IconHome className="h-4 w-4" />
+            </Link>
+          </div>
 
-        {/* Admin nav */}
-        <div className="mt-8 px-6">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-cyan-500">Admin</h3>
-          <nav className="-mx-3 space-y-1">
-            {adminRoutes.map((item) => {
-              const isActive = isAdminRouteActive(currentPath, item.href);
-              const Icon = ROUTE_ICONS[item.label] ?? IconCog;
-              return (
+          <div className="mt-7">
+            <p className="px-3 text-xs font-medium uppercase tracking-[0.18em] text-[var(--foreground-tertiary)]">
+              Admin Pages
+            </p>
+            <nav className="mt-3 space-y-1.5">
+              {adminRoutes.map((item) => {
+                const isActive = isAdminRouteActive(currentPath, item.href);
+                const Icon = ROUTE_ICONS[item.label] ?? IconCog;
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href as Route}
+                    className={`flex items-center gap-3 rounded-[18px] border px-4 py-3 transition ${
+                      isActive
+                        ? "border-[var(--border-brand)] bg-[var(--brand-subtle)] text-[var(--foreground)]"
+                        : "border-transparent text-[var(--foreground-secondary)] hover:border-[var(--border)] hover:bg-white/56 hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    <span
+                      className={`inline-flex h-9 w-9 items-center justify-center rounded-full ${
+                        isActive
+                          ? "bg-white/84 text-[var(--brand-bright)]"
+                          : "bg-white/48 text-[var(--foreground-tertiary)]"
+                      }`}
+                    >
+                      <Icon className="h-[18px] w-[18px]" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">{item.label}</p>
+                      <p className="text-xs text-[var(--foreground-tertiary)]">
+                        Page {item.meta}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div className="mt-7">
+            <p className="px-3 text-xs font-medium uppercase tracking-[0.18em] text-[var(--foreground-tertiary)]">
+              Shortcuts
+            </p>
+            <div className="mt-3 space-y-1.5">
+              {[
+                { href: "/search", label: "Search playground" },
+                { href: "/docs", label: "Documentation" },
+                { href: ACCOUNT_SETTINGS_ROUTE, label: "Account settings" },
+              ].map((item) => (
                 <Link
                   key={item.href}
                   href={item.href as Route}
-                  className={
-                    isActive
-                      ? "active-nav-item relative flex items-center rounded-md px-3 py-2 transition-colors"
-                      : "flex items-center rounded-md px-3 py-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
-                  }
+                  className="flex items-center justify-between rounded-[18px] border border-transparent px-4 py-3 text-sm text-[var(--foreground-secondary)] transition hover:border-[var(--border)] hover:bg-white/56 hover:text-[var(--foreground)]"
                 >
-                  <Icon className={`mr-3 h-5 w-5 ${isActive ? "text-cyan-400" : ""}`} />
-                  {item.label}
+                  <span>{item.label}</span>
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M4.5 12h15m0 0-5.25-5.25M19.5 12l-5.25 5.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                    />
+                  </svg>
                 </Link>
-              );
-            })}
-          </nav>
+              ))}
+            </div>
+          </div>
+
+          <Link
+            href={ACCOUNT_SETTINGS_ROUTE as Route}
+            className="mt-auto rounded-[24px] border border-[var(--border)] bg-white/72 px-4 py-4 transition hover:bg-white"
+          >
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[var(--background-sunken)] text-sm font-semibold text-[var(--foreground-secondary)]">
+                {initials || "A"}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-[var(--foreground)]">
+                  {viewer.displayName ?? "Admin workspace"}
+                </p>
+                <p className="truncate text-xs text-[var(--foreground-tertiary)]">
+                  {viewer.email ?? "Signed in"}
+                </p>
+              </div>
+            </div>
+          </Link>
         </div>
       </div>
-
-      {/* Bottom spacer */}
-      <div className="p-3" />
     </aside>
   );
 }
