@@ -1569,10 +1569,10 @@ export const admin = {
     });
   },
 
-  async syncSource(sourceId: string): Promise<SyncSourceResult> {
+  async syncSource(sourceId: string, maxResults: number): Promise<SyncSourceResult> {
     const payload = await fetchWithAuth<unknown>(
       `/admin/sources/${sourceId}/sync`,
-      { method: "POST" },
+      { method: "POST", body: { max_results: maxResults } },
     );
     const v = ensureObject(payload, "Invalid sync source response.");
     return {

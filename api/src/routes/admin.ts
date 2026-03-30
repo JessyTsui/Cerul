@@ -179,8 +179,12 @@ export function createAdminRouter(): any {
   router.post("/sources/:sourceId/sync", async (c: any) => {
     const db = c.get("db") as DatabaseClient;
     const sourceId = parseUuid(c.req.param("sourceId"), "source_id");
+    const payload = await parseJsonObjectBody(c);
+    const maxResults = typeof payload.max_results === "number" && payload.max_results > 0
+      ? Math.min(Math.round(payload.max_results), 500)
+      : 100;
     try {
-      return c.json(await syncSource(db, c.env, sourceId));
+      return c.json(await syncSource(db, c.env, sourceId, maxResults));
     } catch (error) {
       apiError(400, (error as Error).message);
     }
