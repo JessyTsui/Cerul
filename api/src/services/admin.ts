@@ -1672,7 +1672,7 @@ export async function getVideoJobStatus(db: DatabaseClient, videoId: string): Pr
   }));
 }
 
-export async function syncSource(db: DatabaseClient, env: Bindings, sourceId: string): Promise<Record<string, unknown>> {
+export async function syncSource(db: DatabaseClient, env: Bindings, sourceId: string, maxResults = 100): Promise<Record<string, unknown>> {
   const row = await db.fetchrow(
     `
       SELECT id, slug, track, source_type, config, sync_cursor, metadata
@@ -1701,7 +1701,6 @@ export async function syncSource(db: DatabaseClient, env: Bindings, sourceId: st
     throw new Error("YOUTUBE_API_KEY is not configured.");
   }
 
-  const maxResults = asInt(config.max_results || 30);
   const allVideoIds: string[] = [];
   let nextPage: string | null = null;
 

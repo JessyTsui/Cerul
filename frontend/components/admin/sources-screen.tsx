@@ -178,6 +178,8 @@ export function AdminSourcesScreen() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<{ id: string; msg: string } | null>(null);
+  const [confirmSyncSource, setConfirmSyncSource] = useState<AdminSource | null>(null);
+  const [syncMaxResults, setSyncMaxResults] = useState<string>("100");
 
   // Modals
   const [showAddSourceModal, setShowAddSourceModal] = useState(false);
@@ -261,6 +263,7 @@ export function AdminSourcesScreen() {
         setShowSubmitVideoModal(false);
         setShowSearchModal(false);
         setConfirmDeleteSource(null);
+        setConfirmSyncSource(null);
         closeForm();
       }
     }
@@ -421,11 +424,12 @@ export function AdminSourcesScreen() {
     }
   }
 
-  async function handleSync(source: AdminSource) {
+  async function handleSync(source: AdminSource, maxResults: number) {
+    setConfirmSyncSource(null);
     setSyncingId(source.id);
     setSyncResult(null);
     try {
-      const result = await admin.syncSource(source.id);
+      const result = await admin.syncSource(source.id, maxResults);
       setSyncResult({
         id: source.id,
         msg: `Discovered ${result.videosDiscovered}, created ${result.jobsCreated} jobs, skipped ${result.skipped}`,
@@ -542,6 +546,47 @@ export function AdminSourcesScreen() {
       {actionError ? (
         <div className="rounded-[18px] border border-[rgba(191,91,70,0.18)] bg-[rgba(191,91,70,0.12)] px-4 py-3 text-sm text-[var(--error)]">
           {actionError}
+        </div>
+      ) : null}
+
+      {/* Sync modal */}
+      {confirmSyncSource ? (
+        <div className="admin-modal-backdrop fixed inset-0 z-50 flex items-center justify-center">
+          <div className="surface-elevated mx-4 w-full max-w-sm rounded-[24px] px-6 py-6">
+            <p className="text-lg font-semibold text-[var(--foreground)]">Sync source</p>
+            <p className="mt-2 text-sm text-[var(--foreground-secondary)]">
+              How many recent videos to sync from{" "}
+              <strong className="text-[var(--foreground)]">{confirmSyncSource.displayName}</strong>?
+            </p>
+            <input
+              className="input mt-4 w-full"
+              type="number"
+              min={1}
+              max={500}
+              value={syncMaxResults}
+              onChange={(e) => setSyncMaxResults(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSync(confirmSyncSource, Math.max(1, parseInt(syncMaxResults, 10) || 100));
+              }}
+              autoFocus
+            />
+            <div className="mt-6 flex gap-3">
+              <button
+                className="rounded-[14px] border border-[rgba(31,141,74,0.22)] bg-[rgba(31,141,74,0.08)] px-4 py-2 text-sm text-[var(--success)] transition hover:bg-[rgba(31,141,74,0.14)]"
+                type="button"
+                onClick={() => void handleSync(confirmSyncSource, Math.max(1, parseInt(syncMaxResults, 10) || 100))}
+              >
+                Sync
+              </button>
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={() => setConfirmSyncSource(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -1164,7 +1209,7 @@ export function AdminSourcesScreen() {
                           <button
                             className="inline-flex h-8 items-center rounded-full border border-[var(--border)] px-3 text-xs text-[var(--foreground-secondary)] transition hover:border-[rgba(31,141,74,0.18)] hover:bg-[rgba(31,141,74,0.08)] hover:text-[var(--success)]"
                             disabled={syncingId === source.id}
-                            onClick={() => void handleSync(source)}
+                            onClick={() => { setSyncMaxResults("100"); setConfirmSyncSource(source); }}
                             type="button"
                           >
                             {syncingId === source.id ? "Syncing..." : "Sync"}
