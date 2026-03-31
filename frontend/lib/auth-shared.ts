@@ -1,5 +1,9 @@
 export const DEFAULT_AUTH_REDIRECT_PATH = "/dashboard";
+export const AUTH_FORM_MODES = ["login", "signup"] as const;
 export const AUTH_PAGE_PATHS = ["/login", "/signup"] as const;
+
+export type AuthFormMode = (typeof AUTH_FORM_MODES)[number];
+
 const AUTH_CALLBACK_ERROR_MESSAGES: Record<string, string> = {
   account_already_linked_to_different_user:
     "That social account is already linked to a different Cerul user.",
@@ -11,6 +15,10 @@ const AUTH_CALLBACK_ERROR_MESSAGES: Record<string, string> = {
   no_callback_url: "The social login flow is missing a redirect target. Please try again.",
   oauth_provider_not_found:
     "That social login provider is not available right now. Please try another sign-in method.",
+  EMAIL_NOT_VERIFIED: "Please verify your email address before signing in.",
+  EMAIL_ALREADY_VERIFIED: "That Cerul email address is already verified.",
+  INVALID_TOKEN: "This link is invalid or has already been used.",
+  TOKEN_EXPIRED: "This link has expired. Please request a new one.",
   unable_to_get_user_info:
     "Cerul could not read your profile from that provider. Please try again.",
   unable_to_link_account:
@@ -18,6 +26,12 @@ const AUTH_CALLBACK_ERROR_MESSAGES: Record<string, string> = {
 };
 
 type AuthPagePath = (typeof AUTH_PAGE_PATHS)[number];
+
+export function normalizeAuthFormMode(
+  mode: string | null | undefined,
+): AuthFormMode {
+  return mode === "signup" ? "signup" : "login";
+}
 
 export function normalizeAuthRedirectPath(
   nextPath: string | null | undefined,
@@ -29,6 +43,7 @@ export function normalizeAuthRedirectPath(
   const trimmedPath = nextPath.trim();
 
   if (
+    trimmedPath === "/" ||
     !trimmedPath.startsWith("/") ||
     trimmedPath.startsWith("//") ||
     trimmedPath.includes("\\")
@@ -44,13 +59,24 @@ export function buildAuthPageHref(
   nextPath: string | null | undefined,
 ): string {
   const normalizedNextPath = normalizeAuthRedirectPath(nextPath);
+  const query = new URLSearchParams();
 
-  if (normalizedNextPath === DEFAULT_AUTH_REDIRECT_PATH) {
-    return pagePath;
+  if (pagePath === "/signup") {
+    query.set("mode", "signup");
   }
 
-  const query = new URLSearchParams({ next: normalizedNextPath });
-  return `${pagePath}?${query.toString()}`;
+  if (normalizedNextPath !== DEFAULT_AUTH_REDIRECT_PATH) {
+    query.set("next", normalizedNextPath);
+  }
+
+  const targetPath = pagePath === "/signup" ? "/login" : pagePath;
+  const search = query.toString();
+
+  if (!search) {
+    return targetPath;
+  }
+
+  return `${targetPath}?${search}`;
 }
 
 export function buildSocialAuthRedirectOptions(
@@ -98,6 +124,37 @@ export function getAuthErrorMessage(
   }
 
   return fallback;
+}
+
+export function getAuthErrorCode(error: unknown): string | null {
+  if (
+    error &&
+    typeof error === "object" &&
+    "error" in error &&
+    error.error &&
+    typeof error.error === "object" &&
+    "code" in error.error &&
+    typeof error.error.code === "string" &&
+    error.error.code.trim()
+  ) {
+    return error.error.code.trim();
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code.trim()
+  ) {
+    return error.code.trim();
+  }
+
+  return null;
+}
+
+export function isEmailNotVerifiedError(error: unknown): boolean {
+  return getAuthErrorCode(error) === "EMAIL_NOT_VERIFIED";
 }
 
 export function getAuthCallbackErrorMessage(

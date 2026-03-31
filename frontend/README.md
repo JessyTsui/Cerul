@@ -48,7 +48,7 @@ Cerul's frontend uses Better Auth for dashboard sessions.
 - `BETTER_AUTH_SECRET` is required outside local development
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` enable Google OAuth
 - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` enable GitHub OAuth
-- Google One Tap reuses the same Google OAuth client and is only shown on `/login` and `/signup`
+- Google One Tap reuses the same Google OAuth client and is only shown on `/login`
 - For Google One Tap, add every frontend origin to Authorized JavaScript origins
   in Google Cloud Console, including local development origins such as
   `http://localhost:3000`
@@ -59,7 +59,8 @@ Cerul's frontend uses Better Auth for dashboard sessions.
 - `/docs` public documentation landing page
 - `/docs/[slug]` documentation subpages
 - `/pricing` pricing page
-- `/login` and `/signup` Better Auth pages with email/password, GitHub, Google, and Google One Tap when configured
+- `/login` unified Better Auth page with email/password, GitHub, Google, and Google One Tap when configured
+- `/signup` compatibility redirect to `/login?mode=signup`
 - `/dashboard` private console overview
 - `/dashboard/keys`, `/dashboard/usage`, `/dashboard/settings`
 - `/admin/pipelines`, `/admin/workers`, `/admin/sources`, `/admin/content`

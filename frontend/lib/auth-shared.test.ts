@@ -59,12 +59,15 @@ describe("getAuthErrorMessage", () => {
 });
 
 describe("buildAuthPageHref", () => {
-  it("keeps auth page links clean for the default redirect", () => {
-    expect(buildAuthPageHref("/signup", undefined)).toBe("/signup");
+  it("maps signup links to the unified login page", () => {
+    expect(buildAuthPageHref("/signup", undefined)).toBe("/login?mode=signup");
   });
 
   it("preserves safe internal redirect targets", () => {
     expect(buildAuthPageHref("/login", "/admin")).toBe("/login?next=%2Fadmin");
+    expect(buildAuthPageHref("/signup", "/admin")).toBe(
+      "/login?mode=signup&next=%2Fadmin",
+    );
   });
 });
 
@@ -74,6 +77,14 @@ describe("buildSocialAuthRedirectOptions", () => {
       callbackURL: "/admin",
       newUserCallbackURL: "/admin",
       errorCallbackURL: "/login?next=%2Fadmin",
+    });
+  });
+
+  it("routes signup social errors back to login signup mode", () => {
+    expect(buildSocialAuthRedirectOptions("/signup", "/admin")).toEqual({
+      callbackURL: "/admin",
+      newUserCallbackURL: "/admin",
+      errorCallbackURL: "/login?mode=signup&next=%2Fadmin",
     });
   });
 });

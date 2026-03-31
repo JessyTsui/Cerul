@@ -10,7 +10,7 @@ import { getServerSession } from "@/lib/auth-server";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
-  title: "Sign In",
+  title: "Log In",
   robots: {
     index: false,
     follow: false,
@@ -23,6 +23,7 @@ export const metadata: Metadata = {
 type LoginPageProps = {
   searchParams: Promise<{
     next?: string | string[];
+    mode?: string | string[];
     error?: string | string[];
     error_description?: string | string[];
   }>;
@@ -39,7 +40,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const errorDescriptionValue = Array.isArray(resolvedSearchParams.error_description)
     ? resolvedSearchParams.error_description[0]
     : resolvedSearchParams.error_description;
+  const modeValue = Array.isArray(resolvedSearchParams.mode)
+    ? resolvedSearchParams.mode[0]
+    : resolvedSearchParams.mode;
   const nextPath = normalizeAuthRedirectPath(nextValue);
+  const initialMode = modeValue === "signup" ? "signup" : "login";
   const initialError = getAuthCallbackErrorMessage(
     errorValue,
     errorDescriptionValue,
@@ -58,6 +63,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     >
       <LoginForm
         nextPath={nextPath}
+        initialMode={initialMode}
         enabledProviders={authUiConfig.enabledProviders}
         googleOneTapClientId={authUiConfig.googleOneTapClientId}
         initialError={initialError}

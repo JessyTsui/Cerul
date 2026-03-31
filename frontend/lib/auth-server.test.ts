@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
   authInstanceCount: 0,
   lastAuthConfig: null as Record<string, unknown> | null,
   databaseGeneration: 0,
+  sentEmails: [] as Array<{ to: string; subject: string; html: string }>,
 }));
 
 vi.mock("next/headers", () => ({
@@ -22,6 +23,19 @@ vi.mock("./auth-db", () => ({
     state.databaseGeneration += 1;
   }),
   upsertUserProfile: vi.fn(),
+}));
+
+vi.mock("./email", () => ({
+  sendEmail: vi.fn(async (input: { to: string; subject: string; html: string }) => {
+    state.sentEmails.push(input);
+  }),
+}));
+
+vi.mock("./email-templates", () => ({
+  emailVerificationTemplate: vi.fn(() => "<p>verify</p>"),
+  passwordChangedTemplate: vi.fn(() => "<p>changed</p>"),
+  passwordResetTemplate: vi.fn(() => "<p>reset</p>"),
+  welcomeTemplate: vi.fn(() => "<p>welcome</p>"),
 }));
 
 vi.mock("better-auth", () => ({
@@ -62,6 +76,7 @@ describe("getAuthRouteHandlers", () => {
     state.authInstanceCount = 0;
     state.lastAuthConfig = null;
     state.databaseGeneration = 0;
+    state.sentEmails = [];
     delete process.env.GITHUB_CLIENT_ID;
     delete process.env.GITHUB_CLIENT_SECRET;
     delete process.env.GOOGLE_CLIENT_ID;
@@ -86,7 +101,7 @@ describe("getAuthRouteHandlers", () => {
     expect(await response.text()).toBe('{"email":"owner@example.com"}');
   });
 
-  it("configures social providers, account linking, and one tap when OAuth env vars are set", async () => {
+  it("configures social providers, email flows, account linking, and one tap when env vars are set", async () => {
     process.env.GITHUB_CLIENT_ID = "github-client-id";
     process.env.GITHUB_CLIENT_SECRET = "github-client-secret";
     process.env.GOOGLE_CLIENT_ID = "google-client-id";
@@ -114,6 +129,58 @@ describe("getAuthRouteHandlers", () => {
         },
       },
       plugins: [{ id: "one-tap" }],
+      emailAndPassword: {
+        enabled: true,
+        autoSignIn: true,
+        requireEmailVerification: true,
+        resetPasswordTokenExpiresIn: 3600,
+      },
+      emailVerification: {
+        expiresIn: 86400,
+        sendOnSignUp: true,
+        autoSignInAfterVerification: true,
+      },
+    });
+
+    expect(state.lastAuthConfig?.emailAndPassword).toMatchObject({
+      sendResetPassword: expect.any(Function),
+      onPasswordReset: expect.any(Function),
+    });
+    expect(state.lastAuthConfig?.emailVerification).toMatchObject({
+      sendVerificationEmail: expect.any(Function),
+    });
+  });
+
+  it("upserts the user profile and sends a welcome email after user creation", async () => {
+    const { getAuth } = await import("./auth-server");
+    const { upsertUserProfile } = await import("./auth-db");
+
+    getAuth();
+
+    const createHook = state.lastAuthConfig?.databaseHooks as {
+      user?: {
+        create?: {
+          after?: (user: { id: string; email: string; name: string }) => Promise<void>;
+        };
+      };
+    };
+
+    await createHook.user?.create?.after?.({
+      id: "user_123",
+      email: "owner@example.com",
+      name: "Owner Example",
+    });
+    await Promise.resolve();
+
+    expect(upsertUserProfile).toHaveBeenCalledWith({
+      id: "user_123",
+      email: "owner@example.com",
+      name: "Owner Example",
+    });
+    expect(state.sentEmails).toContainEqual({
+      to: "owner@example.com",
+      subject: "Welcome to Cerul",
+      html: "<p>welcome</p>",
     });
   });
 });

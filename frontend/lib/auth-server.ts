@@ -11,6 +11,13 @@ import {
   upsertUserProfile,
 } from "./auth-db";
 import { getConfiguredSocialProviders } from "./auth-providers";
+import { sendEmail } from "./email";
+import {
+  emailVerificationTemplate,
+  passwordChangedTemplate,
+  passwordResetTemplate,
+  welcomeTemplate,
+} from "./email-templates";
 
 const DEFAULT_DEV_AUTH_SECRET =
   "cerul-local-better-auth-secret-for-development-only";
@@ -77,10 +84,15 @@ function createAuth() {
   const hasGoogleProvider = "google" in socialProviders;
   const hasSocialProviders = Object.keys(socialProviders).length > 0;
 
+  const isDev = process.env.NODE_ENV !== "production";
+
   return betterAuth({
     baseURL,
     secret: getAuthSecret(),
     trustedOrigins: expandTrustedOrigins(baseURL),
+    advanced: {
+      useSecureCookies: !isDev,
+    },
     database: {
       db: getAuthDatabase(),
       type: "postgres",
@@ -88,6 +100,42 @@ function createAuth() {
     emailAndPassword: {
       enabled: true,
       autoSignIn: true,
+      requireEmailVerification: true,
+      resetPasswordTokenExpiresIn: 60 * 60,
+      sendResetPassword: async ({ user, url }) => {
+        await sendEmail({
+          to: user.email,
+          subject: "Reset your Cerul password",
+          html: passwordResetTemplate({
+            name: user.name ?? "",
+            url,
+          }),
+        });
+      },
+      onPasswordReset: async ({ user }) => {
+        await sendEmail({
+          to: user.email,
+          subject: "Your Cerul password was changed",
+          html: passwordChangedTemplate({
+            name: user.name ?? "",
+          }),
+        });
+      },
+    },
+    emailVerification: {
+      expiresIn: 60 * 60 * 24,
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        await sendEmail({
+          to: user.email,
+          subject: "Verify your Cerul email",
+          html: emailVerificationTemplate({
+            name: user.name ?? "",
+            url,
+          }),
+        });
+      },
     },
     ...(hasSocialProviders ? { socialProviders } : {}),
     account: {
@@ -105,6 +153,16 @@ function createAuth() {
               id: user.id,
               email: user.email,
               name: user.name,
+            });
+
+            void sendEmail({
+              to: user.email,
+              subject: "Welcome to Cerul",
+              html: welcomeTemplate({
+                name: user.name ?? "",
+              }),
+            }).catch((error) => {
+              console.error("[auth] Failed to send welcome email:", error);
             });
           },
         },
