@@ -205,6 +205,7 @@ export class UnifiedSearchService {
         url: trackingUrl,
         title: String(row.title ?? ""),
         snippet: this.buildSnippet(row),
+        transcript: row.transcript_text == null ? null : String(row.transcript_text),
         thumbnail_url: row.thumbnail_url == null ? null : String(row.thumbnail_url),
         keyframe_url: row.keyframe_url == null ? null : String(row.keyframe_url),
         duration: Number(row.duration ?? 0),

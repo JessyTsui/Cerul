@@ -2,7 +2,17 @@ import { Hono } from "hono";
 
 import type { DatabaseClient } from "../db/client";
 import { apiKeyAuth } from "../middleware/auth";
-import { BillingHoldError, calculateCreditsRemaining, deductCredits, fetchUsageSummary, InsufficientCreditsError, refundCredits } from "../services/billing";
+import {
+  BillingHoldError,
+  calculateCreditsRemaining,
+  deductCredits,
+  fetchDailySearchAllowance,
+  fetchUsageSummary,
+  InsufficientCreditsError,
+  maybeAutoRecharge,
+  recordFreeSearchUsage,
+  refundCredits
+} from "../services/billing";
 import { resolveImageToBytes, uploadQueryImageToR2 } from "../services/query-image";
 import { UnifiedSearchService } from "../services/search";
 import type { SearchRequest, UnifiedFilters } from "../types";
@@ -264,15 +274,32 @@ export function createSearchRouter(): any {
     const service = new UnifiedSearchService(db, c.env, config);
 
     let creditsUsed = 0;
+    let usageRecorded = false;
     try {
-      creditsUsed = await deductCredits(
-        db,
-        auth.userId,
-        auth.apiKeyId,
-        requestId,
-        "unified",
-        payload.include_answer
-      );
+      const dailyFree = await fetchDailySearchAllowance(db, auth.userId);
+      const isFreeSearch = dailyFree.remaining > 0;
+
+      if (isFreeSearch) {
+        creditsUsed = await recordFreeSearchUsage(
+          db,
+          auth.userId,
+          auth.apiKeyId,
+          requestId,
+          "unified",
+          payload.include_answer
+        );
+      } else {
+        creditsUsed = await deductCredits(
+          db,
+          auth.userId,
+          auth.apiKeyId,
+          requestId,
+          "unified",
+          payload.include_answer
+        );
+      }
+      usageRecorded = true;
+
       const execution = await service.search({
         payload,
         userId: auth.userId,
@@ -291,6 +318,12 @@ export function createSearchRouter(): any {
         c.executionCtx?.waitUntil(uploadQueryImageToR2(c.env, config, image, requestId));
       }
 
+      if (creditsUsed > 0) {
+        void maybeAutoRecharge(db, config, auth.userId).catch((error) =>
+          console.error("[billing] auto-recharge error:", error)
+        );
+      }
+
       return c.json({
         results: execution.results,
         answer: execution.answer,
@@ -305,7 +338,7 @@ export function createSearchRouter(): any {
       if (error instanceof InsufficientCreditsError) {
         apiError(403, "Insufficient credits for this request.");
       }
-      if (creditsUsed > 0) {
+      if (usageRecorded) {
         try {
           await refundCredits(db, requestId);
         } catch {

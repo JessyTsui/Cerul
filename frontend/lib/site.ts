@@ -147,29 +147,50 @@ export const pricingTiers = [
     price: "$0",
     cadence: "to get started",
     description:
-      "1,000 free credits per month to try the API with no card on file.",
+      "100 free credits to try the API, plus 10 free searches every day.",
+    checkoutProductCode: null,
     ctaLabel: "Start free",
     ctaHref: "/login?mode=signup",
     accent: "sky",
     features: [
-      "1,000 credits / month",
+      "100 credits on signup",
+      "10 free searches every day",
       "Full public search API access",
       "Community support",
     ],
   },
   {
-    name: "Monthly",
-    price: "$30",
+    name: "Pay as you go",
+    price: "$8",
+    cadence: "per 1,000 credits",
+    description:
+      "Buy credits when you need them. No subscription, no commitment.",
+    checkoutProductCode: null,
+    ctaLabel: "Get started",
+    ctaHref: "/login?mode=signup",
+    accent: "orange",
+    features: [
+      "No monthly fee",
+      "Min 1,000 credits per purchase",
+      "Auto-recharge available",
+      "10 free searches every day",
+    ],
+  },
+  {
+    name: "Pro",
+    price: "$29.90",
     cadence: "per month",
     description:
-      "5,000 included credits every month with higher rate limits for production workloads.",
+      "5,000 included credits every month. Top up at $8/1K when you need more.",
+    checkoutProductCode: "pro",
     ctaLabel: "Subscribe",
     ctaHref: "/login?mode=signup",
     accent: "blue",
     features: [
       "5,000 included credits / month",
-      "Top up anytime with prepaid credit packs",
+      "Top up at $8/1K for more",
       "Higher rate limits",
+      "10 free searches every day",
       "Priority email support",
     ],
   },
@@ -179,6 +200,7 @@ export const pricingTiers = [
     cadence: "let\u2019s talk",
     description:
       "For production deployments with private indexing, SLA expectations, and compliance review.",
+    checkoutProductCode: null,
     ctaLabel: "Talk to us",
     ctaHref: "mailto:support@cerul.ai",
     accent: "ink",
@@ -191,50 +213,26 @@ export const pricingTiers = [
   },
 ] as const;
 
-export const topupPackages = [
-  {
-    name: "Top-up 1,000",
-    price: "$8",
-    cadence: "one time",
-    description: "Prepaid credits for bursty traffic or trial workloads.",
-    features: ["1,000 credits", "Promo codes supported", "12-month expiry"],
-  },
-  {
-    name: "Top-up 5,000",
-    price: "$36",
-    cadence: "one time",
-    description: "Better effective rate for recurring non-subscription usage.",
-    features: ["5,000 credits", "$7.20 / 1K effective rate", "12-month expiry"],
-  },
-  {
-    name: "Top-up 20,000",
-    price: "$120",
-    cadence: "one time",
-    description: "Best self-serve rate for sustained agent traffic.",
-    features: ["20,000 credits", "$6 / 1K effective rate", "12-month expiry"],
-  },
-] as const;
-
 export const pricingFaqs = [
   {
-    question: "How do credits map to API usage?",
+    question: "How do credits work?",
     answer:
-      "A standard search costs 1 credit. A search with include_answer=true costs 2 credits. Credits are the only billing unit shown in the product and API docs.",
+      "A standard search costs 1 credit. A search with include_answer=true costs 2 credits. Every user gets 10 free searches per day — no credits needed.",
   },
   {
-    question: "What happens when I burn through the included monthly credits?",
+    question: "What happens when credits run out?",
     answer:
-      "Cerul does not auto-bill overages in v1. Once included credits run low, you can buy prepaid top-up packs and the system will spend those after bonus credits and before blocking requests.",
+      "Requests beyond the 10 daily free searches will be blocked until you buy more credits or enable auto-recharge.",
   },
   {
-    question: "Why buy top-ups if Monthly already includes credits?",
+    question: "What is auto-recharge?",
     answer:
-      "Top-ups are useful for spikes, launches, and teams that want prepaid control. The larger packs also lower the effective per-credit rate without forcing a subscription.",
+      "When enabled, we automatically charge your card and add credits when your balance drops below a threshold you set. You stay in control of the recharge amount.",
   },
   {
-    question: "How do referral and promo credits work?",
+    question: "Why choose Pro over Pay as you go?",
     answer:
-      "Stripe promotion codes apply discounts at checkout. Cerul referral codes are separate: once a referred account completes its first paid order and keeps it for 7 days, both sides receive 500 bonus credits.",
+      "Pro gives you 5,000 credits per month at an effective rate of $5.98/1K — versus $8/1K for pay-as-you-go top-ups. You also get higher rate limits and priority support.",
   },
   {
     question: "When does enterprise make sense?",

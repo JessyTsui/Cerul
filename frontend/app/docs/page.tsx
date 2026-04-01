@@ -177,7 +177,7 @@ export default function DocsPage() {
                         {[
                           { name: "score", desc: "Relevance from 0.0 to 1.0" },
                           { name: "url", desc: "Tracking link → redirects to source video" },
-                          { name: "unit_type", desc: "summary, speech, or visual" },
+                          { name: "transcript", desc: "Full ASR text for speech-backed segments" },
                           { name: "answer", desc: "AI summary (when include_answer is true)" },
                         ].map((field) => (
                           <div
@@ -202,12 +202,12 @@ export default function DocsPage() {
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AGI Timeline",
       "snippet": "AGI is coming sooner than most people expect.",
+      "transcript": "AGI is coming sooner than most people expect, and the roadmap gets clearer once model capability and product reliability converge.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1223.0,
-      "timestamp_end": 1345.0,
-      "unit_type": "speech"
+      "timestamp_end": 1345.0
     }
   ],
   "answer": "Summary grounded in matched evidence.",

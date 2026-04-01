@@ -91,10 +91,10 @@ export default function TermsPage() {
                 <section>
                   <h2 className="text-xl font-semibold text-[var(--foreground)]">6. Payment and Billing</h2>
                   <p className="mt-4 leading-7">
-                    Paid plans are billed through Stripe. By subscribing to a paid plan, you authorize us to
-                    charge the payment method on file. Charges are non-refundable except where required by
-                    law. We may change pricing with 30 days&rsquo; notice. Free-tier credits do not carry
-                    over between billing periods.
+                    Paid plans are billed through Stripe. By subscribing to a paid
+                    plan, you authorize us to charge the payment method on file.
+                    Charges are non-refundable except where required by law. We may change pricing with
+                    30 days&rsquo; notice. Free-tier credits do not carry over between billing periods.
                   </p>
                 </section>
 

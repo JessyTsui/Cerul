@@ -80,14 +80,14 @@ curl "https://api.cerul.ai/v1/search" \
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AGI Timeline - Lex Fridman Podcast",
       "snippet": "I think AGI is coming sooner than most people expect, probably within the next few years...",
+      "transcript": "I think AGI is coming sooner than most people expect, probably within the next few years, and the roadmap starts to look more concrete once the tooling matures.",
       "thumbnail_url": "https://i.ytimg.com/vi/abc/hqdefault.jpg",
       "keyframe_url": "https://cdn.cerul.ai/frames/vid_abc/f023.jpg",
       "duration": 7200,
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1823.5,
-      "timestamp_end": 1945.2,
-      "unit_type": "speech"
+      "timestamp_end": 1945.2
     }
   ],
   "answer": "Sam Altman has consistently said AGI could arrive within the next few years, while framing progress in concrete product terms.",
@@ -106,6 +106,7 @@ curl "https://api.cerul.ai/v1/search" \
 | `results[].url` | string | Cerul tracking URL that redirects to the source video |
 | `results[].title` | string | Video title |
 | `results[].snippet` | string | Snippet derived from transcript or visual evidence |
+| `results[].transcript` | string or null | Full ASR transcript text for the matched segment. May be null for visual-only segments. |
 | `results[].thumbnail_url` | string | Video thumbnail |
 | `results[].keyframe_url` | string or null | Keyframe image when available. Direct HTTPS URL to a JPEG — agents running in a terminal can render this inline (see [Rendering keyframes in the terminal](#rendering-keyframes-in-the-terminal)) |
 | `results[].duration` | integer | Video duration in seconds |
@@ -113,7 +114,6 @@ curl "https://api.cerul.ai/v1/search" \
 | `results[].speaker` | string or null | Speaker name when available |
 | `results[].timestamp_start` | float or null | Start timestamp in seconds |
 | `results[].timestamp_end` | float or null | End timestamp in seconds |
-| `results[].unit_type` | string | One of `summary`, `speech`, `visual` |
 | `answer` | string or null | Optional synthesized answer when `include_answer=true` |
 
 ---
@@ -293,7 +293,6 @@ curl "https://api.cerul.ai/v1/usage" \
   "wallet_balance": 872,
   "credit_breakdown": {
     "included_remaining": 872,
-    "topup_remaining": 0,
     "bonus_remaining": 0
   },
   "rate_limit_per_sec": 1,

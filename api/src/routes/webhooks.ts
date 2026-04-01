@@ -2,8 +2,9 @@ import { Hono } from "hono";
 
 import type { DatabaseClient } from "../db/client";
 import {
-  fulfillSubscriptionInvoice,
+  fulfillAutoRechargePayment,
   fulfillTopupCheckout,
+  fulfillSubscriptionInvoice,
   recordFailedInvoice,
   reverseBillingOrderByPaymentIntent
 } from "../services/billing";
@@ -113,13 +114,12 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
   if (eventType === "checkout.session.completed") {
     const metadata = asRecord(eventObject.metadata);
     const userId = asString(metadata.user_id) ?? asString(eventObject.client_reference_id);
-    const productCode = asString(metadata.product_code) ?? "monthly";
-    const mode = asString(eventObject.mode) ?? "";
+    if (!userId) {
+      return;
+    }
 
+    const mode = asString(eventObject.mode) ?? "";
     if (mode === "subscription") {
-      if (!userId) {
-        return;
-      }
       await activateCheckoutSubscription(
         db,
         userId,
@@ -130,27 +130,21 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
     }
 
     if (mode === "payment") {
-      if (!userId) {
-        return;
-      }
-      const totalDetails = asRecord(eventObject.total_details);
+      const quantity = Number(metadata.quantity) || 1000;
       await fulfillTopupCheckout(db, {
         userId,
-        productCode: productCode as any,
+        credits: quantity,
         stripeCheckoutSessionId: String(eventObject.id ?? ""),
         stripeCustomerId: asString(eventObject.customer),
         stripePaymentIntentId: asString(eventObject.payment_intent),
         currency: asString(eventObject.currency),
         grossAmountCents: asInteger(eventObject.amount_subtotal ?? eventObject.amount_total),
-        discountAmountCents: asInteger(totalDetails.amount_discount),
+        discountAmountCents: asInteger(asRecord(eventObject.total_details).amount_discount),
         netAmountCents: asInteger(eventObject.amount_total),
-        occurredAt: stripeCreatedAt(eventObject.created),
-        metadata: {
-          stripe_event_type: eventType
-        }
+        occurredAt: stripeCreatedAt(eventObject.created)
       });
-      return;
     }
+    return;
   }
 
   if (eventType === "invoice.paid") {
@@ -209,6 +203,29 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
       return;
     }
     await syncSubscriptionStatus(db, stripeCustomerId, eventObject);
+    return;
+  }
+
+  if (eventType === "payment_intent.succeeded") {
+    const metadata = asRecord(eventObject.metadata);
+    if (asString(metadata.type) === "auto_recharge") {
+      const userId = asString(metadata.user_id);
+      const quantity = Number(metadata.quantity) || 1000;
+      if (userId) {
+        const amount = asInteger(eventObject.amount_received ?? eventObject.amount);
+        await fulfillAutoRechargePayment(db, {
+          userId,
+          stripePaymentIntentId: String(eventObject.id ?? ""),
+          stripeCustomerId: asString(eventObject.customer),
+          quantity,
+          currency: asString(eventObject.currency),
+          grossAmountCents: amount,
+          discountAmountCents: 0,
+          netAmountCents: amount,
+          occurredAt: stripeCreatedAt(eventObject.created)
+        });
+      }
+    }
     return;
   }
 

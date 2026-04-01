@@ -2,7 +2,7 @@ import Stripe from "stripe";
 
 import type { AppConfig } from "../types";
 import type { DatabaseClient } from "../db/client";
-import { getBillingProduct, normalizePlanCode } from "./billing-catalog";
+import { normalizePlanCode } from "./billing-catalog";
 import { monthlyCreditLimitForTier } from "./billing";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "past_due"]);
@@ -20,13 +20,6 @@ export class StripeWebhookVerificationError extends StripeServiceError {
     this.name = "StripeWebhookVerificationError";
   }
 }
-
-export type CheckoutSessionInput = {
-  userId: string;
-  email: string;
-  stripeCustomerId?: string | null;
-  productCode?: string | null;
-};
 
 function requireSetting(name: string, value: string | null): string {
   if (!value) {
@@ -51,53 +44,34 @@ function webBaseUrl(config: AppConfig): string {
   return config.public.webBaseUrl.replace(/\/+$/, "");
 }
 
-function sessionMetadata(input: CheckoutSessionInput, productCode: string): Record<string, string> {
-  return {
-    user_id: input.userId,
-    product_code: productCode
-  };
-}
-
-export function createCheckoutSession(config: AppConfig, input: CheckoutSessionInput): Promise<string> | string {
-  const product = getBillingProduct(config, input.productCode ?? "monthly");
-  if (!product) {
-    throw new StripeServiceError(`Unknown billing product: ${input.productCode ?? "monthly"}`);
-  }
-  if (!product.stripePriceId) {
-    throw new StripeServiceError(`Stripe price is not configured for ${product.code}.`);
-  }
-
+export function createCheckoutSession(
+  config: AppConfig,
+  userId: string,
+  email: string,
+  stripeCustomerId?: string | null
+): Promise<string> | string {
   const client = stripeClient(config);
-  const metadata = sessionMetadata(input, product.code);
+  const metadata = { user_id: userId };
   const payload: Stripe.Checkout.SessionCreateParams = {
-    mode: product.kind === "subscription" ? "subscription" : "payment",
+    mode: "subscription",
     line_items: [
       {
-        price: requireSetting(`stripe price for ${product.code}`, product.stripePriceId),
+        price: requireSetting("STRIPE_PRO_PRICE_ID", config.stripe.proPriceId),
         quantity: 1
       }
     ],
-    allow_promotion_codes: product.allowPromotionCodes,
-    client_reference_id: input.userId,
+    allow_promotion_codes: true,
+    client_reference_id: userId,
     metadata,
-    success_url: `${webBaseUrl(config)}/dashboard/settings?checkout=success&product=${product.code}`,
-    cancel_url: `${webBaseUrl(config)}/pricing?checkout=cancelled&product=${product.code}`
+    subscription_data: { metadata },
+    success_url: `${webBaseUrl(config)}/dashboard?checkout=success`,
+    cancel_url: `${webBaseUrl(config)}/pricing?checkout=cancelled`
   };
 
-  if (product.kind === "subscription") {
-    payload.subscription_data = {
-      metadata
-    };
+  if (stripeCustomerId) {
+    payload.customer = stripeCustomerId;
   } else {
-    payload.payment_intent_data = {
-      metadata
-    };
-  }
-
-  if (input.stripeCustomerId) {
-    payload.customer = input.stripeCustomerId;
-  } else {
-    payload.customer_email = input.email;
+    payload.customer_email = email;
   }
 
   return client.checkout.sessions.create(payload).then((session) => {
@@ -107,6 +81,48 @@ export function createCheckoutSession(config: AppConfig, input: CheckoutSessionI
     return String(session.url);
   }).catch((error: any) => {
     throw new StripeServiceError(error?.message || "Stripe checkout session creation failed.");
+  });
+}
+
+export function createTopupCheckoutSession(
+  config: AppConfig,
+  input: { userId: string; email: string; stripeCustomerId?: string | null; quantity: number }
+): Promise<string> {
+  const client = stripeClient(config);
+  const metadata = {
+    user_id: input.userId,
+    type: "topup",
+    quantity: String(input.quantity)
+  };
+  const payload: Stripe.Checkout.SessionCreateParams = {
+    mode: "payment",
+    line_items: [
+      {
+        price: requireSetting("STRIPE_TOPUP_UNIT_PRICE_ID", config.stripe.topupUnitPriceId),
+        quantity: input.quantity
+      }
+    ],
+    client_reference_id: input.userId,
+    metadata,
+    payment_intent_data: { metadata },
+    success_url: `${webBaseUrl(config)}/dashboard/settings?checkout=success&type=topup`,
+    cancel_url: `${webBaseUrl(config)}/dashboard/settings?checkout=cancelled`
+  };
+
+  if (input.stripeCustomerId) {
+    payload.customer = input.stripeCustomerId;
+  } else {
+    payload.customer_email = input.email;
+    payload.customer_creation = "always";
+  }
+
+  return client.checkout.sessions.create(payload).then((session) => {
+    if (!session.url) {
+      throw new StripeServiceError("Stripe top-up checkout session did not return a URL.");
+    }
+    return String(session.url);
+  }).catch((error: any) => {
+    throw new StripeServiceError(error?.message || "Stripe top-up checkout session creation failed.");
   });
 }
 
@@ -146,7 +162,7 @@ export function constructWebhookEvent(config: AppConfig, payload: string, signat
 
 export function subscriptionTier(subscription: Record<string, unknown>): { tier: string; monthlyCreditLimit: number } {
   const status = String(subscription.status ?? "").toLowerCase();
-  const tier = ACTIVE_SUBSCRIPTION_STATUSES.has(status) ? "monthly" : "free";
+  const tier = ACTIVE_SUBSCRIPTION_STATUSES.has(status) ? "pro" : "free";
   return {
     tier,
     monthlyCreditLimit: monthlyCreditLimitForTier(tier)
@@ -159,7 +175,7 @@ export async function activateCheckoutSubscription(
   stripeCustomerId?: string | null,
   subscriptionId?: string | null
 ): Promise<Record<string, unknown>> {
-  const tier = "monthly";
+  const tier = "pro";
   const monthlyCreditLimit = monthlyCreditLimitForTier(tier);
   const commandStatus = await db.execute(
     `

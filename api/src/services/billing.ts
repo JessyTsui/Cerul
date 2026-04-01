@@ -1,15 +1,16 @@
 import type { DatabaseClient } from "../db/client";
+import type { AppConfig } from "../types";
+import Stripe from "stripe";
 import { randomHex } from "../utils/crypto";
 import {
   BONUS_CREDIT_EXPIRY_DAYS,
-  getBillingProductDefinition,
+  FREE_DAILY_SEARCHES,
   includedCreditsForPlan,
   normalizePlanCode,
-  PAID_TOPUP_EXPIRY_DAYS,
   REFERRAL_BONUS_CREDITS,
   REFERRAL_REWARD_DELAY_DAYS,
-  type BillingPlanCode,
-  type BillingProductCode
+  SIGNUP_BONUS_CREDITS,
+  type BillingPlanCode
 } from "./billing-catalog";
 
 export class InsufficientCreditsError extends Error {
@@ -27,25 +28,20 @@ export class BillingHoldError extends Error {
 }
 
 export const DEFAULT_MONTHLY_CREDIT_LIMITS: Record<string, number> = {
-  free: 1_000,
-  monthly: 5_000,
-  builder: 10_000,
-  pro: 10_000,
+  free: 0,
+  pro: 5_000,
   enterprise: 100_000
 };
 
 export const TIER_KEY_LIMITS: Record<string, number> = {
   free: 1,
-  monthly: 5,
-  builder: 5,
   pro: 5,
   enterprise: 25
 };
 
-const PAID_TIERS = new Set(["monthly", "builder", "pro", "enterprise"]);
+const PAID_TIERS = new Set(["pro", "enterprise"]);
 const BONUS_GRANT_TYPES = new Set(["promo_bonus", "referral_bonus", "manual_adjustment"]);
 const INCLUDED_GRANT_TYPES = new Set(["free_monthly", "subscription_monthly"]);
-const TOPUP_GRANT_TYPES = new Set(["paid_topup"]);
 const CREDIT_EXPIRY_WINDOW_DAYS = 30;
 
 type CreditGrantType =
@@ -76,6 +72,9 @@ type UserBillingProfile = {
   billing_hold: boolean;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  auto_recharge_enabled: boolean;
+  auto_recharge_threshold: number;
+  auto_recharge_quantity: number;
 };
 
 type MonthlyUsageRow = {
@@ -85,7 +84,6 @@ type MonthlyUsageRow = {
 
 type CreditBreakdown = {
   included_remaining: number;
-  topup_remaining: number;
   bonus_remaining: number;
 };
 
@@ -148,20 +146,6 @@ type OrderUpsertInput = {
   metadata?: Record<string, unknown>;
 };
 
-export type CheckoutTopupInput = {
-  userId: string;
-  productCode: BillingProductCode;
-  stripeCheckoutSessionId: string;
-  stripeCustomerId: string | null;
-  stripePaymentIntentId: string | null;
-  currency: string | null;
-  grossAmountCents: number;
-  discountAmountCents: number;
-  netAmountCents: number;
-  occurredAt?: Date | null;
-  metadata?: Record<string, unknown>;
-};
-
 export type SubscriptionInvoiceInput = {
   stripeInvoiceId: string;
   stripeCustomerId: string;
@@ -175,6 +159,19 @@ export type SubscriptionInvoiceInput = {
   periodEnd: string;
   occurredAt?: Date | null;
   metadata?: Record<string, unknown>;
+};
+
+export type TopupInput = {
+  userId: string;
+  credits: number;
+  stripeCheckoutSessionId: string;
+  stripeCustomerId: string | null;
+  stripePaymentIntentId: string | null;
+  currency: string | null;
+  grossAmountCents: number;
+  discountAmountCents: number;
+  netAmountCents: number;
+  occurredAt?: Date | null;
 };
 
 type BillingCatalogState = {
@@ -193,6 +190,14 @@ type BillingCatalogState = {
 
 function addDays(reference: Date, days: number): Date {
   return new Date(reference.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function utcDayBounds(referenceDate?: Date): { start: Date; end: Date } {
+  const start = new Date(referenceDate ?? new Date());
+  start.setUTCHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end };
 }
 
 function endOfBillingPeriod(periodEnd: string): Date {
@@ -217,6 +222,15 @@ function toIsoString(value: unknown): string | null {
 
 function safeMetadata(input: Record<string, unknown> | undefined): string {
   return JSON.stringify(input ?? {});
+}
+
+function stripeClient(config: AppConfig): Stripe {
+  if (!config.stripe.secretKey) {
+    throw new Error("STRIPE_SECRET_KEY is not configured.");
+  }
+  return new Stripe(config.stripe.secretKey, {
+    apiVersion: "2025-08-27.basil"
+  });
 }
 
 function rowsAffected(commandStatus: string): number {
@@ -267,7 +281,10 @@ async function fetchUserBillingProfile(db: DatabaseClient, userId: string): Prom
           rate_limit_per_sec,
           billing_hold,
           stripe_customer_id,
-          stripe_subscription_id
+          stripe_subscription_id,
+          auto_recharge_enabled,
+          auto_recharge_threshold,
+          auto_recharge_quantity
       FROM user_profiles
       WHERE id = $1
     `,
@@ -284,7 +301,10 @@ async function fetchUserBillingProfile(db: DatabaseClient, userId: string): Prom
     rate_limit_per_sec: normalizeInteger(row.rate_limit_per_sec, 0),
     billing_hold: Boolean(row.billing_hold),
     stripe_customer_id: row.stripe_customer_id == null ? null : String(row.stripe_customer_id),
-    stripe_subscription_id: row.stripe_subscription_id == null ? null : String(row.stripe_subscription_id)
+    stripe_subscription_id: row.stripe_subscription_id == null ? null : String(row.stripe_subscription_id),
+    auto_recharge_enabled: Boolean(row.auto_recharge_enabled),
+    auto_recharge_threshold: normalizeInteger(row.auto_recharge_threshold, 100),
+    auto_recharge_quantity: Math.max(normalizeInteger(row.auto_recharge_quantity, 1_000), 1_000)
   };
 }
 
@@ -408,7 +428,7 @@ async function ensureCurrentPeriodGrant(
 ): Promise<void> {
   const profile = await fetchUserBillingProfile(db, userId);
   const planCode = normalizePlanCode(profile.tier);
-  if (planCode !== "free" && planCode !== "monthly" && planCode !== "enterprise") {
+  if (planCode !== "free" && planCode !== "pro" && planCode !== "enterprise") {
     return;
   }
 
@@ -493,18 +513,17 @@ async function fetchCreditWalletSummary(db: DatabaseClient, userId: string): Pro
 
   const breakdown: CreditBreakdown = {
     included_remaining: 0,
-    topup_remaining: 0,
     bonus_remaining: 0
   };
   const expiringCredits: ExpiringCreditSummary[] = [];
   const expiringCutoff = addDays(new Date(), CREDIT_EXPIRY_WINDOW_DAYS).toISOString();
+  let walletBalance = 0;
 
   for (const grant of grants) {
     const remainingCredits = normalizeInteger(grant.remaining_credits, 0);
+    walletBalance += remainingCredits;
     if (BONUS_GRANT_TYPES.has(String(grant.grant_type))) {
       breakdown.bonus_remaining += remainingCredits;
-    } else if (TOPUP_GRANT_TYPES.has(String(grant.grant_type))) {
-      breakdown.topup_remaining += remainingCredits;
     } else if (INCLUDED_GRANT_TYPES.has(String(grant.grant_type))) {
       breakdown.included_remaining += remainingCredits;
     }
@@ -520,7 +539,7 @@ async function fetchCreditWalletSummary(db: DatabaseClient, userId: string): Pro
   }
 
   return {
-    wallet_balance: breakdown.included_remaining + breakdown.topup_remaining + breakdown.bonus_remaining,
+    wallet_balance: walletBalance,
     credit_breakdown: breakdown,
     expiring_credits: expiringCredits.slice(0, 5)
   };
@@ -698,8 +717,127 @@ async function awardDueReferralCredits(db: DatabaseClient): Promise<void> {
 }
 
 async function upsertBillingOrder(db: DatabaseClient, input: OrderUpsertInput): Promise<{ id: string; inserted: boolean }> {
-  if (!input.stripeCheckoutSessionId && !input.stripeInvoiceId) {
-    throw new Error("A billing order must include a Stripe checkout session id or invoice id.");
+  if (!input.stripeCheckoutSessionId && !input.stripeInvoiceId && !input.stripePaymentIntentId) {
+    throw new Error("A billing order must include a Stripe checkout session id, invoice id, or payment intent id.");
+  }
+
+  if (!input.stripeCheckoutSessionId && !input.stripeInvoiceId && input.stripePaymentIntentId) {
+    await db.fetchrow(
+      `
+        SELECT pg_advisory_xact_lock(hashtext($1)) AS locked
+      `,
+      input.stripePaymentIntentId
+    );
+
+    const existing = await db.fetchrow<{ id: string }>(
+      `
+        SELECT id
+        FROM billing_orders
+        WHERE stripe_payment_intent_id = $1
+        FOR UPDATE
+      `,
+      input.stripePaymentIntentId
+    );
+
+    if (!existing) {
+      const inserted = await db.fetchrow<{ id: string }>(
+        `
+          INSERT INTO billing_orders (
+              user_id,
+              order_kind,
+              product_code,
+              plan_code,
+              status,
+              currency,
+              gross_amount_cents,
+              discount_amount_cents,
+              net_amount_cents,
+              stripe_checkout_session_id,
+              stripe_invoice_id,
+              stripe_payment_intent_id,
+              stripe_customer_id,
+              stripe_subscription_id,
+              fulfilled_at,
+              metadata
+          )
+          VALUES (
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              $7,
+              $8,
+              $9,
+              $10,
+              $11,
+              $12,
+              $13,
+              $14,
+              $15,
+              $16::jsonb
+          )
+          RETURNING id
+        `,
+        input.userId,
+        input.orderKind,
+        input.productCode,
+        input.planCode,
+        input.status,
+        input.currency,
+        input.grossAmountCents,
+        input.discountAmountCents,
+        input.netAmountCents,
+        input.stripeCheckoutSessionId ?? null,
+        input.stripeInvoiceId ?? null,
+        input.stripePaymentIntentId,
+        input.stripeCustomerId ?? null,
+        input.stripeSubscriptionId ?? null,
+        input.fulfilledAt ?? null,
+        safeMetadata(input.metadata)
+      );
+      if (!inserted) {
+        throw new Error(`Failed to create billing order for payment intent ${input.stripePaymentIntentId}`);
+      }
+      return { id: String(inserted.id), inserted: true };
+    }
+
+    const commandStatus = await db.execute(
+      `
+        UPDATE billing_orders
+        SET
+            status = $2,
+            currency = $3,
+            gross_amount_cents = $4,
+            discount_amount_cents = $5,
+            net_amount_cents = $6,
+            stripe_customer_id = COALESCE($7, stripe_customer_id),
+            stripe_subscription_id = COALESCE($8, stripe_subscription_id),
+            fulfilled_at = COALESCE($9, fulfilled_at),
+            metadata = CASE
+              WHEN metadata = '{}'::jsonb THEN $10::jsonb
+              ELSE metadata || $10::jsonb
+            END,
+            updated_at = NOW()
+        WHERE stripe_payment_intent_id = $1
+      `,
+      input.stripePaymentIntentId,
+      input.status,
+      input.currency,
+      input.grossAmountCents,
+      input.discountAmountCents,
+      input.netAmountCents,
+      input.stripeCustomerId ?? null,
+      input.stripeSubscriptionId ?? null,
+      input.fulfilledAt ?? null,
+      safeMetadata(input.metadata)
+    );
+    if (rowsAffected(commandStatus) === 0) {
+      throw new Error(`Failed to upsert billing order for stripe_payment_intent_id ${input.stripePaymentIntentId}`);
+    }
+
+    return { id: String(existing.id), inserted: false };
   }
 
   const uniqueColumn = input.stripeInvoiceId ? "stripe_invoice_id" : "stripe_checkout_session_id";
@@ -837,53 +975,27 @@ function defaultCurrency(value: string | null | undefined): string {
   return normalized || "usd";
 }
 
-export async function fulfillTopupCheckout(db: DatabaseClient, input: CheckoutTopupInput): Promise<void> {
-  const product = getBillingProductDefinition(input.productCode);
-  if (!product || product.kind !== "topup") {
-    throw new Error(`Unsupported top-up product: ${input.productCode}`);
+async function linkStripeCustomerToUser(
+  db: DatabaseClient,
+  userId: string,
+  stripeCustomerId: string | null | undefined
+): Promise<void> {
+  const normalizedStripeCustomerId = stripeCustomerId == null ? null : String(stripeCustomerId).trim();
+  if (!normalizedStripeCustomerId) {
+    return;
   }
 
-  await db.transaction(async (tx) => {
-    await awardDueReferralCredits(tx);
-    await expireElapsedCreditGrants(tx, input.userId);
-
-    const profile = await fetchUserBillingProfile(tx, input.userId);
-    const planCode = normalizePlanCode(profile.tier);
-    const order = await upsertBillingOrder(tx, {
-      userId: input.userId,
-      orderKind: "topup",
-      productCode: product.code,
-      planCode,
-      status: "paid",
-      currency: defaultCurrency(input.currency),
-      grossAmountCents: normalizeInteger(input.grossAmountCents, product.amountCents),
-      discountAmountCents: normalizeInteger(input.discountAmountCents, 0),
-      netAmountCents: normalizeInteger(input.netAmountCents, product.amountCents),
-      stripeCheckoutSessionId: input.stripeCheckoutSessionId,
-      stripePaymentIntentId: input.stripePaymentIntentId,
-      stripeCustomerId: input.stripeCustomerId,
-      stripeSubscriptionId: null,
-      fulfilledAt: input.occurredAt ?? new Date(),
-      metadata: input.metadata
-    });
-
-    await createCreditGrant(tx, {
-      userId: input.userId,
-      billingOrderId: order.id,
-      grantKey: `paid_topup:${input.stripeCheckoutSessionId}`,
-      grantType: "paid_topup",
-      planCode,
-      totalCredits: product.credits,
-      expiresAt: addDays(input.occurredAt ?? new Date(), PAID_TOPUP_EXPIRY_DAYS),
-      metadata: {
-        product_code: product.code,
-        stripe_checkout_session_id: input.stripeCheckoutSessionId,
-        ...(input.metadata ?? {})
-      }
-    });
-    await setOrderCreditsGranted(tx, order.id, product.credits);
-    await markReferralReadyForOrder(tx, input.userId, order.id, normalizeInteger(input.netAmountCents, product.amountCents));
-  });
+  await db.execute(
+    `
+      UPDATE user_profiles
+      SET
+          stripe_customer_id = COALESCE(stripe_customer_id, $2),
+          updated_at = NOW()
+      WHERE id = $1
+    `,
+    userId,
+    normalizedStripeCustomerId
+  );
 }
 
 async function resolveUserIdByCustomer(db: DatabaseClient, stripeCustomerId: string): Promise<string | null> {
@@ -896,6 +1008,120 @@ async function resolveUserIdByCustomer(db: DatabaseClient, stripeCustomerId: str
     stripeCustomerId
   );
   return row ? String(row.id) : null;
+}
+
+export async function grantSignupBonus(db: DatabaseClient, userId: string): Promise<void> {
+  await createCreditGrant(db, {
+    userId,
+    grantKey: `signup_bonus:${userId}`,
+    grantType: "promo_bonus",
+    planCode: "free",
+    totalCredits: SIGNUP_BONUS_CREDITS,
+    expiresAt: null,
+    metadata: {
+      reason: "signup_bonus"
+    }
+  });
+}
+
+export async function fulfillTopupCheckout(db: DatabaseClient, input: TopupInput): Promise<void> {
+  await db.transaction(async (tx) => {
+    await awardDueReferralCredits(tx);
+    await linkStripeCustomerToUser(tx, input.userId, input.stripeCustomerId);
+    const profile = await fetchUserBillingProfile(tx, input.userId);
+    const planCode = normalizePlanCode(profile.tier);
+
+    const order = await upsertBillingOrder(tx, {
+      userId: input.userId,
+      orderKind: "topup",
+      productCode: "topup",
+      planCode,
+      status: "paid",
+      currency: defaultCurrency(input.currency),
+      grossAmountCents: normalizeInteger(input.grossAmountCents, 0),
+      discountAmountCents: normalizeInteger(input.discountAmountCents, 0),
+      netAmountCents: normalizeInteger(input.netAmountCents, 0),
+      stripeCheckoutSessionId: input.stripeCheckoutSessionId,
+      stripePaymentIntentId: input.stripePaymentIntentId,
+      stripeCustomerId: input.stripeCustomerId,
+      stripeSubscriptionId: null,
+      fulfilledAt: input.occurredAt ?? new Date(),
+      metadata: {
+        credits: input.credits
+      }
+    });
+
+    await createCreditGrant(tx, {
+      userId: input.userId,
+      billingOrderId: order.id,
+      grantKey: `topup:${input.stripeCheckoutSessionId}`,
+      grantType: "paid_topup",
+      planCode,
+      totalCredits: input.credits,
+      expiresAt: null,
+      metadata: {
+        stripe_checkout_session_id: input.stripeCheckoutSessionId
+      }
+    });
+    await setOrderCreditsGranted(tx, order.id, input.credits);
+    await markReferralReadyForOrder(tx, input.userId, order.id, normalizeInteger(input.netAmountCents, 0));
+  });
+}
+
+type AutoRechargeFulfillmentInput = {
+  userId: string;
+  stripePaymentIntentId: string;
+  stripeCustomerId: string | null;
+  quantity: number;
+  currency: string | null;
+  grossAmountCents: number;
+  discountAmountCents: number;
+  netAmountCents: number;
+  occurredAt?: Date | null;
+};
+
+export async function fulfillAutoRechargePayment(
+  db: DatabaseClient,
+  input: AutoRechargeFulfillmentInput
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await linkStripeCustomerToUser(tx, input.userId, input.stripeCustomerId);
+    const profile = await fetchUserBillingProfile(tx, input.userId);
+    const planCode = normalizePlanCode(profile.tier);
+    const order = await upsertBillingOrder(tx, {
+      userId: input.userId,
+      orderKind: "topup",
+      productCode: "auto_recharge",
+      planCode,
+      status: "paid",
+      currency: defaultCurrency(input.currency),
+      grossAmountCents: normalizeInteger(input.grossAmountCents, 0),
+      discountAmountCents: normalizeInteger(input.discountAmountCents, 0),
+      netAmountCents: normalizeInteger(input.netAmountCents, 0),
+      stripePaymentIntentId: input.stripePaymentIntentId,
+      stripeCustomerId: input.stripeCustomerId,
+      fulfilledAt: input.occurredAt ?? new Date(),
+      metadata: {
+        auto_recharge: true,
+        quantity: input.quantity
+      }
+    });
+
+    await createCreditGrant(tx, {
+      userId: input.userId,
+      billingOrderId: order.id,
+      grantKey: `auto_recharge:${input.stripePaymentIntentId}`,
+      grantType: "paid_topup",
+      planCode,
+      totalCredits: input.quantity,
+      expiresAt: null,
+      metadata: {
+        auto_recharge: true,
+        stripe_payment_intent_id: input.stripePaymentIntentId
+      }
+    });
+    await setOrderCreditsGranted(tx, order.id, input.quantity);
+  });
 }
 
 export async function fulfillSubscriptionInvoice(db: DatabaseClient, input: SubscriptionInvoiceInput): Promise<void> {
@@ -912,7 +1138,7 @@ export async function fulfillSubscriptionInvoice(db: DatabaseClient, input: Subs
     const order = await upsertBillingOrder(tx, {
       userId,
       orderKind: "subscription",
-      productCode: "monthly",
+      productCode: "pro",
       planCode,
       status: "paid",
       currency: defaultCurrency(input.currency),
@@ -949,6 +1175,109 @@ export async function fulfillSubscriptionInvoice(db: DatabaseClient, input: Subs
     await setOrderCreditsGranted(tx, order.id, includedCredits);
     await markReferralReadyForOrder(tx, userId, order.id, normalizeInteger(input.netAmountCents, 0));
   });
+}
+
+export async function maybeAutoRecharge(
+  db: DatabaseClient,
+  config: AppConfig,
+  userId: string
+): Promise<{ triggered: boolean; error?: string }> {
+  const profile = await fetchUserBillingProfile(db, userId);
+  if (!profile.auto_recharge_enabled) {
+    return { triggered: false };
+  }
+  if (!profile.stripe_customer_id) {
+    return { triggered: false };
+  }
+
+  const wallet = await fetchCreditWalletSummary(db, userId);
+  if (wallet.wallet_balance >= profile.auto_recharge_threshold) {
+    return { triggered: false };
+  }
+
+  const recentRecharge = await db.fetchrow<{ id: string }>(
+    `
+      SELECT id
+      FROM billing_orders
+      WHERE user_id = $1
+        AND order_kind = 'topup'
+        AND status = 'pending'
+        AND created_at > NOW() - INTERVAL '5 minutes'
+      LIMIT 1
+    `,
+    userId
+  );
+  if (recentRecharge) {
+    return { triggered: false };
+  }
+
+  const unitPriceId = config.stripe.topupUnitPriceId;
+  if (!unitPriceId) {
+    return { triggered: false };
+  }
+
+  try {
+    const stripe = stripeClient(config);
+    const price = await stripe.prices.retrieve(unitPriceId);
+    const unitAmount = normalizeInteger(price.unit_amount, 0);
+    if (unitAmount <= 0) {
+      return { triggered: false, error: "Stripe top-up unit amount is invalid." };
+    }
+
+    const quantity = Math.max(Math.round(profile.auto_recharge_quantity / 100) * 100, 1_000);
+    const totalAmount = unitAmount * quantity;
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: totalAmount,
+      currency: "usd",
+      customer: profile.stripe_customer_id,
+      off_session: true,
+      confirm: true,
+      metadata: {
+        user_id: userId,
+        type: "auto_recharge",
+        quantity: String(quantity)
+      }
+    });
+
+    await upsertBillingOrder(db, {
+      userId,
+      orderKind: "topup",
+      productCode: "auto_recharge",
+      planCode: normalizePlanCode(profile.tier),
+      status: paymentIntent.status === "succeeded" ? "paid" : "pending",
+      currency: defaultCurrency(paymentIntent.currency),
+      grossAmountCents: totalAmount,
+      discountAmountCents: 0,
+      netAmountCents: totalAmount,
+      stripePaymentIntentId: paymentIntent.id,
+      stripeCustomerId: profile.stripe_customer_id,
+      fulfilledAt: paymentIntent.status === "succeeded" ? new Date() : null,
+      metadata: {
+        auto_recharge: true,
+        quantity
+      }
+    });
+
+    if (paymentIntent.status === "succeeded") {
+      await fulfillAutoRechargePayment(db, {
+        userId,
+        stripePaymentIntentId: paymentIntent.id,
+        stripeCustomerId: profile.stripe_customer_id,
+        quantity,
+        currency: paymentIntent.currency,
+        grossAmountCents: totalAmount,
+        discountAmountCents: 0,
+        netAmountCents: totalAmount,
+        occurredAt: new Date()
+      });
+    }
+
+    return { triggered: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Auto-recharge failed.";
+    console.error("[billing] Auto-recharge failed:", message);
+    return { triggered: false, error: message };
+  }
 }
 
 export async function recordFailedInvoice(db: DatabaseClient, input: {
@@ -1177,6 +1506,174 @@ export async function fetchBillingCatalogState(
   });
 }
 
+async function insertUsageEvent(
+  db: DatabaseClient,
+  input: {
+    requestId: string;
+    userId: string;
+    apiKeyId: string;
+    searchType: string;
+    includeAnswer: boolean;
+    creditsUsed: number;
+  }
+): Promise<{ creditsUsed: number; inserted: boolean }> {
+  const existingUsage = await db.fetchrow<{ credits_used: number }>(
+    `
+      SELECT credits_used
+      FROM usage_events
+      WHERE request_id = $1
+    `,
+    input.requestId
+  );
+  if (existingUsage) {
+    return {
+      creditsUsed: Number(existingUsage.credits_used ?? 0),
+      inserted: false
+    };
+  }
+
+  const insertedUsage = await db.fetchrow<{ credits_used: number }>(
+    `
+      INSERT INTO usage_events (
+          request_id,
+          user_id,
+          api_key_id,
+          search_type,
+          include_answer,
+          credits_used
+      )
+      VALUES ($1, $2, $3::uuid, $4, $5, $6)
+      ON CONFLICT (request_id) DO NOTHING
+      RETURNING credits_used
+    `,
+    input.requestId,
+    input.userId,
+    input.apiKeyId,
+    input.searchType,
+    input.includeAnswer,
+    input.creditsUsed
+  );
+  if (insertedUsage == null) {
+    const usageRow = await db.fetchrow<{ credits_used: number }>(
+      `
+        SELECT credits_used
+        FROM usage_events
+        WHERE request_id = $1
+      `,
+      input.requestId
+    );
+    return {
+      creditsUsed: Number(usageRow?.credits_used ?? 0),
+      inserted: false
+    };
+  }
+
+  return {
+    creditsUsed: Number(insertedUsage.credits_used ?? 0),
+    inserted: true
+  };
+}
+
+async function incrementMonthlyUsage(
+  db: DatabaseClient,
+  input: {
+    userId: string;
+    periodStart: string;
+    periodEnd: string;
+    creditsLimit: number;
+    creditsUsed: number;
+  }
+): Promise<void> {
+  await db.execute(
+    `
+      INSERT INTO usage_monthly (
+          user_id,
+          period_start,
+          period_end,
+          credits_limit,
+          credits_used,
+          request_count
+      )
+      VALUES ($1, $2, $3, $4, $5, 1)
+      ON CONFLICT (user_id, period_start)
+      DO UPDATE SET
+          period_end = EXCLUDED.period_end,
+          credits_limit = EXCLUDED.credits_limit,
+          credits_used = usage_monthly.credits_used + EXCLUDED.credits_used,
+          request_count = usage_monthly.request_count + EXCLUDED.request_count,
+          updated_at = NOW()
+    `,
+    input.userId,
+    input.periodStart,
+    input.periodEnd,
+    input.creditsLimit,
+    input.creditsUsed
+  );
+}
+
+export async function fetchDailySearchAllowance(
+  db: DatabaseClient,
+  userId: string,
+  referenceDate?: Date
+): Promise<{ limit: number; searchesToday: number; remaining: number }> {
+  const { start, end } = utcDayBounds(referenceDate);
+  const row = await db.fetchrow<{ count: number }>(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM usage_events
+      WHERE user_id = $1
+        AND occurred_at >= $2
+        AND occurred_at < $3
+    `,
+    userId,
+    start.toISOString(),
+    end.toISOString()
+  );
+
+  const searchesToday = normalizeInteger(row?.count, 0);
+  return {
+    limit: FREE_DAILY_SEARCHES,
+    searchesToday,
+    remaining: Math.max(FREE_DAILY_SEARCHES - searchesToday, 0)
+  };
+}
+
+export async function recordFreeSearchUsage(
+  db: DatabaseClient,
+  userId: string,
+  apiKeyId: string,
+  requestId: string,
+  searchType: string,
+  includeAnswer: boolean
+): Promise<number> {
+  return db.transaction(async (tx) => {
+    const profile = await fetchUserBillingProfile(tx, userId);
+    const [periodStart, periodEnd] = currentBillingPeriod();
+    const usageEvent = await insertUsageEvent(tx, {
+      requestId,
+      userId,
+      apiKeyId,
+      searchType,
+      includeAnswer,
+      creditsUsed: 0
+    });
+
+    if (!usageEvent.inserted) {
+      return usageEvent.creditsUsed;
+    }
+
+    await incrementMonthlyUsage(tx, {
+      userId,
+      periodStart,
+      periodEnd,
+      creditsLimit: normalizeInteger(profile.monthly_credit_limit, monthlyCreditLimitForTier(profile.tier)),
+      creditsUsed: 0
+    });
+
+    return 0;
+  });
+}
+
 export async function deductCredits(
   db: DatabaseClient,
   userId: string,
@@ -1197,18 +1694,6 @@ export async function deductCredits(
     const creditsUsed = calculateCreditCost(searchType, includeAnswer);
     const [periodStart, periodEnd] = currentBillingPeriod();
 
-    const existingUsage = await tx.fetchrow<{ credits_used: number }>(
-      `
-        SELECT credits_used
-        FROM usage_events
-        WHERE request_id = $1
-      `,
-      requestId
-    );
-    if (existingUsage) {
-      return Number(existingUsage.credits_used ?? 0);
-    }
-
     const availableGrants = await fetchActiveGrantBalances(tx, userId);
     const totalAvailable = availableGrants.reduce(
       (sum, grant) => sum + normalizeInteger(grant.remaining_credits, 0),
@@ -1218,37 +1703,16 @@ export async function deductCredits(
       throw new InsufficientCreditsError();
     }
 
-    const insertedUsage = await tx.fetchrow<{ credits_used: number }>(
-      `
-        INSERT INTO usage_events (
-            request_id,
-            user_id,
-            api_key_id,
-            search_type,
-            include_answer,
-            credits_used
-        )
-        VALUES ($1, $2, $3::uuid, $4, $5, $6)
-        ON CONFLICT (request_id) DO NOTHING
-        RETURNING credits_used
-      `,
+    const usageEvent = await insertUsageEvent(tx, {
       requestId,
       userId,
       apiKeyId,
       searchType,
       includeAnswer,
       creditsUsed
-    );
-    if (insertedUsage == null) {
-      const usageRow = await tx.fetchrow<{ credits_used: number }>(
-        `
-          SELECT credits_used
-          FROM usage_events
-          WHERE request_id = $1
-        `,
-        requestId
-      );
-      return Number(usageRow?.credits_used ?? 0);
+    });
+    if (!usageEvent.inserted) {
+      return usageEvent.creditsUsed;
     }
 
     let remainingToSpend = creditsUsed;
@@ -1289,31 +1753,13 @@ export async function deductCredits(
       throw new InsufficientCreditsError();
     }
 
-    await tx.execute(
-      `
-        INSERT INTO usage_monthly (
-            user_id,
-            period_start,
-            period_end,
-            credits_limit,
-            credits_used,
-            request_count
-        )
-        VALUES ($1, $2, $3, $4, $5, 1)
-        ON CONFLICT (user_id, period_start)
-        DO UPDATE SET
-            period_end = EXCLUDED.period_end,
-            credits_limit = EXCLUDED.credits_limit,
-            credits_used = usage_monthly.credits_used + EXCLUDED.credits_used,
-            request_count = usage_monthly.request_count + EXCLUDED.request_count,
-            updated_at = NOW()
-      `,
+    await incrementMonthlyUsage(tx, {
       userId,
       periodStart,
       periodEnd,
-      normalizeInteger(profile.monthly_credit_limit, monthlyCreditLimitForTier(profile.tier)),
+      creditsLimit: normalizeInteger(profile.monthly_credit_limit, monthlyCreditLimitForTier(profile.tier)),
       creditsUsed
-    );
+    });
 
     return creditsUsed;
   });

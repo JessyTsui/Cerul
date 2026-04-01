@@ -24,10 +24,8 @@ export interface Bindings {
   RERANK_MODEL?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
-  STRIPE_MONTHLY_PRICE_ID?: string;
-  STRIPE_TOPUP_1000_PRICE_ID?: string;
-  STRIPE_TOPUP_5000_PRICE_ID?: string;
-  STRIPE_TOPUP_20000_PRICE_ID?: string;
+  STRIPE_PRO_PRICE_ID?: string;
+  STRIPE_TOPUP_UNIT_PRICE_ID?: string;
   R2_BUCKET_NAME?: string;
   R2_PUBLIC_URL?: string;
   QUERY_IMAGES_BUCKET?: R2Bucket;
@@ -72,10 +70,8 @@ export interface AppConfig {
   stripe: {
     secretKey: string | null;
     webhookSecret: string | null;
-    monthlyPriceId: string | null;
-    topup1000PriceId: string | null;
-    topup5000PriceId: string | null;
-    topup20000PriceId: string | null;
+    proPriceId: string | null;
+    topupUnitPriceId: string | null;
   };
   r2: {
     bucketName: string;
@@ -136,6 +132,7 @@ export interface SearchResult {
   url: string;
   title: string;
   snippet: string;
+  transcript?: string | null;
   thumbnail_url?: string | null;
   keyframe_url?: string | null;
   duration: number;
@@ -164,7 +161,6 @@ export interface UsageResponse {
   wallet_balance?: number;
   credit_breakdown?: {
     included_remaining: number;
-    topup_remaining: number;
     bonus_remaining: number;
   };
   expiring_credits?: Array<{
@@ -175,6 +171,8 @@ export interface UsageResponse {
   rate_limit_per_sec: number;
   api_keys_active: number;
   billing_hold?: boolean;
+  daily_free_remaining?: number;
+  daily_free_limit?: number;
 }
 
 export interface IndexRequest {

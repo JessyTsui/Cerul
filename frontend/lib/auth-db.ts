@@ -183,20 +183,81 @@ type ProfileInput = {
   id: string;
   email: string;
   name: string;
+  grantSignupBonus?: boolean;
 };
+
+const SIGNUP_BONUS_CREDITS = 100;
 
 export async function upsertUserProfile(profile: ProfileInput): Promise<void> {
   const displayName = profile.name.trim() || null;
   const email = profile.email.trim().toLowerCase();
+  const database = getAuthDatabase();
 
   await withAuthDatabaseRecovery(() =>
-    sql`
-      INSERT INTO user_profiles (id, email, display_name)
-      VALUES (${profile.id}, ${email}, ${displayName})
-      ON CONFLICT (id) DO UPDATE
-      SET email = EXCLUDED.email,
-          display_name = EXCLUDED.display_name,
-          updated_at = NOW()
-    `.execute(getAuthDatabase()),
+    database.transaction().execute(async (trx) => {
+      await sql`
+        INSERT INTO user_profiles (id, email, display_name)
+        VALUES (${profile.id}, ${email}, ${displayName})
+        ON CONFLICT (id) DO UPDATE
+        SET email = EXCLUDED.email,
+            display_name = EXCLUDED.display_name,
+            updated_at = NOW()
+      `.execute(trx);
+
+      if (!profile.grantSignupBonus) {
+        return;
+      }
+
+      const insertedGrant = await sql<{ id: string }>`
+        INSERT INTO credit_grants (
+          user_id,
+          grant_key,
+          grant_type,
+          plan_code,
+          total_credits,
+          remaining_credits,
+          expires_at,
+          metadata
+        )
+        VALUES (
+          ${profile.id},
+          ${`signup_bonus:${profile.id}`},
+          'promo_bonus',
+          'free',
+          ${SIGNUP_BONUS_CREDITS},
+          ${SIGNUP_BONUS_CREDITS},
+          NULL,
+          ${JSON.stringify({ reason: "signup_bonus" })}::jsonb
+        )
+        ON CONFLICT (grant_key) DO NOTHING
+        RETURNING id
+      `.execute(trx);
+
+      const grantId = insertedGrant.rows[0]?.id;
+      if (!grantId) {
+        return;
+      }
+
+      await sql`
+        INSERT INTO credit_transactions (
+          user_id,
+          grant_id,
+          kind,
+          amount,
+          metadata
+        )
+        VALUES (
+          ${profile.id},
+          ${grantId}::uuid,
+          'grant',
+          ${SIGNUP_BONUS_CREDITS},
+          ${JSON.stringify({
+            grant_key: `signup_bonus:${profile.id}`,
+            grant_type: "promo_bonus",
+            reason: "signup_bonus",
+          })}::jsonb
+        )
+      `.execute(trx);
+    }),
   );
 }

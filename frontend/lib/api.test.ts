@@ -171,6 +171,8 @@ describe("dashboard API client", () => {
             api_keys_active: 3,
             rate_limit_per_sec: 12,
             has_stripe_customer: true,
+            daily_free_remaining: 7,
+            daily_free_limit: 10,
             daily_breakdown: [
               {
                 date: "2026-03-01",
@@ -200,7 +202,6 @@ describe("dashboard API client", () => {
       walletBalance: 7550,
       creditBreakdown: {
         includedRemaining: 0,
-        topupRemaining: 0,
         bonusRemaining: 0,
       },
       expiringCredits: [],
@@ -209,6 +210,8 @@ describe("dashboard API client", () => {
       rateLimitPerSec: 12,
       hasStripeCustomer: true,
       billingHold: false,
+      dailyFreeRemaining: 7,
+      dailyFreeLimit: 10,
       dailyBreakdown: [
         {
           date: "2026-03-01",
@@ -256,6 +259,8 @@ describe("dashboard API client", () => {
       expect.objectContaining({
         hasStripeCustomer: false,
         walletBalance: 880,
+        dailyFreeRemaining: 0,
+        dailyFreeLimit: 0,
         dailyBreakdown: [
           {
             date: "2026-03-01",
@@ -287,7 +292,7 @@ describe("dashboard API client", () => {
     });
   });
 
-  it("sends a product code when creating a checkout session", async () => {
+  it("creates a top-up checkout session with quantity", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -302,13 +307,15 @@ describe("dashboard API client", () => {
       ),
     );
 
-    await billing.createCheckout({ productCode: "topup_5000" });
+    await expect(billing.createTopup(2500)).resolves.toEqual({
+      url: "https://billing.example/checkout",
+    });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/console/dashboard/billing/checkout",
+      "/api/console/dashboard/billing/topup",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ product_code: "topup_5000" }),
+        body: JSON.stringify({ quantity: 2500 }),
       }),
     );
   });
@@ -317,11 +324,10 @@ describe("dashboard API client", () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          plan_code: "monthly",
+          plan_code: "pro",
           wallet_balance: 5300,
           credit_breakdown: {
             included_remaining: 300,
-            topup_remaining: 5000,
             bonus_remaining: 0,
           },
           referral: {
@@ -331,23 +337,6 @@ describe("dashboard API client", () => {
             redeemed_code: null,
             status: null,
           },
-          products: [
-            {
-              code: "topup_5000",
-              name: "Top-up 5,000",
-              description: "Prepaid credits",
-              kind: "topup",
-              plan_code: "monthly",
-              credits: 5000,
-              amount_cents: 3600,
-              currency: "usd",
-              price_display: "$36",
-              cadence: "one time",
-              allow_promotion_codes: true,
-              stripe_price_id: "price_123",
-              is_configured: true,
-            },
-          ],
         }),
         {
           status: 200,
@@ -359,11 +348,10 @@ describe("dashboard API client", () => {
     );
 
     await expect(billing.getCatalog()).resolves.toEqual({
-      planCode: "monthly",
+      planCode: "pro",
       walletBalance: 5300,
       creditBreakdown: {
         includedRemaining: 300,
-        topupRemaining: 5000,
         bonusRemaining: 0,
       },
       expiringCredits: [],
@@ -374,23 +362,6 @@ describe("dashboard API client", () => {
         redeemedCode: null,
         status: null,
       },
-      products: [
-        {
-          code: "topup_5000",
-          name: "Top-up 5,000",
-          description: "Prepaid credits",
-          kind: "topup",
-          planCode: "monthly",
-          credits: 5000,
-          amountCents: 3600,
-          currency: "usd",
-          priceDisplay: "$36",
-          cadence: "one time",
-          allowPromotionCodes: true,
-          stripePriceId: "price_123",
-          isConfigured: true,
-        },
-      ],
     });
   });
 
@@ -411,6 +382,58 @@ describe("dashboard API client", () => {
 
     await expect(billing.createPortal()).resolves.toEqual({
       url: "https://billing.example/portal",
+    });
+  });
+
+  it("normalizes auto-recharge settings payloads", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            enabled: true,
+            threshold: 120,
+            quantity: 1500,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            enabled: false,
+            threshold: 80,
+            quantity: 1000,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      );
+
+    await expect(billing.getAutoRecharge()).resolves.toEqual({
+      enabled: true,
+      threshold: 120,
+      quantity: 1500,
+    });
+
+    await expect(
+      billing.updateAutoRecharge({
+        enabled: false,
+        threshold: 80,
+        quantity: 1000,
+      }),
+    ).resolves.toEqual({
+      enabled: false,
+      threshold: 80,
+      quantity: 1000,
     });
   });
 

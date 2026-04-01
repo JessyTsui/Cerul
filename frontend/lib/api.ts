@@ -48,7 +48,6 @@ type DailyUsageWire = {
 
 type CreditBreakdownWire = {
   included_remaining?: number;
-  topup_remaining?: number;
   bonus_remaining?: number;
 };
 
@@ -74,6 +73,8 @@ type MonthlyUsageWire = {
   rate_limit_per_sec?: number | null;
   has_stripe_customer?: boolean;
   billing_hold?: boolean;
+  daily_free_remaining?: number;
+  daily_free_limit?: number;
   daily_breakdown?: DailyUsageWire[];
 };
 
@@ -88,28 +89,6 @@ type BillingLinkWire = {
   product_code?: string;
 };
 
-type BillingCatalogProductWire = {
-  code?: string;
-  name?: string;
-  description?: string;
-  kind?: "subscription" | "topup";
-  planCode?: string;
-  plan_code?: string;
-  credits?: number;
-  amountCents?: number;
-  amount_cents?: number;
-  currency?: string;
-  priceDisplay?: string;
-  price_display?: string;
-  cadence?: string;
-  allowPromotionCodes?: boolean;
-  allow_promotion_codes?: boolean;
-  stripePriceId?: string | null;
-  stripe_price_id?: string | null;
-  isConfigured?: boolean;
-  is_configured?: boolean;
-};
-
 type BillingCatalogWire = {
   plan_code?: string;
   wallet_balance?: number;
@@ -122,7 +101,12 @@ type BillingCatalogWire = {
     redeemed_code?: string | null;
     status?: string | null;
   };
-  products?: BillingCatalogProductWire[];
+};
+
+type AutoRechargeSettingsWire = {
+  enabled?: boolean;
+  threshold?: number;
+  quantity?: number;
 };
 
 type JobStatusWire = "pending" | "running" | "retrying" | "completed" | "failed";
@@ -232,7 +216,6 @@ export type DashboardMonthlyUsage = {
   walletBalance: number;
   creditBreakdown: {
     includedRemaining: number;
-    topupRemaining: number;
     bonusRemaining: number;
   };
   expiringCredits: Array<{
@@ -245,6 +228,8 @@ export type DashboardMonthlyUsage = {
   rateLimitPerSec: number | null;
   hasStripeCustomer: boolean;
   billingHold: boolean;
+  dailyFreeRemaining: number;
+  dailyFreeLimit: number;
   dailyBreakdown: DashboardUsageDay[];
 };
 
@@ -252,20 +237,10 @@ export type BillingRedirect = {
   url: string;
 };
 
-export type BillingProduct = {
-  code: string;
-  name: string;
-  description: string;
-  kind: "subscription" | "topup";
-  planCode: string;
-  credits: number;
-  amountCents: number;
-  currency: string;
-  priceDisplay: string;
-  cadence: string;
-  allowPromotionCodes: boolean;
-  stripePriceId: string | null;
-  isConfigured: boolean;
+export type AutoRechargeSettings = {
+  enabled: boolean;
+  threshold: number;
+  quantity: number;
 };
 
 export type BillingCatalog = {
@@ -273,7 +248,6 @@ export type BillingCatalog = {
   walletBalance: number;
   creditBreakdown: {
     includedRemaining: number;
-    topupRemaining: number;
     bonusRemaining: number;
   };
   expiringCredits: Array<{
@@ -288,11 +262,6 @@ export type BillingCatalog = {
     redeemedCode: string | null;
     status: string | null;
   };
-  products: BillingProduct[];
-};
-
-export type BillingCheckoutRequest = {
-  productCode?: string;
 };
 
 export type JobStatus = JobStatusWire;
@@ -717,10 +686,6 @@ function normalizeUsage(payload: unknown): DashboardMonthlyUsage {
         typeof usagePayload.credit_breakdown?.included_remaining === "number"
           ? usagePayload.credit_breakdown.included_remaining
           : 0,
-      topupRemaining:
-        typeof usagePayload.credit_breakdown?.topup_remaining === "number"
-          ? usagePayload.credit_breakdown.topup_remaining
-          : 0,
       bonusRemaining:
         typeof usagePayload.credit_breakdown?.bonus_remaining === "number"
           ? usagePayload.credit_breakdown.bonus_remaining
@@ -743,59 +708,15 @@ function normalizeUsage(payload: unknown): DashboardMonthlyUsage {
         : null,
     hasStripeCustomer: usagePayload.has_stripe_customer === true,
     billingHold: usagePayload.billing_hold === true,
-    dailyBreakdown,
-  };
-}
-
-function normalizeBillingProduct(payload: unknown): BillingProduct | null {
-  if (!isPlainObject(payload) || typeof payload.code !== "string" || typeof payload.name !== "string") {
-    return null;
-  }
-
-  const kind = payload.kind === "subscription" ? "subscription" : payload.kind === "topup" ? "topup" : null;
-  if (!kind) {
-    return null;
-  }
-
-  return {
-    code: payload.code,
-    name: payload.name,
-    description: typeof payload.description === "string" ? payload.description : "",
-    kind,
-    planCode:
-      typeof payload.plan_code === "string"
-        ? payload.plan_code
-        : typeof payload.planCode === "string"
-          ? payload.planCode
-          : "free",
-    credits:
-      typeof payload.credits === "number"
-        ? payload.credits
+    dailyFreeRemaining:
+      typeof usagePayload.daily_free_remaining === "number"
+        ? usagePayload.daily_free_remaining
         : 0,
-    amountCents:
-      typeof payload.amount_cents === "number"
-        ? payload.amount_cents
-        : typeof payload.amountCents === "number"
-          ? payload.amountCents
-          : 0,
-    currency: typeof payload.currency === "string" ? payload.currency : "usd",
-    priceDisplay:
-      typeof payload.price_display === "string"
-        ? payload.price_display
-        : typeof payload.priceDisplay === "string"
-          ? payload.priceDisplay
-          : "",
-    cadence: typeof payload.cadence === "string" ? payload.cadence : "",
-    allowPromotionCodes:
-      payload.allow_promotion_codes === true || payload.allowPromotionCodes === true,
-    stripePriceId:
-      typeof payload.stripe_price_id === "string"
-        ? payload.stripe_price_id
-        : typeof payload.stripePriceId === "string"
-          ? payload.stripePriceId
-          : null,
-    isConfigured:
-      payload.is_configured === true || payload.isConfigured === true,
+    dailyFreeLimit:
+      typeof usagePayload.daily_free_limit === "number"
+        ? usagePayload.daily_free_limit
+        : 0,
+    dailyBreakdown,
   };
 }
 
@@ -808,11 +729,6 @@ function normalizeBillingCatalog(payload: unknown): BillingCatalog {
     });
   }
 
-  const products = Array.isArray(payload.products)
-    ? payload.products
-        .map((entry) => normalizeBillingProduct(entry))
-        .filter((entry): entry is BillingProduct => entry !== null)
-    : [];
   const breakdown = isPlainObject(payload.credit_breakdown) ? payload.credit_breakdown : {};
   const referral = isPlainObject(payload.referral) ? payload.referral : {};
 
@@ -823,10 +739,6 @@ function normalizeBillingCatalog(payload: unknown): BillingCatalog {
       includedRemaining:
         typeof breakdown.included_remaining === "number"
           ? breakdown.included_remaining
-          : 0,
-      topupRemaining:
-        typeof breakdown.topup_remaining === "number"
-          ? breakdown.topup_remaining
           : 0,
       bonusRemaining:
         typeof breakdown.bonus_remaining === "number"
@@ -861,7 +773,22 @@ function normalizeBillingCatalog(payload: unknown): BillingCatalog {
           ? referral.status
           : null,
     },
-    products,
+  };
+}
+
+function normalizeAutoRechargeSettings(payload: unknown): AutoRechargeSettings {
+  if (!isPlainObject(payload)) {
+    throw new ApiClientError("Invalid auto-recharge response.", {
+      status: 500,
+      code: "invalid_payload",
+      details: payload,
+    });
+  }
+
+  return {
+    enabled: payload.enabled === true,
+    threshold: typeof payload.threshold === "number" ? payload.threshold : 100,
+    quantity: typeof payload.quantity === "number" ? payload.quantity : 1000,
   };
 }
 
@@ -1212,15 +1139,24 @@ export const billing = {
     return normalizeBillingCatalog(payload);
   },
 
-  async createCheckout(input: BillingCheckoutRequest = {}): Promise<BillingRedirect> {
+  async createCheckout(): Promise<BillingRedirect> {
     const payload = await fetchWithAuth<BillingLinkWire>(
       "/dashboard/billing/checkout",
       {
         method: "POST",
-        body:
-          typeof input.productCode === "string" && input.productCode.trim()
-            ? { product_code: input.productCode }
-            : {},
+        body: {},
+      },
+    );
+
+    return normalizeBillingLink(payload);
+  },
+
+  async createTopup(quantity: number): Promise<BillingRedirect> {
+    const payload = await fetchWithAuth<BillingLinkWire>(
+      "/dashboard/billing/topup",
+      {
+        method: "POST",
+        body: { quantity },
       },
     );
 
@@ -1236,6 +1172,30 @@ export const billing = {
     );
 
     return normalizeBillingLink(payload);
+  },
+
+  async getAutoRecharge(): Promise<AutoRechargeSettings> {
+    const payload = await fetchWithAuth<AutoRechargeSettingsWire>(
+      "/dashboard/billing/auto-recharge",
+      {
+        method: "GET",
+        cache: "no-store",
+      },
+    );
+
+    return normalizeAutoRechargeSettings(payload);
+  },
+
+  async updateAutoRecharge(settings: AutoRechargeSettings): Promise<AutoRechargeSettings> {
+    const payload = await fetchWithAuth<AutoRechargeSettingsWire>(
+      "/dashboard/billing/auto-recharge",
+      {
+        method: "POST",
+        body: settings,
+      },
+    );
+
+    return normalizeAutoRechargeSettings(payload);
   },
 
   async redeemReferral(code: string): Promise<BillingCatalog["referral"]> {

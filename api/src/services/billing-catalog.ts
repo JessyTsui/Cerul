@@ -1,106 +1,29 @@
 import type { AppConfig } from "../types";
 
-export type BillingPlanCode = "free" | "monthly" | "enterprise";
-export type BillingProductCode =
-  | "monthly"
-  | "topup_1000"
-  | "topup_5000"
-  | "topup_20000";
-export type BillingProductKind = "subscription" | "topup";
-
-type StripePriceKey =
-  | "monthlyPriceId"
-  | "topup1000PriceId"
-  | "topup5000PriceId"
-  | "topup20000PriceId";
-
-type BillingProductTemplate = {
-  code: BillingProductCode;
-  name: string;
-  description: string;
-  kind: BillingProductKind;
-  planCode: BillingPlanCode;
-  credits: number;
-  amountCents: number;
-  cadence: string;
-  allowPromotionCodes: boolean;
-  stripePriceKey: StripePriceKey;
-};
+export type BillingPlanCode = "free" | "pro" | "enterprise";
 
 export type BillingCatalogProduct = {
-  code: BillingProductCode;
+  code: string;
   name: string;
   description: string;
-  kind: BillingProductKind;
   planCode: BillingPlanCode;
-  credits: number;
+  includedCredits: number;
   amountCents: number;
   currency: string;
   priceDisplay: string;
   cadence: string;
-  allowPromotionCodes: boolean;
+  overageRatePer1K: number | null;
   stripePriceId: string | null;
   isConfigured: boolean;
 };
-
-const BILLING_PRODUCTS: readonly BillingProductTemplate[] = [
-  {
-    code: "monthly",
-    name: "Monthly",
-    description: "Recurring subscription with 5,000 included credits every billing cycle.",
-    kind: "subscription",
-    planCode: "monthly",
-    credits: 5_000,
-    amountCents: 3_000,
-    cadence: "per month",
-    allowPromotionCodes: true,
-    stripePriceKey: "monthlyPriceId"
-  },
-  {
-    code: "topup_1000",
-    name: "Top-up 1,000",
-    description: "One-time prepaid credits for bursty workloads.",
-    kind: "topup",
-    planCode: "monthly",
-    credits: 1_000,
-    amountCents: 800,
-    cadence: "one time",
-    allowPromotionCodes: true,
-    stripePriceKey: "topup1000PriceId"
-  },
-  {
-    code: "topup_5000",
-    name: "Top-up 5,000",
-    description: "Prepaid credits with a better effective rate for repeat usage.",
-    kind: "topup",
-    planCode: "monthly",
-    credits: 5_000,
-    amountCents: 3_600,
-    cadence: "one time",
-    allowPromotionCodes: true,
-    stripePriceKey: "topup5000PriceId"
-  },
-  {
-    code: "topup_20000",
-    name: "Top-up 20,000",
-    description: "High-volume prepaid credits at the best self-serve rate.",
-    kind: "topup",
-    planCode: "monthly",
-    credits: 20_000,
-    amountCents: 12_000,
-    cadence: "one time",
-    allowPromotionCodes: true,
-    stripePriceKey: "topup20000PriceId"
-  }
-] as const;
 
 export function normalizePlanCode(value: string | null | undefined): BillingPlanCode {
   const normalized = (value ?? "free").trim().toLowerCase();
   if (normalized === "enterprise") {
     return "enterprise";
   }
-  if (normalized === "monthly" || normalized === "builder" || normalized === "pro") {
-    return "monthly";
+  if (normalized === "pro" || normalized === "monthly" || normalized === "builder") {
+    return "pro";
   }
   return "free";
 }
@@ -109,67 +32,43 @@ function formatPrice(amountCents: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
+    minimumFractionDigits: amountCents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2
   }).format(amountCents / 100);
 }
 
-function toCatalogProduct(config: AppConfig, product: BillingProductTemplate): BillingCatalogProduct {
-  const stripePriceId = config.stripe[product.stripePriceKey] ?? null;
+export function getProProduct(config: AppConfig): BillingCatalogProduct {
+  const stripePriceId = config.stripe.proPriceId ?? null;
   return {
-    code: product.code,
-    name: product.name,
-    description: product.description,
-    kind: product.kind,
-    planCode: product.planCode,
-    credits: product.credits,
-    amountCents: product.amountCents,
+    code: "pro",
+    name: "Pro",
+    description: "5,000 included credits per month. Top up at $8/1K when you need more.",
+    planCode: "pro",
+    includedCredits: 5_000,
+    amountCents: 2_990,
     currency: "usd",
-    priceDisplay: formatPrice(product.amountCents),
-    cadence: product.cadence,
-    allowPromotionCodes: product.allowPromotionCodes,
+    priceDisplay: formatPrice(2_990),
+    cadence: "per month",
+    overageRatePer1K: 800,
     stripePriceId,
     isConfigured: Boolean(stripePriceId)
   };
 }
 
-export function listBillingProducts(config: AppConfig): BillingCatalogProduct[] {
-  return BILLING_PRODUCTS.map((product) => toCatalogProduct(config, product));
-}
-
-export function getBillingProduct(
-  config: AppConfig,
-  code: BillingProductCode | string | null | undefined
-): BillingCatalogProduct | null {
-  const normalized = (code ?? "").trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-  const product = BILLING_PRODUCTS.find((candidate) => candidate.code === normalized);
-  return product ? toCatalogProduct(config, product) : null;
-}
-
-export function getBillingProductDefinition(
-  code: BillingProductCode | string | null | undefined
-): BillingProductTemplate | null {
-  const normalized = (code ?? "").trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-  return BILLING_PRODUCTS.find((candidate) => candidate.code === normalized) ?? null;
-}
-
 export function includedCreditsForPlan(planCode: BillingPlanCode): number {
   if (planCode === "free") {
-    return 1_000;
+    return 0;
   }
-  if (planCode === "monthly") {
+  if (planCode === "pro") {
     return 5_000;
   }
   return 100_000;
 }
 
+export const TOPUP_RATE_PER_1K_CENTS = 800;
+export const SIGNUP_BONUS_CREDITS = 100;
+export const FREE_DAILY_SEARCHES = 10;
+
 export const REFERRAL_BONUS_CREDITS = 500;
 export const REFERRAL_REWARD_DELAY_DAYS = 7;
 export const BONUS_CREDIT_EXPIRY_DAYS = 90;
-export const PAID_TOPUP_EXPIRY_DAYS = 365;

@@ -4,7 +4,12 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { billing, getApiErrorMessage, type BillingCatalog } from "@/lib/api";
+import {
+  billing,
+  getApiErrorMessage,
+  type AutoRechargeSettings,
+  type BillingCatalog,
+} from "@/lib/api";
 import { useConsoleViewer } from "@/components/console/console-viewer-context";
 import {
   formatBillingPeriod,
@@ -28,12 +33,30 @@ type BootstrapAdminStatus =
   | "unavailable";
 
 const planFeatures: Record<string, string[]> = {
-  free: ["1 active API key", "1,000 credits / month", "Community support"],
+  free: ["1 active API key", "100 credits on signup", "10 free searches / day"],
   monthly: ["5 active API keys", "5,000 included credits / month", "Priority email support"],
   builder: ["5 active API keys", "10,000 legacy credits / month", "Priority email support"],
-  pro: ["5 active API keys", "10,000 legacy credits / month", "Priority email support"],
+  pro: ["5 active API keys", "5,000 included credits / month", "Top up at $8 / 1K"],
   enterprise: ["Unlimited keys", "Custom credit envelope", "Dedicated onboarding"],
 };
+
+const TOPUP_UNIT_PRICE_USD = 0.008;
+
+function normalizeCreditQuantity(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 1000;
+  }
+  return Math.max(Math.round(value / 100) * 100, 1000);
+}
+
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 
 export function DashboardSettingsScreen() {
   const router = useRouter();
@@ -41,14 +64,24 @@ export function DashboardSettingsScreen() {
   const { data, error, isLoading, refresh } = useMonthlyUsage();
   const [catalog, setCatalog] = useState<BillingCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const [billingAction, setBillingAction] = useState<"checkout" | "portal" | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
   const [selectedProductCode, setSelectedProductCode] = useState<string | null>(null);
+  const [topupQuantity, setTopupQuantity] = useState(1000);
+  const [isCreatingTopup, setIsCreatingTopup] = useState(false);
   const [referralInput, setReferralInput] = useState("");
   const [referralError, setReferralError] = useState<string | null>(null);
   const [referralSuccess, setReferralSuccess] = useState<string | null>(null);
   const [isRedeemingReferral, setIsRedeemingReferral] = useState(false);
+  const [autoRecharge, setAutoRecharge] = useState<AutoRechargeSettings>({
+    enabled: false,
+    threshold: 100,
+    quantity: 1000,
+  });
+  const [autoRechargeError, setAutoRechargeError] = useState<string | null>(null);
+  const [autoRechargeSuccess, setAutoRechargeSuccess] = useState<string | null>(null);
+  const [isAutoRechargeLoading, setIsAutoRechargeLoading] = useState(false);
+  const [isSavingAutoRecharge, setIsSavingAutoRecharge] = useState(false);
   const [bootstrapSecret, setBootstrapSecret] = useState("");
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [isPromotingAdmin, setIsPromotingAdmin] = useState(false);
@@ -63,17 +96,16 @@ export function DashboardSettingsScreen() {
   const canManageSubscription = availableBillingAction === "portal";
   const normalizedTier = data?.tier.toLowerCase() ?? "free";
   const usesManualBilling = data !== null && availableBillingAction === null && normalizedTier !== "free";
+  const normalizedTopupQuantity = normalizeCreditQuantity(topupQuantity);
+  const topupPrice = normalizedTopupQuantity * TOPUP_UNIT_PRICE_USD;
 
   async function loadCatalog() {
     setCatalogError(null);
-    setIsCatalogLoading(true);
     try {
       const nextCatalog = await billing.getCatalog();
       setCatalog(nextCatalog);
     } catch (nextError) {
       setCatalogError(getApiErrorMessage(nextError, "Failed to load billing catalog."));
-    } finally {
-      setIsCatalogLoading(false);
     }
   }
 
@@ -108,12 +140,50 @@ export function DashboardSettingsScreen() {
     void loadCatalog();
   }, []);
 
-  async function handleCheckout(productCode = "monthly") {
+  useEffect(() => {
+    if (!data?.hasStripeCustomer) {
+      setAutoRecharge({
+        enabled: false,
+        threshold: 100,
+        quantity: 1000,
+      });
+      setAutoRechargeError(null);
+      setAutoRechargeSuccess(null);
+      setIsAutoRechargeLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsAutoRechargeLoading(true);
+    setAutoRechargeError(null);
+    void billing.getAutoRecharge()
+      .then((settings) => {
+        if (!cancelled) {
+          setAutoRecharge(settings);
+        }
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setAutoRechargeError(getApiErrorMessage(nextError, "Failed to load auto-recharge settings."));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsAutoRechargeLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.hasStripeCustomer]);
+
+  async function handleCheckout() {
     setBillingAction("checkout");
-    setSelectedProductCode(productCode);
+    setSelectedProductCode("pro");
     setBillingError(null);
     try {
-      const redirect = await billing.createCheckout({ productCode });
+      const redirect = await billing.createCheckout();
       window.location.assign(redirect.url);
     } catch (nextError) {
       setBillingError(getApiErrorMessage(nextError, "Failed to start checkout."));
@@ -131,6 +201,37 @@ export function DashboardSettingsScreen() {
     } catch (nextError) {
       setBillingError(getApiErrorMessage(nextError, "Failed to open billing portal."));
       setBillingAction(null);
+    }
+  }
+
+  async function handleTopup() {
+    setIsCreatingTopup(true);
+    setBillingError(null);
+    try {
+      const redirect = await billing.createTopup(normalizeCreditQuantity(topupQuantity));
+      window.location.assign(redirect.url);
+    } catch (nextError) {
+      setBillingError(getApiErrorMessage(nextError, "Failed to start the credit purchase."));
+      setIsCreatingTopup(false);
+    }
+  }
+
+  async function handleSaveAutoRecharge() {
+    setIsSavingAutoRecharge(true);
+    setAutoRechargeError(null);
+    setAutoRechargeSuccess(null);
+    try {
+      const nextSettings = await billing.updateAutoRecharge({
+        enabled: autoRecharge.enabled,
+        threshold: Math.max(Math.round(autoRecharge.threshold), 0),
+        quantity: normalizeCreditQuantity(autoRecharge.quantity),
+      });
+      setAutoRecharge(nextSettings);
+      setAutoRechargeSuccess("Auto-recharge settings saved.");
+    } catch (nextError) {
+      setAutoRechargeError(getApiErrorMessage(nextError, "Failed to save auto-recharge settings."));
+    } finally {
+      setIsSavingAutoRecharge(false);
     }
   }
 
@@ -288,7 +389,13 @@ export function DashboardSettingsScreen() {
                   {
                     label: "Spendable balance",
                     value: formatNumber(data.walletBalance),
-                    note: `${formatNumber(data.creditBreakdown.includedRemaining)} included · ${formatNumber(data.creditBreakdown.topupRemaining)} top-up · ${formatNumber(data.creditBreakdown.bonusRemaining)} bonus`,
+                    note: [
+                      `${formatNumber(data.creditBreakdown.includedRemaining)} included`,
+                      `${formatNumber(data.creditBreakdown.bonusRemaining)} bonus`,
+                      data.walletBalance > (data.creditBreakdown.includedRemaining + data.creditBreakdown.bonusRemaining)
+                        ? "paid top-ups included"
+                        : null,
+                    ].filter(Boolean).join(" · "),
                   },
                   {
                     label: "Requests this period",
@@ -314,12 +421,12 @@ export function DashboardSettingsScreen() {
                   <button
                     className="button-primary w-full"
                     disabled={billingAction !== null || data.billingHold}
-                    onClick={() => void handleCheckout("monthly")}
+                    onClick={() => void handleCheckout()}
                     type="button"
                   >
-                    {billingAction === "checkout" && selectedProductCode === "monthly"
+                    {billingAction === "checkout" && selectedProductCode === "pro"
                       ? "Redirecting..."
-                      : "Upgrade to Monthly"}
+                      : "Upgrade to Pro"}
                   </button>
                 ) : null}
                 {canManageSubscription ? (
@@ -373,17 +480,16 @@ export function DashboardSettingsScreen() {
                   Wallet
                 </p>
                 <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
-                  Add credits before traffic spikes.
+                  Credit breakdown
                 </h2>
                 {catalogError ? (
                   <div className="mt-4 rounded-[18px] border border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] px-4 py-3 text-sm text-[var(--error)]">
                     {catalogError}
                   </div>
                 ) : null}
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
                   {[
                     { label: "Included", value: data.creditBreakdown.includedRemaining },
-                    { label: "Top-up", value: data.creditBreakdown.topupRemaining },
                     { label: "Bonus", value: data.creditBreakdown.bonusRemaining },
                   ].map((item) => (
                     <div
@@ -396,43 +502,6 @@ export function DashboardSettingsScreen() {
                       </p>
                     </div>
                   ))}
-                </div>
-                <div className="mt-5 grid gap-3">
-                  {(catalog?.products ?? [])
-                    .filter((product) => product.kind === "topup")
-                    .map((product) => (
-                      <button
-                        key={product.code}
-                        className="flex items-center justify-between rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4 text-left transition hover:border-[var(--border-strong)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={!product.isConfigured || billingAction !== null || data.billingHold}
-                        onClick={() => void handleCheckout(product.code)}
-                        type="button"
-                      >
-                        <span>
-                          <span className="block text-base font-semibold text-[var(--foreground)]">
-                            {product.name}
-                          </span>
-                          <span className="mt-1 block text-sm text-[var(--foreground-secondary)]">
-                            {formatNumber(product.credits)} credits · {product.cadence}
-                          </span>
-                        </span>
-                        <span className="text-right">
-                          <span className="block text-lg font-semibold text-[var(--foreground)]">
-                            {billingAction === "checkout" && selectedProductCode === product.code
-                              ? "Redirecting..."
-                              : product.priceDisplay}
-                          </span>
-                          <span className="block text-xs text-[var(--foreground-tertiary)]">
-                            {product.allowPromotionCodes ? "Promo codes accepted" : "Standard checkout"}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                  {!isCatalogLoading && (catalog?.products ?? []).filter((product) => product.kind === "topup").length === 0 ? (
-                    <p className="text-sm text-[var(--foreground-tertiary)]">
-                      No top-up products are configured yet.
-                    </p>
-                  ) : null}
                 </div>
                 {data.expiringCredits.length > 0 ? (
                   <div className="mt-5 rounded-[20px] border border-[var(--border)] bg-white/72 px-4 py-4">
@@ -447,6 +516,135 @@ export function DashboardSettingsScreen() {
                   </div>
                 ) : null}
               </article>
+
+              <article className="surface-elevated rounded-[32px] px-6 py-6">
+                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+                  Buy Credits
+                </p>
+                <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
+                  Add credits without changing your plan
+                </h2>
+                <p className="mt-3 text-sm leading-7 text-[var(--foreground-secondary)]">
+                  Manual top-up is available on every self-serve tier. Minimum purchase is 1,000 credits, adjustable in steps of 100.
+                </p>
+                <div className="mt-5 rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
+                  <label className="text-xs text-[var(--foreground-tertiary)]" htmlFor="topup-quantity">
+                    Credits to buy
+                  </label>
+                  <input
+                    id="topup-quantity"
+                    type="number"
+                    min={1000}
+                    step={100}
+                    value={topupQuantity}
+                    onChange={(event) => setTopupQuantity(Number.parseInt(event.target.value || "1000", 10) || 1000)}
+                    className="mt-2 h-12 w-full rounded-[16px] border border-[var(--border)] bg-white/78 px-4 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
+                  />
+                  <p className="mt-3 text-sm text-[var(--foreground-secondary)]">
+                    {formatNumber(normalizedTopupQuantity)} credits - {formatUsd(topupPrice)}
+                  </p>
+                </div>
+                <button
+                  className="button-primary mt-5 w-full"
+                  disabled={isCreatingTopup || data.billingHold}
+                  onClick={() => void handleTopup()}
+                  type="button"
+                >
+                  {isCreatingTopup ? "Redirecting..." : "Buy credits"}
+                </button>
+              </article>
+
+              {data.hasStripeCustomer ? (
+                <article className="surface-elevated rounded-[32px] px-6 py-6">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+                    Auto-recharge
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
+                    Refill before balance friction shows up
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-[var(--foreground-secondary)]">
+                    When enabled, Cerul charges your saved payment method off-session once the wallet drops below your threshold.
+                  </p>
+                  <div className="mt-5 space-y-4">
+                    <label className="flex items-center justify-between rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
+                      <div>
+                        <p className="text-sm font-medium text-[var(--foreground)]">Enable auto-recharge</p>
+                        <p className="mt-1 text-xs text-[var(--foreground-tertiary)]">
+                          Uses your saved Stripe payment method.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={autoRecharge.enabled}
+                        disabled={isAutoRechargeLoading}
+                        onChange={(event) => setAutoRecharge((current) => ({
+                          ...current,
+                          enabled: event.target.checked,
+                        }))}
+                        className="h-5 w-5 accent-[var(--brand)]"
+                      />
+                    </label>
+
+                    <div className="rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
+                      <label className="text-xs text-[var(--foreground-tertiary)]" htmlFor="auto-recharge-threshold">
+                        Recharge when balance drops below
+                      </label>
+                      <input
+                        id="auto-recharge-threshold"
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={autoRecharge.threshold}
+                        disabled={isAutoRechargeLoading}
+                        onChange={(event) => setAutoRecharge((current) => ({
+                          ...current,
+                          threshold: Number.parseInt(event.target.value || "0", 10) || 0,
+                        }))}
+                        className="mt-2 h-12 w-full rounded-[16px] border border-[var(--border)] bg-white/78 px-4 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
+                      />
+                    </div>
+
+                    <div className="rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
+                      <label className="text-xs text-[var(--foreground-tertiary)]" htmlFor="auto-recharge-quantity">
+                        Add credits each time
+                      </label>
+                      <input
+                        id="auto-recharge-quantity"
+                        type="number"
+                        min={1000}
+                        step={100}
+                        value={autoRecharge.quantity}
+                        disabled={isAutoRechargeLoading}
+                        onChange={(event) => setAutoRecharge((current) => ({
+                          ...current,
+                          quantity: Number.parseInt(event.target.value || "1000", 10) || 1000,
+                        }))}
+                        className="mt-2 h-12 w-full rounded-[16px] border border-[var(--border)] bg-white/78 px-4 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
+                      />
+                    </div>
+                  </div>
+
+                  {autoRechargeError ? (
+                    <div className="mt-4 rounded-[16px] border border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] px-4 py-3 text-sm text-[var(--error)]">
+                      {autoRechargeError}
+                    </div>
+                  ) : null}
+                  {autoRechargeSuccess ? (
+                    <div className="mt-4 rounded-[16px] border border-[rgba(62,118,100,0.2)] bg-[rgba(62,118,100,0.08)] px-4 py-3 text-sm text-[var(--success)]">
+                      {autoRechargeSuccess}
+                    </div>
+                  ) : null}
+
+                  <button
+                    className="button-secondary mt-5 w-full"
+                    disabled={isAutoRechargeLoading || isSavingAutoRecharge}
+                    onClick={() => void handleSaveAutoRecharge()}
+                    type="button"
+                  >
+                    {isSavingAutoRecharge ? "Saving..." : "Save"}
+                  </button>
+                </article>
+              ) : null}
 
               <article className="surface-elevated rounded-[32px] px-6 py-6">
                 <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">

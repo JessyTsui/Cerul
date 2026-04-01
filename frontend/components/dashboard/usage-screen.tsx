@@ -138,8 +138,11 @@ export function DashboardUsageScreen() {
       <section className="grid gap-5 md:grid-cols-3">
         {[
           { label: "Included remaining", value: data.creditBreakdown.includedRemaining },
-          { label: "Top-up remaining", value: data.creditBreakdown.topupRemaining },
           { label: "Bonus remaining", value: data.creditBreakdown.bonusRemaining },
+          {
+            label: "Free searches today",
+            value: `${formatNumber(data.dailyFreeRemaining)} / ${formatNumber(data.dailyFreeLimit)} remaining`,
+          },
         ].map((item) => (
           <article
             key={item.label}
@@ -147,7 +150,7 @@ export function DashboardUsageScreen() {
           >
             <p className="text-sm text-[var(--foreground-secondary)]">{item.label}</p>
             <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
-              {formatNumber(item.value)}
+              {typeof item.value === "number" ? formatNumber(item.value) : item.value}
             </p>
           </article>
         ))}

@@ -5,13 +5,19 @@ import { adminAuth, sessionAuth } from "../middleware/auth";
 import {
   calculateCreditsRemaining,
   fetchBillingCatalogState,
+  fetchDailySearchAllowance,
   fetchUsageSummary as fetchUserUsageSummary,
   isPaidTier,
   keyLimitForTier,
   redeemReferralCode
 } from "../services/billing";
-import { listBillingProducts } from "../services/billing-catalog";
-import { createCheckoutSession, createPortalSession, StripeServiceError } from "../services/stripe";
+import { getProProduct } from "../services/billing-catalog";
+import {
+  createCheckoutSession,
+  createPortalSession,
+  createTopupCheckoutSession,
+  StripeServiceError
+} from "../services/stripe";
 import { apiError, emptyResponse } from "../utils/http";
 import { sha256Hex, randomHex } from "../utils/crypto";
 import { ensureJsonObject } from "../utils/validation";
@@ -154,7 +160,10 @@ async function provisionUserProfileFromAuthUser(db: DatabaseClient, userId: stri
           rate_limit_per_sec,
           stripe_customer_id,
           stripe_subscription_id,
-          billing_hold
+          billing_hold,
+          auto_recharge_enabled,
+          auto_recharge_threshold,
+          auto_recharge_quantity
     `,
     userId,
     email,
@@ -174,7 +183,10 @@ async function fetchUserProfile(db: DatabaseClient, userId: string): Promise<Rec
           rate_limit_per_sec,
           stripe_customer_id,
           stripe_subscription_id,
-          billing_hold
+          billing_hold,
+          auto_recharge_enabled,
+          auto_recharge_threshold,
+          auto_recharge_quantity
       FROM user_profiles
       WHERE id = $1
     `,
@@ -529,6 +541,7 @@ export function createDashboardRouter(): any {
       periodEnd
     );
     const apiKeysActive = await countActiveApiKeys(db, session.userId);
+    const dailyFree = await fetchDailySearchAllowance(db, session.userId);
     const tier = String(summary.plan_code ?? profile.tier ?? "free").toLowerCase();
     const creditsLimit = Number(summary.credits_limit ?? 0);
     const creditsUsed = Number(summary.credits_used ?? 0);
@@ -544,7 +557,6 @@ export function createDashboardRouter(): any {
       wallet_balance: Number(summary.wallet_balance ?? creditsRemaining),
       credit_breakdown: summary.credit_breakdown ?? {
         included_remaining: 0,
-        topup_remaining: 0,
         bonus_remaining: 0
       },
       expiring_credits: Array.isArray(summary.expiring_credits) ? summary.expiring_credits : [],
@@ -553,6 +565,8 @@ export function createDashboardRouter(): any {
       rate_limit_per_sec: Number(profile.rate_limit_per_sec ?? 0),
       has_stripe_customer: Boolean(profile.stripe_customer_id),
       billing_hold: Boolean(summary.billing_hold),
+      daily_free_remaining: dailyFree.remaining,
+      daily_free_limit: dailyFree.limit,
       daily_breakdown: dailyBreakdown
     });
   });
@@ -609,15 +623,8 @@ export function createDashboardRouter(): any {
       apiError(404, "User profile not found.");
     }
 
-    const rawPayload = c.req.header("content-type")?.includes("application/json")
-      ? ensureJsonObject(await c.req.json().catch(() => ({})), "Request body must be a JSON object.")
-      : {};
-    const productCode = typeof rawPayload.product_code === "string" && rawPayload.product_code.trim()
-      ? rawPayload.product_code.trim().toLowerCase()
-      : "monthly";
-
     const currentTier = String(profile.tier ?? "free").toLowerCase();
-    if (productCode === "monthly" && isPaidTier(currentTier)) {
+    if (isPaidTier(currentTier)) {
       apiError(409, "A subscription already exists; use the billing portal instead.");
     }
     if (Boolean(profile.billing_hold)) {
@@ -632,14 +639,51 @@ export function createDashboardRouter(): any {
     try {
       const checkoutUrl = await createCheckoutSession(
         config,
-        {
-          userId: session.userId,
-          email,
-          stripeCustomerId: profile.stripe_customer_id == null ? null : String(profile.stripe_customer_id),
-          productCode
-        }
+        session.userId,
+        email,
+        profile.stripe_customer_id == null ? null : String(profile.stripe_customer_id)
       );
-      return c.json({ checkout_url: checkoutUrl, product_code: productCode });
+      return c.json({ checkout_url: checkoutUrl });
+    } catch (error) {
+      if (error instanceof StripeServiceError) {
+        apiError(503, error.message);
+      }
+      throw error;
+    }
+  });
+
+  router.post("/billing/topup", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const config = c.get("config");
+    const profile = await fetchUserProfile(db, session.userId);
+    if (!profile) {
+      apiError(404, "User profile not found.");
+    }
+
+    const rawPayload = ensureJsonObject(await c.req.json().catch(() => ({})), "Request body must be a JSON object.");
+    const rawQuantity = typeof rawPayload.quantity === "number" && Number.isFinite(rawPayload.quantity)
+      ? rawPayload.quantity
+      : 1000;
+    const quantity = Math.max(Math.round(rawQuantity / 100) * 100, 1000);
+
+    if (Boolean(profile.billing_hold)) {
+      apiError(403, "Billing account requires review before a new purchase can be created.");
+    }
+
+    const email = session.email ?? (profile.email == null ? null : String(profile.email));
+    if (!email) {
+      apiError(400, "Authenticated session is missing an email address.");
+    }
+
+    try {
+      const checkoutUrl = await createTopupCheckoutSession(config, {
+        userId: session.userId,
+        email,
+        stripeCustomerId: profile.stripe_customer_id == null ? null : String(profile.stripe_customer_id),
+        quantity
+      });
+      return c.json({ checkout_url: checkoutUrl, quantity });
     } catch (error) {
       if (error instanceof StripeServiceError) {
         apiError(503, error.message);
@@ -672,6 +716,60 @@ export function createDashboardRouter(): any {
     }
   });
 
+  router.get("/billing/auto-recharge", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const profile = await fetchUserProfile(db, session.userId);
+    if (!profile) {
+      apiError(404, "User profile not found.");
+    }
+
+    return c.json({
+      enabled: Boolean(profile.auto_recharge_enabled),
+      threshold: Number(profile.auto_recharge_threshold ?? 100),
+      quantity: Number(profile.auto_recharge_quantity ?? 1000)
+    });
+  });
+
+  router.post("/billing/auto-recharge", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const profile = await fetchUserProfile(db, session.userId);
+    if (!profile) {
+      apiError(404, "User profile not found.");
+    }
+
+    const payload = ensureJsonObject(await c.req.json().catch(() => ({})), "Request body must be a JSON object.");
+    const enabled = payload.enabled === true;
+    const threshold = typeof payload.threshold === "number" && Number.isFinite(payload.threshold)
+      ? Math.max(Math.round(payload.threshold), 0)
+      : 100;
+    const quantity = typeof payload.quantity === "number" && Number.isFinite(payload.quantity)
+      ? Math.max(Math.round(payload.quantity / 100) * 100, 1000)
+      : 1000;
+
+    if (enabled && !profile.stripe_customer_id) {
+      apiError(409, "A saved Stripe customer is required before auto-recharge can be enabled.");
+    }
+
+    await db.execute(
+      `
+        UPDATE user_profiles
+        SET auto_recharge_enabled = $1,
+            auto_recharge_threshold = $2,
+            auto_recharge_quantity = $3,
+            updated_at = NOW()
+        WHERE id = $4
+      `,
+      enabled,
+      threshold,
+      quantity,
+      session.userId
+    );
+
+    return c.json({ enabled, threshold, quantity });
+  });
+
   router.get("/billing/catalog", sessionAuth(), async (c: any) => {
     const db = c.get("db") as DatabaseClient;
     const session = c.get("session") as DashboardSession;
@@ -679,7 +777,7 @@ export function createDashboardRouter(): any {
     const state = await fetchBillingCatalogState(db, session.userId);
     return c.json({
       ...state,
-      products: listBillingProducts(config)
+      pro: getProProduct(config)
     });
   });
 
