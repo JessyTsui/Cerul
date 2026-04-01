@@ -17,7 +17,7 @@ export function DashboardLayout({
   children,
 }: DashboardLayoutProps) {
   return (
-    <div className="mx-auto max-w-[1120px]">
+    <div className="mx-auto w-full max-w-[1400px]">
       {/* Minimal header */}
       <div className="animate-fade-in mb-8 flex items-center justify-between border-b border-[var(--border)] pb-4">
         <div>
