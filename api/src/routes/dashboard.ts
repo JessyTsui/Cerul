@@ -643,6 +643,67 @@ export function createDashboardRouter(): any {
     });
   });
 
+  router.get("/query-logs", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const limitParam = Number.parseInt(c.req.query("limit") ?? "50", 10);
+    const limit = Math.min(Math.max(limitParam, 1), 100);
+    const offsetParam = Number.parseInt(c.req.query("offset") ?? "0", 10);
+    const offset = Math.max(offsetParam, 0);
+
+    const rows = await db.fetch<{
+      request_id: string;
+      search_type: string;
+      query_text: string;
+      include_answer: boolean;
+      result_count: number;
+      latency_ms: number | null;
+      created_at: string;
+      credits_used: number | null;
+    }>(
+      `
+        SELECT
+            ql.request_id,
+            ql.search_type,
+            ql.query_text,
+            ql.include_answer,
+            ql.result_count,
+            ql.latency_ms,
+            ql.created_at,
+            ue.credits_used
+        FROM query_logs ql
+        LEFT JOIN usage_events ue ON ue.request_id = ql.request_id
+        WHERE ql.user_id = $1
+        ORDER BY ql.created_at DESC
+        LIMIT $2 OFFSET $3
+      `,
+      session.userId,
+      limit,
+      offset
+    );
+
+    const total = await db.fetchval<number>(
+      `SELECT COUNT(*)::int FROM query_logs WHERE user_id = $1`,
+      session.userId
+    );
+
+    return c.json({
+      items: rows.map((row) => ({
+        request_id: row.request_id,
+        search_type: row.search_type,
+        query_text: row.query_text,
+        include_answer: row.include_answer,
+        result_count: Number(row.result_count ?? 0),
+        latency_ms: row.latency_ms != null ? Number(row.latency_ms) : null,
+        credits_used: row.credits_used != null ? Number(row.credits_used) : 0,
+        created_at: row.created_at,
+      })),
+      total: Number(total ?? 0),
+      limit,
+      offset,
+    });
+  });
+
   router.get("/jobs", sessionAuth(), adminAuth(), async (c: any) => {
     const db = c.get("db") as DatabaseClient;
     const statusFilter = c.req.query("status") ?? null;

@@ -1,167 +1,216 @@
 "use client";
 
-import {
-  buildUsageChartData,
-  formatBillingPeriod,
-  formatNumber,
-  getTierLabel,
-} from "@/lib/dashboard";
+import { useEffect, useState } from "react";
+import { queryLogs, type QueryLogEntry } from "@/lib/api";
+import { formatNumber } from "@/lib/dashboard";
 import { DashboardLayout } from "./dashboard-layout";
-import { DashboardNotice, DashboardSkeleton, DashboardState } from "./dashboard-state";
-import { UsageChart } from "./usage-chart";
+import { DashboardSkeleton, DashboardState } from "./dashboard-state";
 import { useMonthlyUsage } from "./use-monthly-usage";
 
-function IconFire({ className }: { className?: string }) {
+function IconSearch({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.047 8.287 8.287 0 0 0 9 9.601a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
-      <path d="M12 18a3.75 3.75 0 0 0 .495-7.468 5.99 5.99 0 0 0-1.925 3.547 5.975 5.975 0 0 1-2.133-1.001A3.75 3.75 0 0 0 12 18Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+      <path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
     </svg>
   );
 }
 
-function IconCalendar({ className }: { className?: string }) {
+function IconBolt({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    <svg className={className} fill="none" viewBox="0 0 24 24">
+      <path d="M13.5 2.75 6.75 13.5h4.5l-.75 7.75 6.75-10.75h-4.5l.75-7.75Z" fill="currentColor" />
     </svg>
   );
+}
+
+function IconClock({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+function formatRelativeTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 export function DashboardUsageScreen() {
-  const { data, error, isLoading, refresh } = useMonthlyUsage();
+  const { data: usageData } = useMonthlyUsage();
+  const [logs, setLogs] = useState<QueryLogEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const pageSize = 20;
 
-  if (isLoading && !data) {
-    return (
-      <DashboardLayout currentPath="/dashboard/usage" title="Usage" description="Credit consumption for the current billing window.">
-        <DashboardSkeleton />
-      </DashboardLayout>
-    );
+  async function loadLogs(offset: number) {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await queryLogs.list({ limit: pageSize, offset });
+      setLogs(result.items);
+      setTotal(result.total);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load query history.");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
-  if (error && !data) {
-    return (
-      <DashboardLayout currentPath="/dashboard/usage" title="Usage" description="Credit consumption for the current billing window.">
-        <DashboardState
-          title="Usage metrics could not be loaded"
-          description={error}
-          tone="error"
-          action={<button className="button-primary" onClick={() => void refresh()} type="button">Retry</button>}
-        />
-      </DashboardLayout>
-    );
-  }
+  useEffect(() => {
+    void loadLogs(page * pageSize);
+  }, [page]);
 
-  if (!data) {
-    return (
-      <DashboardLayout currentPath="/dashboard/usage" title="Usage" description="Credit consumption for the current billing window.">
-        <DashboardState title="No usage data available" description="The dashboard API returned no usage payload." />
-      </DashboardLayout>
-    );
-  }
-
-  const chartData = buildUsageChartData(data);
-  const activeDays = chartData.filter((p) => p.requestCount > 0 || p.creditsUsed > 0);
-  const busiestDays = [...activeDays]
-    .sort((a, b) => b.creditsUsed !== a.creditsUsed ? b.creditsUsed - a.creditsUsed : b.requestCount - a.requestCount)
-    .slice(0, 5);
-  const recentRows = [...chartData].slice(-14).reverse();
-  const totalCreditValue = Math.max(1, ...busiestDays.map((d) => d.creditsUsed));
+  const totalPages = Math.ceil(total / pageSize);
 
   return (
     <DashboardLayout
       currentPath="/dashboard/usage"
       title="Usage"
-      description={`${getTierLabel(data.tier)} · ${formatBillingPeriod(data.periodStart, data.periodEnd)}`}
+      description="Recent API queries and credit consumption."
       actions={null}
     >
-      {error && (
-        <DashboardNotice title="Showing last successful snapshot." description={error} tone="error" />
+      {/* ── Summary strip ─────────────────────────────── */}
+      {usageData && (
+        <div className="grid grid-cols-3 gap-4">
+          <div className="surface-elevated dashboard-card flex items-center gap-3 rounded-[20px] px-5 py-4">
+            <IconBolt className="h-5 w-5 shrink-0 text-[var(--brand-bright)]" />
+            <div>
+              <p className="text-xs text-[var(--foreground-tertiary)]">Credits used</p>
+              <p className="text-xl font-semibold tabular-nums text-[var(--foreground)]">{formatNumber(usageData.creditsUsed)}</p>
+            </div>
+          </div>
+          <div className="surface-elevated dashboard-card flex items-center gap-3 rounded-[20px] px-5 py-4">
+            <IconSearch className="h-5 w-5 shrink-0 text-[var(--accent-bright)]" />
+            <div>
+              <p className="text-xs text-[var(--foreground-tertiary)]">Total queries</p>
+              <p className="text-xl font-semibold tabular-nums text-[var(--foreground)]">{formatNumber(total)}</p>
+            </div>
+          </div>
+          <div className="surface-elevated dashboard-card flex items-center gap-3 rounded-[20px] px-5 py-4">
+            <IconClock className="h-5 w-5 shrink-0 text-[var(--foreground-tertiary)]" />
+            <div>
+              <p className="text-xs text-[var(--foreground-tertiary)]">Free today</p>
+              <p className="text-xl font-semibold tabular-nums text-[var(--foreground)]">
+                {formatNumber(usageData.dailyFreeRemaining)}<span className="text-sm font-normal text-[var(--foreground-tertiary)]"> / {formatNumber(usageData.dailyFreeLimit)}</span>
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* ── Chart ─────────────────────────────────────── */}
-      <UsageChart
-        title="Daily Activity"
-        description="Credit consumption and request volume for the current billing window."
-        data={chartData}
-      />
-
-      {/* ── Most active days ──────────────────────────── */}
-      <article className="surface-elevated dashboard-card rounded-[24px] px-5 py-5">
-        <div className="flex items-center gap-2.5">
-          <IconFire className="h-5 w-5 text-[var(--accent-bright)]" />
-          <h2 className="text-base font-semibold text-[var(--foreground)]">Most active days</h2>
-        </div>
-        <div className="mt-4 space-y-2.5">
-          {busiestDays.length > 0 ? busiestDays.map((item, index) => (
-            <div key={item.date} className="flex items-center gap-3">
-              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-white/56 text-[11px] font-semibold text-[var(--foreground-secondary)]">
-                {index + 1}
-              </span>
-              <div className="w-24 shrink-0">
-                <p className="text-sm text-[var(--foreground)]">{item.fullLabel}</p>
-              </div>
-              <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-[rgba(36,29,21,0.08)]">
-                <div
-                  className="animate-progress-fill h-full rounded-full bg-[linear-gradient(90deg,var(--brand),var(--accent))]"
-                  style={{ width: `${Math.max(12, (item.creditsUsed / totalCreditValue) * 100)}%` }}
-                />
-              </div>
-              <span className="w-16 text-right text-sm tabular-nums text-[var(--foreground-secondary)]">
-                {formatNumber(item.creditsUsed)} cr
-              </span>
+      {/* ── Query log ─────────────────────────────────── */}
+      {isLoading && logs.length === 0 ? (
+        <DashboardSkeleton />
+      ) : error ? (
+        <DashboardState
+          title="Could not load query history"
+          description={error}
+          tone="error"
+          action={<button className="button-primary" onClick={() => void loadLogs(page * pageSize)} type="button">Retry</button>}
+        />
+      ) : logs.length === 0 ? (
+        <DashboardState
+          title="No queries yet"
+          description="Your API query history will appear here once you start making search requests."
+        />
+      ) : (
+        <section className="surface-elevated dashboard-card overflow-hidden rounded-[24px]">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3.5">
+            <div className="flex items-center gap-2">
+              <IconSearch className="h-4 w-4 text-[var(--foreground-tertiary)]" />
+              <h2 className="text-base font-semibold text-[var(--foreground)]">Query History</h2>
             </div>
-          )) : (
-            <div className="flex flex-col items-center gap-2 py-6 text-center">
-              <IconCalendar className="h-7 w-7 text-[var(--foreground-tertiary)]" />
-              <p className="text-sm text-[var(--foreground-tertiary)]">No activity yet this period</p>
+            <span className="text-xs text-[var(--foreground-tertiary)]">
+              {formatNumber(total)} total
+            </span>
+          </div>
+
+          <div className="divide-y divide-[var(--border)]">
+            {logs.map((log) => (
+              <div key={log.requestId} className="px-5 py-4 transition hover:bg-white/40">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-[var(--foreground)]">
+                      {log.queryText}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--foreground-tertiary)]">
+                      <span title={formatTimestamp(log.createdAt)}>
+                        {formatRelativeTime(log.createdAt)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <IconBolt className="h-3 w-3" />
+                        {log.creditsUsed} credit{log.creditsUsed !== 1 ? "s" : ""}
+                      </span>
+                      <span>{log.resultCount} result{log.resultCount !== 1 ? "s" : ""}</span>
+                      {log.latencyMs != null && (
+                        <span>{log.latencyMs}ms</span>
+                      )}
+                      {log.includeAnswer && (
+                        <span className="rounded-full border border-[var(--border-brand)] bg-[var(--brand-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--brand-bright)]">
+                          Answer
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs tabular-nums text-[var(--foreground-tertiary)]">
+                    {formatTimestamp(log.createdAt)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-[var(--border)] px-5 py-3">
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                className="rounded-[12px] border border-[var(--border)] bg-white/70 px-3 py-1.5 text-sm text-[var(--foreground-secondary)] transition hover:bg-white disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-[var(--foreground-tertiary)]">
+                Page {page + 1} of {totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded-[12px] border border-[var(--border)] bg-white/70 px-3 py-1.5 text-sm text-[var(--foreground-secondary)] transition hover:bg-white disabled:opacity-40"
+              >
+                Next
+              </button>
             </div>
           )}
-        </div>
-      </article>
-
-      {/* ── Daily breakdown table ─────────────────────── */}
-      <section className="surface-elevated dashboard-card overflow-hidden rounded-[24px]">
-        <div className="flex items-center gap-2.5 border-b border-[var(--border)] px-5 py-3.5">
-          <IconCalendar className="h-4 w-4 text-[var(--foreground-tertiary)]" />
-          <h2 className="text-base font-semibold text-[var(--foreground)]">Daily Breakdown</h2>
-          <span className="text-xs text-[var(--foreground-tertiary)]">Last 14 days</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-[var(--background-elevated)] text-[var(--foreground-secondary)]">
-              <tr>
-                <th className="px-5 py-2.5 font-medium">Date</th>
-                <th className="px-5 py-2.5 font-medium">Credits</th>
-                <th className="px-5 py-2.5 font-medium">Volume</th>
-                <th className="px-5 py-2.5 text-right font-medium">Share</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentRows.map((row) => {
-                const creditShare = data.creditsUsed === 0 ? 0 : Math.round((row.creditsUsed / data.creditsUsed) * 100);
-                const maxRowCredits = Math.max(1, ...recentRows.map((r) => r.creditsUsed));
-
-                return (
-                  <tr key={row.date} className="border-t border-[var(--border)] transition hover:bg-white/40">
-                    <td className="px-5 py-2.5 font-medium text-[var(--foreground)]">{row.fullLabel}</td>
-                    <td className="px-5 py-2.5 tabular-nums text-[var(--foreground-secondary)]">{formatNumber(row.creditsUsed)}</td>
-                    <td className="px-5 py-2.5">
-                      <div className="h-1.5 w-full max-w-[100px] overflow-hidden rounded-full bg-[rgba(36,29,21,0.06)]">
-                        <div
-                          className="h-full rounded-full bg-[var(--brand)]"
-                          style={{ width: `${Math.max(2, (row.creditsUsed / maxRowCredits) * 100)}%` }}
-                        />
-                      </div>
-                    </td>
-                    <td className="px-5 py-2.5 text-right tabular-nums text-[var(--foreground-tertiary)]">{creditShare}%</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        </section>
+      )}
     </DashboardLayout>
   );
 }

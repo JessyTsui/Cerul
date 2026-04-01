@@ -243,6 +243,24 @@ export type DashboardMonthlyUsage = {
   dailyBreakdown: DashboardUsageDay[];
 };
 
+export type QueryLogEntry = {
+  requestId: string;
+  searchType: string;
+  queryText: string;
+  includeAnswer: boolean;
+  resultCount: number;
+  latencyMs: number | null;
+  creditsUsed: number;
+  createdAt: string;
+};
+
+export type QueryLogsResponse = {
+  items: QueryLogEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type BillingRedirect = {
   url: string;
 };
@@ -1290,3 +1308,32 @@ export type {
   AdminUsersSummary,
   AdminWindow,
 } from "./admin-api";
+
+export const queryLogs = {
+  async list(options?: { limit?: number; offset?: number }): Promise<QueryLogsResponse> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.offset) params.set("offset", String(options.offset));
+    const qs = params.toString();
+    const raw = await fetchWithAuth<Record<string, unknown>>(
+      `/dashboard/query-logs${qs ? `?${qs}` : ""}`,
+      { method: "GET", cache: "no-store" },
+    );
+    const items = Array.isArray(raw.items) ? raw.items : [];
+    return {
+      items: items.map((item: Record<string, unknown>) => ({
+        requestId: String(item.request_id ?? ""),
+        searchType: String(item.search_type ?? ""),
+        queryText: String(item.query_text ?? ""),
+        includeAnswer: item.include_answer === true,
+        resultCount: Number(item.result_count ?? 0),
+        latencyMs: typeof item.latency_ms === "number" ? item.latency_ms : null,
+        creditsUsed: Number(item.credits_used ?? 0),
+        createdAt: String(item.created_at ?? ""),
+      })),
+      total: Number(raw.total ?? 0),
+      limit: Number(raw.limit ?? 50),
+      offset: Number(raw.offset ?? 0),
+    };
+  },
+};
