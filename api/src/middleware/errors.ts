@@ -20,6 +20,11 @@ export async function handleError(error: unknown, c: Context): Promise<Response>
     );
   }
 
+  console.error("[api] Unhandled error:", {
+    pathname,
+    error
+  });
+
   if (isPublicApiPath(pathname)) {
     return jsonResponse(buildPublicErrorPayload(500, "Internal server error"), {
       status: 500

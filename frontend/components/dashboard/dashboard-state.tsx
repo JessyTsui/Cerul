@@ -4,13 +4,13 @@ type DashboardStateProps = {
   title: string;
   description: string;
   action?: ReactNode;
-  tone?: "default" | "error";
+  tone?: "default" | "error" | "success";
 };
 
 type DashboardNoticeProps = {
   title: string;
   description: string;
-  tone?: "default" | "error";
+  tone?: "default" | "error" | "success";
 };
 
 export function DashboardState({
@@ -22,6 +22,8 @@ export function DashboardState({
   const toneClasses =
     tone === "error"
       ? "border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)]"
+      : tone === "success"
+        ? "border-[rgba(62,118,100,0.2)] bg-[rgba(62,118,100,0.08)]"
       : "border-[var(--border)] bg-white/72";
 
   return (
@@ -48,6 +50,8 @@ export function DashboardNotice({
   const toneClasses =
     tone === "error"
       ? "border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] text-[var(--error)]"
+      : tone === "success"
+        ? "border-[rgba(62,118,100,0.2)] bg-[rgba(62,118,100,0.08)] text-[var(--success)]"
       : "border-[var(--border)] bg-white/72 text-[var(--foreground)]";
 
   return (

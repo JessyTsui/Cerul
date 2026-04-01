@@ -15,9 +15,18 @@ import { getProProduct } from "../services/billing-catalog";
 import {
   createCheckoutSession,
   createPortalSession,
+  retrieveCheckoutSession,
+  retrieveInvoice,
+  retrieveSubscription,
   createTopupCheckoutSession,
+  activateCheckoutSubscription,
   StripeServiceError
 } from "../services/stripe";
+import {
+  fulfillSubscriptionInvoice,
+  fulfillTopupCheckout
+} from "../services/billing";
+import { sendBillingNotification } from "../services/transactional-email";
 import { apiError, emptyResponse } from "../utils/http";
 import { sha256Hex, randomHex } from "../utils/crypto";
 import { ensureJsonObject } from "../utils/validation";
@@ -33,6 +42,67 @@ type DashboardSession = {
 
 function utcNow(): Date {
   return new Date();
+}
+
+function normalizeString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeInteger(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(Math.trunc(parsed), 0) : 0;
+}
+
+function stripeCreatedAt(value: unknown): Date | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return new Date(parsed * 1000);
+}
+
+function normalizeExpandableId(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === "object" && value != null && "id" in value) {
+    return normalizeString((value as { id?: unknown }).id);
+  }
+  return null;
+}
+
+function sumDiscounts(value: unknown): number {
+  if (!Array.isArray(value)) {
+    return 0;
+  }
+  return value.reduce((sum, item) => sum + normalizeInteger(
+    typeof item === "object" && item != null && "amount" in item ? (item as { amount?: unknown }).amount : null
+  ), 0);
+}
+
+function extractInvoicePeriod(invoice: Record<string, unknown>): { periodStart: string; periodEnd: string } {
+  const lines = Array.isArray((invoice.lines as { data?: unknown[] } | undefined)?.data)
+    ? ((invoice.lines as { data?: unknown[] }).data ?? [])
+    : [];
+  const firstLine = lines.find((line) => typeof line === "object" && line != null) as Record<string, unknown> | undefined;
+  const period = firstLine && typeof firstLine.period === "object" && firstLine.period != null
+    ? firstLine.period as Record<string, unknown>
+    : {};
+  const startSeconds = Number(period.start);
+  const endSeconds = Number(period.end);
+  const createdAt = stripeCreatedAt(invoice.created) ?? new Date();
+
+  if (Number.isFinite(startSeconds) && Number.isFinite(endSeconds)) {
+    const periodStart = new Date(startSeconds * 1000).toISOString().slice(0, 10);
+    const periodEnd = new Date(Math.max(endSeconds * 1000 - 1000, startSeconds * 1000)).toISOString().slice(0, 10);
+    return { periodStart, periodEnd };
+  }
+
+  const year = createdAt.getUTCFullYear();
+  const month = createdAt.getUTCMonth();
+  const periodStart = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+  const periodEnd = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+  return { periodStart, periodEnd };
 }
 
 export function getCurrentBillingPeriod(reference?: Date): [string, string] {
@@ -557,7 +627,8 @@ export function createDashboardRouter(): any {
       wallet_balance: Number(summary.wallet_balance ?? creditsRemaining),
       credit_breakdown: summary.credit_breakdown ?? {
         included_remaining: 0,
-        bonus_remaining: 0
+        bonus_remaining: 0,
+        paid_remaining: 0
       },
       expiring_credits: Array.isArray(summary.expiring_credits) ? summary.expiring_credits : [],
       request_count: Number(aggregate.request_count ?? 0),
@@ -684,6 +755,125 @@ export function createDashboardRouter(): any {
         quantity
       });
       return c.json({ checkout_url: checkoutUrl, quantity });
+    } catch (error) {
+      if (error instanceof StripeServiceError) {
+        apiError(503, error.message);
+      }
+      throw error;
+    }
+  });
+
+  router.post("/billing/reconcile-checkout", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const config = c.get("config");
+    const payload = ensureJsonObject(await c.req.json().catch(() => ({})), "Request body must be a JSON object.");
+    const checkoutSessionId = normalizeString(payload.session_id) ?? normalizeString(payload.sessionId);
+
+    if (!checkoutSessionId) {
+      apiError(400, "Stripe checkout session id is required.");
+    }
+
+    try {
+      const checkoutSession = await retrieveCheckoutSession(config, checkoutSessionId);
+      const checkoutUserId = normalizeString(checkoutSession.client_reference_id)
+        ?? normalizeString(checkoutSession.metadata?.user_id);
+
+      if (!checkoutUserId || checkoutUserId !== session.userId) {
+        apiError(403, "This checkout session does not belong to the authenticated user.");
+      }
+
+      const mode = normalizeString(checkoutSession.mode);
+      if (mode === "payment") {
+        const credits = Number(checkoutSession.metadata?.quantity) || 1000;
+        const notification = await fulfillTopupCheckout(db, {
+          userId: session.userId,
+          credits,
+          stripeCheckoutSessionId: String(checkoutSession.id),
+          stripeCustomerId: normalizeExpandableId(checkoutSession.customer),
+          stripePaymentIntentId: normalizeExpandableId(checkoutSession.payment_intent),
+          currency: normalizeString(checkoutSession.currency),
+          grossAmountCents: normalizeInteger(checkoutSession.amount_subtotal ?? checkoutSession.amount_total),
+          discountAmountCents: normalizeInteger(
+            typeof checkoutSession.total_details === "object" && checkoutSession.total_details != null
+              ? (checkoutSession.total_details as { amount_discount?: unknown }).amount_discount
+              : 0
+          ),
+          netAmountCents: normalizeInteger(checkoutSession.amount_total),
+          occurredAt: stripeCreatedAt(checkoutSession.created)
+        });
+
+        if (notification) {
+          void sendBillingNotification(config, notification).catch((error) => {
+            console.error("[billing] Failed to send top-up email:", error);
+          });
+        }
+
+        return c.json({
+          status: "ok",
+          mode,
+          credits_granted: credits
+        });
+      }
+
+      if (mode === "subscription") {
+        const stripeCustomerId = normalizeExpandableId(checkoutSession.customer);
+        const stripeSubscriptionId = normalizeExpandableId(checkoutSession.subscription);
+
+        await activateCheckoutSubscription(
+          db,
+          session.userId,
+          stripeCustomerId,
+          stripeSubscriptionId
+        );
+
+        let notification = null;
+        let invoiceId = normalizeExpandableId(checkoutSession.invoice);
+        if (!invoiceId && stripeSubscriptionId) {
+          const subscription = await retrieveSubscription(config, stripeSubscriptionId);
+          invoiceId = normalizeExpandableId(subscription.latest_invoice);
+        }
+
+        if (invoiceId) {
+          const invoice = await retrieveInvoice(config, invoiceId) as unknown as Record<string, unknown>;
+          const { periodStart, periodEnd } = extractInvoicePeriod(invoice);
+          const customerId = normalizeExpandableId(invoice.customer) ?? stripeCustomerId;
+          if (customerId) {
+            notification = await fulfillSubscriptionInvoice(db, {
+              stripeInvoiceId: invoiceId,
+              stripeCustomerId: customerId,
+              stripeSubscriptionId: normalizeExpandableId(invoice.subscription) ?? stripeSubscriptionId,
+              stripePaymentIntentId: normalizeExpandableId(invoice.payment_intent),
+              currency: normalizeString(invoice.currency),
+              grossAmountCents: normalizeInteger(invoice.subtotal ?? invoice.amount_due ?? invoice.amount_paid),
+              discountAmountCents: sumDiscounts(invoice.total_discount_amounts),
+              netAmountCents: normalizeInteger(invoice.amount_paid ?? invoice.amount_due),
+              periodStart,
+              periodEnd,
+              occurredAt: stripeCreatedAt(invoice.created),
+              metadata: {
+                billing_reason: normalizeString(invoice.billing_reason) ?? undefined,
+                reconciled_from_checkout: true
+              }
+            });
+          }
+        }
+
+        if (notification) {
+          void sendBillingNotification(config, notification).catch((error) => {
+            console.error("[billing] Failed to send subscription email:", error);
+          });
+        }
+
+        return c.json({
+          status: "ok",
+          mode,
+          tier: "pro",
+          credits_granted: notification?.kind === "subscription_activated" ? notification.includedCredits : 0
+        });
+      }
+
+      apiError(400, "Unsupported Stripe checkout session mode.");
     } catch (error) {
       if (error instanceof StripeServiceError) {
         apiError(503, error.message);

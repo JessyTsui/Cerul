@@ -31,26 +31,23 @@ All users (including Pro and Enterprise) get their first 10 searches per day fre
 ### Existing (already created)
 - **Cerul Pro**: $29.90/month recurring subscription — already created in Stripe, no changes needed
 
-### New product to create
-- **Cerul Credits**: one-time payment, **$0.008 per unit** (= $8 per 1,000 credits)
-  - Stripe Dashboard → Product catalog → + Add product
-  - Name: `Cerul Credits`
-  - Price: `$0.008` per unit, **One time** (not recurring)
-  - Save → copy Price ID
+### PAYG top-up checkout
+- No separate Stripe Price is required for PAYG top-ups in the current implementation.
+- The API computes one-time amounts server-side at **$8 / 1,000 credits**, in **100-credit increments**.
+- This avoids Stripe Checkout's limitation around USD prices with more than 2 decimal places in one-time payment mode.
 
 ### Env vars
 
-Add `STRIPE_TOPUP_UNIT_PRICE_ID` to all config files:
+Keep `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_PRO_PRICE_ID` configured. PAYG top-ups and auto-recharge amounts are computed server-side and sent to Stripe as one-time payment amounts, so no dedicated PAYG `Price` or extra Stripe env var is required.
 
 | File | Change |
 |------|--------|
-| `.env.example` | Add `STRIPE_TOPUP_UNIT_PRICE_ID=` under `# Stripe billing` |
-| `api/src/types.ts` | Add `STRIPE_TOPUP_UNIT_PRICE_ID?: string` to `Env` interface |
-| `api/src/types.ts` | Add `topupUnitPriceId: string \| null` to `AppConfig.stripe` |
-| `api/src/config.ts` | Add `topupUnitPriceId: firstNonEmpty(env.STRIPE_TOPUP_UNIT_PRICE_ID)` to the stripe config block |
-| `api/wrangler.toml` | Add `# STRIPE_TOPUP_UNIT_PRICE_ID` under the existing Stripe comments |
-| `scripts/dev.sh` | Add `STRIPE_TOPUP_UNIT_PRICE_ID` to the required vars array |
-| `workers/common/config/settings.py` | Add `"STRIPE_TOPUP_UNIT_PRICE_ID": ("stripe", "topup_unit_price_id")` to ENV_TO_PATH and add `topup_unit_price_id: str \| None = None` to the Stripe settings model |
+| `.env.example` | Keep only `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_PRO_PRICE_ID` under `# Stripe billing` |
+| `api/src/types.ts` | Keep only the Stripe fields needed for recurring Pro checkout |
+| `api/src/config.ts` | Map only `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_PRO_PRICE_ID` into `config.stripe` |
+| `api/wrangler.toml` | Keep only the active Stripe secrets in the comment block |
+| `scripts/dev.sh` | Sync only the active Stripe env vars into `api/.dev.vars` |
+| `workers/common/config/settings.py` | Remove obsolete PAYG top-up price env mapping and model field |
 
 ---
 
@@ -160,7 +157,7 @@ export const DEFAULT_MONTHLY_CREDIT_LIMITS: Record<string, number> = {
 
 ## A4. PAYG Credit Top-up (One-Time Purchase)
 
-Users can buy credits at any time. Minimum purchase: 1,000 credits ($20). Quantity adjustable in increments of 100 (e.g., 1,000 / 1,100 / 1,200 / ... / 5,000 / etc.).
+Users can buy credits at any time. Minimum purchase: 1,000 credits ($8). Quantity adjustable in increments of 100 (e.g., 1,000 / 1,100 / 1,200 / ... / 5,000 / etc.).
 
 Uses Stripe Checkout in `payment` mode with variable quantity.
 
@@ -224,14 +221,21 @@ export function createTopupCheckoutSession(
     mode: "payment",
     line_items: [
       {
-        price: requireSetting("STRIPE_TOPUP_UNIT_PRICE_ID", config.stripe.topupUnitPriceId),
-        quantity: input.quantity,
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Cerul Credits",
+            description: `${TOPUP_CREDIT_STEP} credits per unit`
+          },
+          unit_amount: TOPUP_STEP_PRICE_CENTS
+        },
+        quantity: topupLineItemQuantity(input.quantity),
       }
     ],
     client_reference_id: input.userId,
     metadata,
     payment_intent_data: { metadata },
-    success_url: `${webBaseUrl(config)}/dashboard/settings?checkout=success&type=topup`,
+    success_url: `${webBaseUrl(config)}/dashboard/settings?checkout=success&type=topup&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${webBaseUrl(config)}/dashboard/settings?checkout=cancelled`,
   };
 
@@ -466,12 +470,11 @@ export async function maybeAutoRecharge(
 
   try {
     const stripe = stripeClient(config);
-    const unitPriceId = config.stripe.topupUnitPriceId;
-    if (!unitPriceId) return { triggered: false };
-
-    const price = await stripe.prices.retrieve(unitPriceId);
-    const unitAmount = price.unit_amount ?? 0;
-    const totalAmount = unitAmount * profile.auto_recharge_quantity;
+    const quantity = Math.max(Math.round(profile.auto_recharge_quantity / 100) * 100, 1_000);
+    const totalAmount = topupAmountCents(quantity);
+    if (totalAmount <= 0) {
+      return { triggered: false, error: "Stripe auto-recharge amount is invalid." };
+    }
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: totalAmount,
@@ -482,7 +485,7 @@ export async function maybeAutoRecharge(
       metadata: {
         user_id: userId,
         type: "auto_recharge",
-        quantity: String(profile.auto_recharge_quantity),
+        quantity: String(quantity),
       },
     });
 
@@ -729,12 +732,12 @@ Add `transcript` to the search response schema and example JSON in the docs page
 
 | File | Action | Part | Description |
 |------|--------|------|-------------|
-| `.env.example` | Modify | A | Add `STRIPE_TOPUP_UNIT_PRICE_ID` |
-| `api/src/types.ts` | Modify | A+B | Add topup env var, config field, `transcript` to SearchResult |
-| `api/src/config.ts` | Modify | A | Map `STRIPE_TOPUP_UNIT_PRICE_ID` |
-| `api/wrangler.toml` | Modify | A | Add commented secret |
-| `scripts/dev.sh` | Modify | A | Add to var list |
-| `workers/common/config/settings.py` | Modify | A | Add mapping + model field |
+| `.env.example` | Modify | A | Remove obsolete PAYG Stripe price env var |
+| `api/src/types.ts` | Modify | A+B | Remove obsolete PAYG Stripe config field, add `transcript` to SearchResult |
+| `api/src/config.ts` | Modify | A | Keep only active Stripe config mapping |
+| `api/wrangler.toml` | Modify | A | Remove obsolete commented Stripe secret |
+| `scripts/dev.sh` | Modify | A | Stop syncing obsolete top-up Stripe env var |
+| `workers/common/config/settings.py` | Modify | A | Remove obsolete top-up Stripe env mapping + model field |
 | `db/migrations/014_auto_recharge.sql` | Create | A | Add auto-recharge columns to user_profiles |
 | `api/src/services/billing-catalog.ts` | Modify | A | Verify `SIGNUP_BONUS_CREDITS`, `FREE_DAILY_SEARCHES` constants |
 | `api/src/services/billing.ts` | Modify | A | Re-add `fulfillTopupCheckout`, `paid_topup` grant type, `topup` order kind, add `maybeAutoRecharge`, restore spend priority SQL |

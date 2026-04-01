@@ -154,10 +154,6 @@ export async function requireApiKeyContext(c: Context): Promise<AuthContext> {
   }
 
   const auth = buildAuthContext(authRow, calculateCreditsRemaining(usageSummary));
-  if (auth.creditsRemaining <= 0) {
-    apiError(403, "No spendable credits remain.");
-  }
-
   await enforceRateLimit(auth);
   await touchApiKeyLastUsed(db, auth.apiKeyId);
   c.set("apiAuth", auth);

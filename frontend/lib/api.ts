@@ -49,6 +49,7 @@ type DailyUsageWire = {
 type CreditBreakdownWire = {
   included_remaining?: number;
   bonus_remaining?: number;
+  paid_remaining?: number;
 };
 
 type ExpiringCreditWire = {
@@ -87,6 +88,13 @@ type BillingLinkWire = {
   checkout_url?: string;
   portal_url?: string;
   product_code?: string;
+};
+
+type BillingReconciliationWire = {
+  status?: string;
+  mode?: string;
+  tier?: string;
+  credits_granted?: number;
 };
 
 type BillingCatalogWire = {
@@ -217,6 +225,7 @@ export type DashboardMonthlyUsage = {
   creditBreakdown: {
     includedRemaining: number;
     bonusRemaining: number;
+    paidRemaining: number;
   };
   expiringCredits: Array<{
     grantType: string;
@@ -243,12 +252,20 @@ export type AutoRechargeSettings = {
   quantity: number;
 };
 
+export type BillingReconciliation = {
+  status: string;
+  mode: string | null;
+  tier: string | null;
+  creditsGranted: number;
+};
+
 export type BillingCatalog = {
   planCode: string;
   walletBalance: number;
   creditBreakdown: {
     includedRemaining: number;
     bonusRemaining: number;
+    paidRemaining: number;
   };
   expiringCredits: Array<{
     grantType: string;
@@ -690,6 +707,10 @@ function normalizeUsage(payload: unknown): DashboardMonthlyUsage {
         typeof usagePayload.credit_breakdown?.bonus_remaining === "number"
           ? usagePayload.credit_breakdown.bonus_remaining
           : 0,
+      paidRemaining:
+        typeof usagePayload.credit_breakdown?.paid_remaining === "number"
+          ? usagePayload.credit_breakdown.paid_remaining
+          : 0,
     },
     expiringCredits: Array.isArray(usagePayload.expiring_credits)
       ? usagePayload.expiring_credits
@@ -743,6 +764,10 @@ function normalizeBillingCatalog(payload: unknown): BillingCatalog {
       bonusRemaining:
         typeof breakdown.bonus_remaining === "number"
           ? breakdown.bonus_remaining
+          : 0,
+      paidRemaining:
+        typeof breakdown.paid_remaining === "number"
+          ? breakdown.paid_remaining
           : 0,
     },
     expiringCredits: Array.isArray(payload.expiring_credits)
@@ -982,6 +1007,16 @@ function normalizeBillingLink(payload: unknown): BillingRedirect {
   return { url };
 }
 
+function normalizeBillingReconciliation(payload: unknown): BillingReconciliation {
+  const raw = payload as BillingReconciliationWire | null | undefined;
+  return {
+    status: typeof raw?.status === "string" ? raw.status : "ok",
+    mode: typeof raw?.mode === "string" ? raw.mode : null,
+    tier: typeof raw?.tier === "string" ? raw.tier : null,
+    creditsGranted: typeof raw?.credits_granted === "number" ? raw.credits_granted : 0,
+  };
+}
+
 function buildQueryString(
   params: Record<string, string | number | null | undefined>,
 ): string {
@@ -1172,6 +1207,20 @@ export const billing = {
     );
 
     return normalizeBillingLink(payload);
+  },
+
+  async reconcileCheckout(sessionId: string): Promise<BillingReconciliation> {
+    const payload = await fetchWithAuth<BillingReconciliationWire>(
+      "/dashboard/billing/reconcile-checkout",
+      {
+        method: "POST",
+        body: {
+          session_id: sessionId,
+        },
+      },
+    );
+
+    return normalizeBillingReconciliation(payload);
   },
 
   async getAutoRecharge(): Promise<AutoRechargeSettings> {

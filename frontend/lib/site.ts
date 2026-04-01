@@ -165,8 +165,8 @@ export const pricingTiers = [
     cadence: "per 1,000 credits",
     description:
       "Buy credits when you need them. No subscription, no commitment.",
-    checkoutProductCode: null,
-    ctaLabel: "Get started",
+    checkoutProductCode: "topup",
+    ctaLabel: "Buy 1,000 credits",
     ctaHref: "/login?mode=signup",
     accent: "orange",
     features: [

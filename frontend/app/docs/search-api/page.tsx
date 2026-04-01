@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AIToolbar } from "@/components/ai-toolbar";
+import { DailyFreeSearchNote } from "@/components/daily-free-search-note";
 import { CodeBlock } from "@/components/code-block";
 import { DocsHeader } from "@/components/docs-header";
 import { DocsSidebar } from "@/components/docs-sidebar";
@@ -421,6 +422,7 @@ console.log(data);`}
                       language="json"
                       filename="response.json"
                     />
+                    <DailyFreeSearchNote />
                   </div>
                 </div>
               </section>

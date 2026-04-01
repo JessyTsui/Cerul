@@ -2,7 +2,12 @@ import Stripe from "stripe";
 
 import type { AppConfig } from "../types";
 import type { DatabaseClient } from "../db/client";
-import { normalizePlanCode } from "./billing-catalog";
+import {
+  normalizePlanCode,
+  TOPUP_CREDIT_STEP,
+  TOPUP_STEP_PRICE_CENTS,
+  topupLineItemQuantity
+} from "./billing-catalog";
 import { monthlyCreditLimitForTier } from "./billing";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "past_due"]);
@@ -64,7 +69,7 @@ export function createCheckoutSession(
     client_reference_id: userId,
     metadata,
     subscription_data: { metadata },
-    success_url: `${webBaseUrl(config)}/dashboard?checkout=success`,
+    success_url: `${webBaseUrl(config)}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${webBaseUrl(config)}/pricing?checkout=cancelled`
   };
 
@@ -89,6 +94,7 @@ export function createTopupCheckoutSession(
   input: { userId: string; email: string; stripeCustomerId?: string | null; quantity: number }
 ): Promise<string> {
   const client = stripeClient(config);
+  const lineItemQuantity = topupLineItemQuantity(input.quantity);
   const metadata = {
     user_id: input.userId,
     type: "topup",
@@ -98,14 +104,21 @@ export function createTopupCheckoutSession(
     mode: "payment",
     line_items: [
       {
-        price: requireSetting("STRIPE_TOPUP_UNIT_PRICE_ID", config.stripe.topupUnitPriceId),
-        quantity: input.quantity
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Cerul Credits",
+            description: `${TOPUP_CREDIT_STEP} credits per unit`
+          },
+          unit_amount: TOPUP_STEP_PRICE_CENTS
+        },
+        quantity: lineItemQuantity
       }
     ],
     client_reference_id: input.userId,
     metadata,
     payment_intent_data: { metadata },
-    success_url: `${webBaseUrl(config)}/dashboard/settings?checkout=success&type=topup`,
+    success_url: `${webBaseUrl(config)}/dashboard/settings?checkout=success&type=topup&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${webBaseUrl(config)}/dashboard/settings?checkout=cancelled`
   };
 
@@ -138,6 +151,27 @@ export function createPortalSession(config: AppConfig, stripeCustomerId: string)
     return String(session.url);
   }).catch((error: any) => {
     throw new StripeServiceError(error?.message || "Stripe billing portal session creation failed.");
+  });
+}
+
+export function retrieveCheckoutSession(config: AppConfig, checkoutSessionId: string): Promise<Stripe.Checkout.Session> {
+  const client = stripeClient(config);
+  return client.checkout.sessions.retrieve(checkoutSessionId).catch((error: any) => {
+    throw new StripeServiceError(error?.message || "Stripe checkout session lookup failed.");
+  });
+}
+
+export function retrieveInvoice(config: AppConfig, invoiceId: string): Promise<Stripe.Invoice> {
+  const client = stripeClient(config);
+  return client.invoices.retrieve(invoiceId).catch((error: any) => {
+    throw new StripeServiceError(error?.message || "Stripe invoice lookup failed.");
+  });
+}
+
+export function retrieveSubscription(config: AppConfig, subscriptionId: string): Promise<Stripe.Subscription> {
+  const client = stripeClient(config);
+  return client.subscriptions.retrieve(subscriptionId).catch((error: any) => {
+    throw new StripeServiceError(error?.message || "Stripe subscription lookup failed.");
   });
 }
 

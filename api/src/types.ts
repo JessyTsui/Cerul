@@ -25,7 +25,8 @@ export interface Bindings {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRO_PRICE_ID?: string;
-  STRIPE_TOPUP_UNIT_PRICE_ID?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
   R2_BUCKET_NAME?: string;
   R2_PUBLIC_URL?: string;
   QUERY_IMAGES_BUCKET?: R2Bucket;
@@ -71,7 +72,10 @@ export interface AppConfig {
     secretKey: string | null;
     webhookSecret: string | null;
     proPriceId: string | null;
-    topupUnitPriceId: string | null;
+  };
+  email: {
+    resendApiKey: string | null;
+    from: string;
   };
   r2: {
     bucketName: string;
@@ -162,6 +166,7 @@ export interface UsageResponse {
   credit_breakdown?: {
     included_remaining: number;
     bonus_remaining: number;
+    paid_remaining: number;
   };
   expiring_credits?: Array<{
     grant_type: string;

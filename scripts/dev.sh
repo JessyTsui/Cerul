@@ -13,6 +13,68 @@ FRONTEND_PORT="${FRONTEND_PORT:-}"
 API_HOST="${API_HOST:-127.0.0.1}"
 API_PORT="${API_PORT:-}"
 
+extract_url_authority() {
+  local url="$1"
+  local authority="${url#*://}"
+  printf '%s\n' "${authority%%/*}"
+}
+
+extract_url_host() {
+  local authority
+  authority="$(extract_url_authority "$1")"
+
+  if [[ "${authority}" == \[*\]* ]]; then
+    printf '%s]\n' "${authority%%]*}"
+    return 0
+  fi
+
+  printf '%s\n' "${authority%%:*}"
+}
+
+extract_url_port() {
+  local authority
+  authority="$(extract_url_authority "$1")"
+
+  if [[ "${authority}" == \[*\]*:* ]]; then
+    printf '%s\n' "${authority##*:}"
+    return 0
+  fi
+
+  if [[ "${authority}" == *:* ]]; then
+    printf '%s\n' "${authority##*:}"
+  fi
+}
+
+is_loopback_host() {
+  case "$1" in
+    localhost|127.0.0.1|::1|"[::1]")
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+port_from_loopback_url() {
+  local url="$1"
+  local host
+  local port
+
+  if [ -z "${url}" ]; then
+    return 1
+  fi
+
+  host="$(extract_url_host "${url}")"
+  port="$(extract_url_port "${url}")"
+
+  if ! is_loopback_host "${host}" || [ -z "${port}" ]; then
+    return 1
+  fi
+
+  printf '%s\n' "${port}"
+}
+
 public_host_for_url() {
   local host="$1"
 
@@ -41,6 +103,14 @@ load_env() {
     set -a
     . "${ENV_FILE}"
     set +a
+  fi
+
+  if [ -z "${FRONTEND_PORT}" ]; then
+    FRONTEND_PORT="$(port_from_loopback_url "${NEXT_PUBLIC_SITE_URL:-${WEB_BASE_URL:-}}" || true)"
+  fi
+
+  if [ -z "${API_PORT}" ]; then
+    API_PORT="$(port_from_loopback_url "${NEXT_PUBLIC_API_BASE_URL:-${API_BASE_URL:-}}" || true)"
   fi
 
   FRONTEND_PORT="${FRONTEND_PORT:-${WEB_PORT:-3000}}"
@@ -124,7 +194,8 @@ EOF
     STRIPE_SECRET_KEY
     STRIPE_WEBHOOK_SECRET
     STRIPE_PRO_PRICE_ID
-    STRIPE_TOPUP_UNIT_PRICE_ID
+    RESEND_API_KEY
+    EMAIL_FROM
     YOUTUBE_API_KEY
     PEXELS_API_KEY
     PIXABAY_API_KEY

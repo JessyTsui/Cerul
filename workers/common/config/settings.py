@@ -31,7 +31,6 @@ _LEGACY_ENV_OVERRIDES: dict[str, tuple[str, ...]] = {
     "DEMO_MODE": ("public", "demo_mode"),
     "RERANK_MODEL": ("knowledge", "rerank_model"),
     "STRIPE_PRO_PRICE_ID": ("stripe", "pro_price_id"),
-    "STRIPE_TOPUP_UNIT_PRICE_ID": ("stripe", "topup_unit_price_id"),
     "STRIPE_SECRET_KEY": ("stripe", "secret_key"),
     "STRIPE_WEBHOOK_SECRET": ("stripe", "webhook_secret"),
     "OPENAI_TRANSCRIBE_BASE_URL": ("knowledge", "transcription", "base_url"),
@@ -171,7 +170,6 @@ class StripeSettings(BaseModel):
     secret_key: str | None = None
     webhook_secret: str | None = None
     pro_price_id: str | None = None
-    topup_unit_price_id: str | None = None
 
 
 class DashboardSettings(BaseModel):

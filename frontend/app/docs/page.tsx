@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { Route } from "next";
 import Link from "next/link";
 import { AIToolbar } from "@/components/ai-toolbar";
+import { DailyFreeSearchNote } from "@/components/daily-free-search-note";
 import { CodeBlock } from "@/components/code-block";
 import { DocsHeader } from "@/components/docs-header";
 import { DocsSidebar } from "@/components/docs-sidebar";
@@ -193,8 +194,9 @@ export default function DocsPage() {
                   </FadeIn>
 
                   <FadeIn delay={100}>
-                    <CodeBlock
-                      code={`{
+                    <div className="space-y-4">
+                      <CodeBlock
+                        code={`{
   "results": [
     {
       "id": "unit_hmtuvNfytjM_1223",
@@ -215,9 +217,11 @@ export default function DocsPage() {
   "credits_remaining": 999,
   "request_id": "req_abc123xyz"
 }`}
-                      filename="response.json"
-                      language="json"
-                    />
+                        filename="response.json"
+                        language="json"
+                      />
+                      <DailyFreeSearchNote />
+                    </div>
                   </FadeIn>
                 </div>
               </section>

@@ -4,8 +4,10 @@ import {
   buildUsageChartData,
   formatBillingPeriod,
   formatNumber,
+  getIncludedCreditsUsed,
   getTierLabel,
 } from "@/lib/dashboard";
+import { CreditBalancePanel } from "./credit-balance-panel";
 import { CreditUsageBar } from "./credit-usage-bar";
 import { DashboardLayout } from "./dashboard-layout";
 import { DashboardNotice, DashboardSkeleton, DashboardState } from "./dashboard-state";
@@ -61,6 +63,7 @@ export function DashboardUsageScreen() {
   }
 
   const chartData = buildUsageChartData(data);
+  const includedCreditsUsed = getIncludedCreditsUsed(data);
   const activeDays = chartData.filter((p) => p.requestCount > 0 || p.creditsUsed > 0);
   const averageDailyRequests = chartData.length === 0
     ? 0
@@ -95,23 +98,48 @@ export function DashboardUsageScreen() {
         />
       )}
 
-      <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+      <CreditBalancePanel
+        eyebrow="Credits"
+        title="See exactly what can pay for the next request."
+        description="Included Pro credits, bonus credits, and PAYG purchases stay visible as separate buckets so the total balance never feels mysterious."
+        total={data.walletBalance}
+        included={data.creditBreakdown.includedRemaining}
+        bonus={data.creditBreakdown.bonusRemaining}
+        purchased={data.creditBreakdown.paidRemaining}
+        dailyFreeRemaining={data.dailyFreeRemaining}
+        dailyFreeLimit={data.dailyFreeLimit}
+      />
+
+      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="space-y-3">
+          <CreditUsageBar
+            label="Included credits this period"
+            limit={data.creditsLimit}
+            remaining={data.creditBreakdown.includedRemaining}
+            used={includedCreditsUsed}
+          />
+          <p className="px-1 text-sm leading-6 text-[var(--foreground-secondary)]">
+            This bar only tracks the plan allowance for the current billing window. Bonus and PAYG
+            credits remain spendable outside the monthly Pro bucket.
+          </p>
+        </div>
+
         <article className="surface-elevated rounded-[32px] px-6 py-6">
           <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
             Current period
           </p>
           <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
-            Watch credit burn before it becomes invisible.
+            Watch charged usage and free usage separately.
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--foreground-secondary)]">
-            The usage view should stay operational, not decorative. Track request volume, credit
-            drawdown, and day-level spikes before you change traffic patterns or plan posture.
+            Free searches still increase request count, but only charged requests move the credit
+            totals. This split keeps monthly allowance and spendable balance easy to read.
           </p>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {[
               { label: "Requests", value: formatNumber(data.requestCount) },
-              { label: "Credits used", value: formatNumber(data.creditsUsed) },
-              { label: "Spendable balance", value: formatNumber(data.walletBalance) },
+              { label: "Charged credits", value: formatNumber(data.creditsUsed) },
+              { label: "Spendable now", value: formatNumber(data.walletBalance) },
               { label: "Active days", value: formatNumber(activeDays.length) },
             ].map((item) => (
               <article
@@ -125,35 +153,17 @@ export function DashboardUsageScreen() {
               </article>
             ))}
           </div>
-        </article>
-
-        <CreditUsageBar
-          label="Included credits this period"
-          limit={data.creditsLimit}
-          remaining={data.creditBreakdown.includedRemaining}
-          used={data.creditsUsed}
-        />
-      </section>
-
-      <section className="grid gap-5 md:grid-cols-3">
-        {[
-          { label: "Included remaining", value: data.creditBreakdown.includedRemaining },
-          { label: "Bonus remaining", value: data.creditBreakdown.bonusRemaining },
-          {
-            label: "Free searches today",
-            value: `${formatNumber(data.dailyFreeRemaining)} / ${formatNumber(data.dailyFreeLimit)} remaining`,
-          },
-        ].map((item) => (
-          <article
-            key={item.label}
-            className="surface-elevated rounded-[24px] px-5 py-5"
-          >
-            <p className="text-sm text-[var(--foreground-secondary)]">{item.label}</p>
-            <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
-              {typeof item.value === "number" ? formatNumber(item.value) : item.value}
+          <div className="mt-5 rounded-[22px] border border-[var(--border)] bg-white/72 px-4 py-4">
+            <p className="text-sm font-medium text-[var(--foreground)]">Today&apos;s free allowance</p>
+            <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
+              {formatNumber(data.dailyFreeRemaining)} / {formatNumber(data.dailyFreeLimit)} remaining
             </p>
-          </article>
-        ))}
+            <p className="mt-2 text-sm leading-6 text-[var(--foreground-secondary)]">
+              The first {formatNumber(data.dailyFreeLimit)} searches each UTC day deduct 0 credits,
+              even though they still appear in request analytics.
+            </p>
+          </div>
+        </article>
       </section>
 
       <UsageChart
@@ -237,7 +247,7 @@ export function DashboardUsageScreen() {
               <tr>
                 <th className="px-5 py-3 font-medium">Date</th>
                 <th className="px-5 py-3 font-medium">Requests</th>
-                <th className="px-5 py-3 font-medium">Credits</th>
+                <th className="px-5 py-3 font-medium">Charged credits</th>
                 <th className="px-5 py-3 font-medium">Request share</th>
                 <th className="px-5 py-3 font-medium">Credit share</th>
               </tr>

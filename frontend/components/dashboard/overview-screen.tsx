@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { apiKeys, billing, getApiErrorMessage, type DashboardApiKey } from "@/lib/api";
 import {
   formatBillingPeriod,
   formatNumber,
+  getExtraCreditsRemaining,
+  getIncludedCreditsUsed,
   getTierLabel,
   resolveDashboardBillingAction,
 } from "@/lib/dashboard";
@@ -15,9 +18,11 @@ import { DashboardNotice, DashboardSkeleton, DashboardState } from "./dashboard-
 import { useMonthlyUsage } from "./use-monthly-usage";
 
 export function DashboardOverviewScreen() {
+  const searchParams = useSearchParams();
   const { data, error, isLoading, refresh } = useMonthlyUsage();
   const [billingAction, setBillingAction] = useState<"checkout" | "portal" | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
   const [keys, setKeys] = useState<DashboardApiKey[]>([]);
   const [keysLoading, setKeysLoading] = useState(true);
   const [keysError, setKeysError] = useState<string | null>(null);
@@ -40,6 +45,55 @@ export function DashboardOverviewScreen() {
   useEffect(() => {
     void loadKeys();
   }, []);
+
+  useEffect(() => {
+    const checkoutState = searchParams.get("checkout");
+    const checkoutSessionId = searchParams.get("session_id");
+
+    if (checkoutState !== "success") {
+      return;
+    }
+
+    const clearCheckoutParams = () => {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete("checkout");
+      nextUrl.searchParams.delete("session_id");
+      nextUrl.searchParams.delete("type");
+      const query = nextUrl.searchParams.toString();
+      window.history.replaceState({}, "", `${nextUrl.pathname}${query ? `?${query}` : ""}`);
+    };
+
+    if (!checkoutSessionId) {
+      setCheckoutNotice("Payment completed. Refresh the dashboard in a moment if the plan does not update immediately.");
+      clearCheckoutParams();
+      return;
+    }
+
+    let cancelled = false;
+    void billing.reconcileCheckout(checkoutSessionId)
+      .then(async (result) => {
+        if (cancelled) {
+          return;
+        }
+        await Promise.all([refresh(), loadKeys({ preserveData: true })]);
+        setCheckoutNotice(
+          result.mode === "subscription"
+            ? "Pro subscription synced successfully."
+            : "Payment synced successfully.",
+        );
+        clearCheckoutParams();
+      })
+      .catch((nextError) => {
+        if (cancelled) {
+          return;
+        }
+        setCheckoutNotice(getApiErrorMessage(nextError, "Payment completed, but dashboard sync still needs a manual refresh."));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh, searchParams]);
 
   async function handleRevoke(apiKey: DashboardApiKey) {
     if (!apiKey.isActive) return;
@@ -79,7 +133,8 @@ export function DashboardOverviewScreen() {
     }
   }
 
-  const activeKeyCount = keys.filter((item) => item.isActive).length;
+  const includedCreditsUsed = data ? getIncludedCreditsUsed(data) : 0;
+  const extraCreditsRemaining = data ? getExtraCreditsRemaining(data) : 0;
 
   return (
     <DashboardLayout
@@ -115,6 +170,9 @@ export function DashboardOverviewScreen() {
 
       {billingError ? (
         <DashboardNotice title="Billing action failed" description={billingError} tone="error" />
+      ) : null}
+      {checkoutNotice ? (
+        <DashboardNotice title="Billing updated" description={checkoutNotice} tone="success" />
       ) : null}
 
       {isLoading && !data ? (
@@ -239,27 +297,60 @@ export function DashboardOverviewScreen() {
               </div>
             </div>
 
-            <div className="mt-5 rounded-[20px] border border-[var(--border)] bg-white/76 px-5 py-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm font-medium text-[var(--foreground)]">API usage</p>
-                <p className="text-sm text-[var(--foreground-secondary)]">
-                  {formatNumber(data.creditsUsed)} / {formatNumber(data.creditsLimit)} credits used
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <div className="rounded-full border border-[rgba(97,125,233,0.16)] bg-[rgba(97,125,233,0.08)] px-4 py-3">
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(72,98,198)]">
+                  Free today
+                </p>
+                <p className="mt-1 text-base font-semibold text-[var(--foreground)]">
+                  {formatNumber(data.dailyFreeRemaining)} / {formatNumber(data.dailyFreeLimit)}
                 </p>
               </div>
+              <div className="rounded-full border border-[var(--border)] bg-white/72 px-4 py-3">
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+                  Billing window
+                </p>
+                <p className="mt-1 text-sm font-medium text-[var(--foreground)]">
+                  {formatBillingPeriod(data.periodStart, data.periodEnd)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[20px] border border-[var(--border)] bg-white/76 px-5 py-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm font-medium text-[var(--foreground)]">Included credits this period</p>
+                <p className="text-sm text-[var(--foreground-secondary)]">
+                  {formatNumber(includedCreditsUsed)} / {formatNumber(data.creditsLimit)} included credits used
+                </p>
+              </div>
+              {extraCreditsRemaining > 0 ? (
+                <p className="mt-2 text-xs text-[var(--foreground-tertiary)]">
+                  Spendable balance also includes {formatNumber(extraCreditsRemaining)} bonus or purchased credits.
+                </p>
+              ) : null}
               <div className="mt-3 h-2.5 rounded-full bg-[rgba(36,29,21,0.08)]">
                 <div
                   className="h-full rounded-full bg-[linear-gradient(90deg,var(--brand),var(--accent))]"
                   style={{
                     width: `${Math.max(
                       4,
-                      Math.min(100, (data.creditsUsed / Math.max(1, data.creditsLimit)) * 100),
+                      Math.min(100, (includedCreditsUsed / Math.max(1, data.creditsLimit)) * 100),
                     )}%`,
                   }}
                 />
               </div>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-[var(--foreground-secondary)]">
+                  Today: {formatNumber(data.dailyFreeRemaining)} / {formatNumber(data.dailyFreeLimit)} free searches left
+                  {" "}before Cerul touches any credits.
+                </p>
+                <span className="rounded-full border border-[rgba(97,125,233,0.16)] bg-[rgba(97,125,233,0.08)] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[rgb(72,98,198)]">
+                  0-credit window
+                </span>
+              </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
                 <p className="text-sm text-[var(--foreground-secondary)]">Requests</p>
                 <p className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
@@ -273,9 +364,18 @@ export function DashboardOverviewScreen() {
                 </p>
               </div>
               <div className="rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
+                <p className="text-sm text-[var(--foreground-secondary)]">Included remaining</p>
+                <p className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
+                  {formatNumber(data.creditBreakdown.includedRemaining)}
+                </p>
+              </div>
+              <div className="rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
                 <p className="text-sm text-[var(--foreground-secondary)]">Active keys</p>
                 <p className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
-                  {formatNumber(activeKeyCount)}
+                  {formatNumber(data.apiKeysActive)}
+                </p>
+                <p className="mt-1 text-xs text-[var(--foreground-tertiary)]">
+                  current workspace
                 </p>
               </div>
             </div>

@@ -66,9 +66,19 @@ export function includedCreditsForPlan(planCode: BillingPlanCode): number {
 }
 
 export const TOPUP_RATE_PER_1K_CENTS = 800;
+export const TOPUP_CREDIT_STEP = 100;
+export const TOPUP_STEP_PRICE_CENTS = (TOPUP_RATE_PER_1K_CENTS * TOPUP_CREDIT_STEP) / 1_000;
 export const SIGNUP_BONUS_CREDITS = 100;
 export const FREE_DAILY_SEARCHES = 10;
 
 export const REFERRAL_BONUS_CREDITS = 500;
 export const REFERRAL_REWARD_DELAY_DAYS = 7;
 export const BONUS_CREDIT_EXPIRY_DAYS = 90;
+
+export function topupLineItemQuantity(quantityCredits: number): number {
+  return Math.max(Math.round(quantityCredits / TOPUP_CREDIT_STEP), 1);
+}
+
+export function topupAmountCents(quantityCredits: number): number {
+  return topupLineItemQuantity(quantityCredits) * TOPUP_STEP_PRICE_CENTS;
+}

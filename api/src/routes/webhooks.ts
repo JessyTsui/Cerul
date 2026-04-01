@@ -15,6 +15,7 @@ import {
   StripeWebhookVerificationError,
   syncSubscriptionStatus
 } from "../services/stripe";
+import { sendBillingNotification } from "../services/transactional-email";
 import { apiError } from "../utils/http";
 
 async function fetchLoggedEvent(db: DatabaseClient, stripeEventId: string): Promise<Record<string, unknown> | null> {
@@ -107,7 +108,7 @@ function extractInvoicePeriod(invoice: Record<string, unknown>): { periodStart: 
   return { periodStart, periodEnd };
 }
 
-async function processStripeEvent(db: DatabaseClient, event: Record<string, unknown>): Promise<void> {
+async function processStripeEvent(db: DatabaseClient, config: any, event: Record<string, unknown>): Promise<void> {
   const eventType = String(event.type ?? "");
   const eventObject = asRecord(asRecord(event.data).object);
 
@@ -131,7 +132,7 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
 
     if (mode === "payment") {
       const quantity = Number(metadata.quantity) || 1000;
-      await fulfillTopupCheckout(db, {
+      const notification = await fulfillTopupCheckout(db, {
         userId,
         credits: quantity,
         stripeCheckoutSessionId: String(eventObject.id ?? ""),
@@ -143,6 +144,11 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
         netAmountCents: asInteger(eventObject.amount_total),
         occurredAt: stripeCreatedAt(eventObject.created)
       });
+      if (notification) {
+        void sendBillingNotification(config, notification).catch((error) => {
+          console.error("[billing] Failed to send top-up email:", error);
+        });
+      }
     }
     return;
   }
@@ -157,7 +163,7 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
       status: "active"
     });
     const { periodStart, periodEnd } = extractInvoicePeriod(eventObject);
-    await fulfillSubscriptionInvoice(db, {
+    const notification = await fulfillSubscriptionInvoice(db, {
       stripeInvoiceId: String(eventObject.id ?? ""),
       stripeCustomerId,
       stripeSubscriptionId: asString(eventObject.subscription),
@@ -173,6 +179,11 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
         billing_reason: asString(eventObject.billing_reason)
       }
     });
+    if (notification) {
+      void sendBillingNotification(config, notification).catch((error) => {
+        console.error("[billing] Failed to send subscription email:", error);
+      });
+    }
     return;
   }
 
@@ -213,7 +224,7 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
       const quantity = Number(metadata.quantity) || 1000;
       if (userId) {
         const amount = asInteger(eventObject.amount_received ?? eventObject.amount);
-        await fulfillAutoRechargePayment(db, {
+        const notification = await fulfillAutoRechargePayment(db, {
           userId,
           stripePaymentIntentId: String(eventObject.id ?? ""),
           stripeCustomerId: asString(eventObject.customer),
@@ -224,6 +235,11 @@ async function processStripeEvent(db: DatabaseClient, event: Record<string, unkn
           netAmountCents: amount,
           occurredAt: stripeCreatedAt(eventObject.created)
         });
+        if (notification) {
+          void sendBillingNotification(config, notification).catch((error) => {
+            console.error("[billing] Failed to send auto-recharge email:", error);
+          });
+        }
       }
     }
     return;
@@ -286,7 +302,7 @@ export function createWebhookRouter(): any {
       }
 
       try {
-        await processStripeEvent(tx, event);
+        await processStripeEvent(tx, config, event);
       } catch (error) {
         if (error instanceof StripeServiceError) {
           apiError(409, error.message);

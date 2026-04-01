@@ -2,6 +2,7 @@ import type { DatabaseClient } from "../db/client";
 import type { AppConfig } from "../types";
 import Stripe from "stripe";
 import { randomHex } from "../utils/crypto";
+import type { BillingEmailNotification } from "./transactional-email";
 import {
   BONUS_CREDIT_EXPIRY_DAYS,
   FREE_DAILY_SEARCHES,
@@ -10,6 +11,7 @@ import {
   REFERRAL_BONUS_CREDITS,
   REFERRAL_REWARD_DELAY_DAYS,
   SIGNUP_BONUS_CREDITS,
+  topupAmountCents,
   type BillingPlanCode
 } from "./billing-catalog";
 
@@ -85,6 +87,7 @@ type MonthlyUsageRow = {
 type CreditBreakdown = {
   included_remaining: number;
   bonus_remaining: number;
+  paid_remaining: number;
 };
 
 type ExpiringCreditSummary = {
@@ -513,7 +516,8 @@ async function fetchCreditWalletSummary(db: DatabaseClient, userId: string): Pro
 
   const breakdown: CreditBreakdown = {
     included_remaining: 0,
-    bonus_remaining: 0
+    bonus_remaining: 0,
+    paid_remaining: 0
   };
   const expiringCredits: ExpiringCreditSummary[] = [];
   const expiringCutoff = addDays(new Date(), CREDIT_EXPIRY_WINDOW_DAYS).toISOString();
@@ -526,6 +530,8 @@ async function fetchCreditWalletSummary(db: DatabaseClient, userId: string): Pro
       breakdown.bonus_remaining += remainingCredits;
     } else if (INCLUDED_GRANT_TYPES.has(String(grant.grant_type))) {
       breakdown.included_remaining += remainingCredits;
+    } else if (String(grant.grant_type) === "paid_topup") {
+      breakdown.paid_remaining += remainingCredits;
     }
 
     const expiresAt = toIsoString(grant.expires_at);
@@ -1024,8 +1030,8 @@ export async function grantSignupBonus(db: DatabaseClient, userId: string): Prom
   });
 }
 
-export async function fulfillTopupCheckout(db: DatabaseClient, input: TopupInput): Promise<void> {
-  await db.transaction(async (tx) => {
+export async function fulfillTopupCheckout(db: DatabaseClient, input: TopupInput): Promise<BillingEmailNotification | null> {
+  return db.transaction(async (tx) => {
     await awardDueReferralCredits(tx);
     await linkStripeCustomerToUser(tx, input.userId, input.stripeCustomerId);
     const profile = await fetchUserBillingProfile(tx, input.userId);
@@ -1051,7 +1057,7 @@ export async function fulfillTopupCheckout(db: DatabaseClient, input: TopupInput
       }
     });
 
-    await createCreditGrant(tx, {
+    const grant = await createCreditGrant(tx, {
       userId: input.userId,
       billingOrderId: order.id,
       grantKey: `topup:${input.stripeCheckoutSessionId}`,
@@ -1065,6 +1071,17 @@ export async function fulfillTopupCheckout(db: DatabaseClient, input: TopupInput
     });
     await setOrderCreditsGranted(tx, order.id, input.credits);
     await markReferralReadyForOrder(tx, input.userId, order.id, normalizeInteger(input.netAmountCents, 0));
+
+    if (!grant.inserted || !profile.email) {
+      return null;
+    }
+
+    return {
+      kind: "topup_received",
+      to: profile.email,
+      credits: input.credits,
+      amountCents: normalizeInteger(input.netAmountCents, 0)
+    };
   });
 }
 
@@ -1083,8 +1100,8 @@ type AutoRechargeFulfillmentInput = {
 export async function fulfillAutoRechargePayment(
   db: DatabaseClient,
   input: AutoRechargeFulfillmentInput
-): Promise<void> {
-  await db.transaction(async (tx) => {
+): Promise<BillingEmailNotification | null> {
+  return db.transaction(async (tx) => {
     await linkStripeCustomerToUser(tx, input.userId, input.stripeCustomerId);
     const profile = await fetchUserBillingProfile(tx, input.userId);
     const planCode = normalizePlanCode(profile.tier);
@@ -1107,7 +1124,7 @@ export async function fulfillAutoRechargePayment(
       }
     });
 
-    await createCreditGrant(tx, {
+    const grant = await createCreditGrant(tx, {
       userId: input.userId,
       billingOrderId: order.id,
       grantKey: `auto_recharge:${input.stripePaymentIntentId}`,
@@ -1121,11 +1138,22 @@ export async function fulfillAutoRechargePayment(
       }
     });
     await setOrderCreditsGranted(tx, order.id, input.quantity);
+
+    if (!grant.inserted || !profile.email) {
+      return null;
+    }
+
+    return {
+      kind: "auto_recharge_received",
+      to: profile.email,
+      credits: input.quantity,
+      amountCents: normalizeInteger(input.netAmountCents, 0)
+    };
   });
 }
 
-export async function fulfillSubscriptionInvoice(db: DatabaseClient, input: SubscriptionInvoiceInput): Promise<void> {
-  await db.transaction(async (tx) => {
+export async function fulfillSubscriptionInvoice(db: DatabaseClient, input: SubscriptionInvoiceInput): Promise<BillingEmailNotification | null> {
+  return db.transaction(async (tx) => {
     await awardDueReferralCredits(tx);
 
     const userId = await resolveUserIdByCustomer(tx, input.stripeCustomerId);
@@ -1157,7 +1185,7 @@ export async function fulfillSubscriptionInvoice(db: DatabaseClient, input: Subs
       }
     });
 
-    await createCreditGrant(tx, {
+    const grant = await createCreditGrant(tx, {
       userId,
       billingOrderId: order.id,
       grantKey: `subscription_monthly:${userId}:${input.periodStart}`,
@@ -1174,6 +1202,19 @@ export async function fulfillSubscriptionInvoice(db: DatabaseClient, input: Subs
     });
     await setOrderCreditsGranted(tx, order.id, includedCredits);
     await markReferralReadyForOrder(tx, userId, order.id, normalizeInteger(input.netAmountCents, 0));
+
+    if (!grant.inserted || !profile.email) {
+      return null;
+    }
+
+    return {
+      kind: "subscription_activated",
+      to: profile.email,
+      includedCredits,
+      amountCents: normalizeInteger(input.netAmountCents, 0),
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd
+    };
   });
 }
 
@@ -1211,21 +1252,13 @@ export async function maybeAutoRecharge(
     return { triggered: false };
   }
 
-  const unitPriceId = config.stripe.topupUnitPriceId;
-  if (!unitPriceId) {
-    return { triggered: false };
-  }
-
   try {
     const stripe = stripeClient(config);
-    const price = await stripe.prices.retrieve(unitPriceId);
-    const unitAmount = normalizeInteger(price.unit_amount, 0);
-    if (unitAmount <= 0) {
-      return { triggered: false, error: "Stripe top-up unit amount is invalid." };
-    }
-
     const quantity = Math.max(Math.round(profile.auto_recharge_quantity / 100) * 100, 1_000);
-    const totalAmount = unitAmount * quantity;
+    const totalAmount = topupAmountCents(quantity);
+    if (totalAmount <= 0) {
+      return { triggered: false, error: "Stripe auto-recharge amount is invalid." };
+    }
     const paymentIntent = await stripe.paymentIntents.create({
       amount: totalAmount,
       currency: "usd",
@@ -1299,7 +1332,7 @@ export async function recordFailedInvoice(db: DatabaseClient, input: {
   await upsertBillingOrder(db, {
     userId,
     orderKind: "subscription",
-    productCode: "monthly",
+    productCode: "pro",
     planCode: normalizePlanCode(profile.tier),
     status: "failed",
     currency: defaultCurrency(input.currency),

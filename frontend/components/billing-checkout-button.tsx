@@ -19,7 +19,6 @@ export function BillingCheckoutButton({
   className,
   loginNextPath = "/pricing",
 }: BillingCheckoutButtonProps) {
-  void productCode;
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +31,9 @@ export function BillingCheckoutButton({
     setError(null);
 
     try {
-      const redirect = await billing.createCheckout();
+      const redirect = productCode === "topup"
+        ? await billing.createTopup(1000)
+        : await billing.createCheckout();
       window.location.assign(redirect.url);
     } catch (nextError) {
       if (nextError instanceof ApiClientError && nextError.status === 401) {

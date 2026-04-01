@@ -147,7 +147,11 @@ export function formatBillingPeriod(
 export function getTierLabel(tier: string): string {
   const normalizedTier = tier.toLowerCase();
 
-  if (normalizedTier === "monthly" || normalizedTier === "builder" || normalizedTier === "pro") {
+  if (normalizedTier === "pro") {
+    return "Pro";
+  }
+
+  if (normalizedTier === "monthly" || normalizedTier === "builder") {
     return "Monthly";
   }
 
@@ -181,6 +185,24 @@ export function getCreditsPercent(used: number, limit: number): number {
   }
 
   return Math.max(0, Math.min(100, Math.round((used / limit) * 100)));
+}
+
+export function getIncludedCreditsUsed(
+  usage: Pick<DashboardMonthlyUsage, "creditsLimit" | "creditBreakdown">,
+): number {
+  return Math.max(
+    Math.min(usage.creditsLimit - usage.creditBreakdown.includedRemaining, usage.creditsLimit),
+    0,
+  );
+}
+
+export function getExtraCreditsRemaining(
+  usage: Pick<DashboardMonthlyUsage, "creditBreakdown">,
+): number {
+  return Math.max(
+    usage.creditBreakdown.bonusRemaining + usage.creditBreakdown.paidRemaining,
+    0,
+  );
 }
 
 export function buildUsageChartData(

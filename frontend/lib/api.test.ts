@@ -203,6 +203,7 @@ describe("dashboard API client", () => {
       creditBreakdown: {
         includedRemaining: 0,
         bonusRemaining: 0,
+        paidRemaining: 0,
       },
       expiringCredits: [],
       requestCount: 812,
@@ -320,6 +321,39 @@ describe("dashboard API client", () => {
     );
   });
 
+  it("reconciles a completed checkout session", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: "ok",
+          mode: "payment",
+          credits_granted: 1000,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(billing.reconcileCheckout("cs_test_123")).resolves.toEqual({
+      status: "ok",
+      mode: "payment",
+      tier: null,
+      creditsGranted: 1000,
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/dashboard/billing/reconcile-checkout",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ session_id: "cs_test_123" }),
+      }),
+    );
+  });
+
   it("normalizes billing catalog payloads", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
@@ -353,6 +387,7 @@ describe("dashboard API client", () => {
       creditBreakdown: {
         includedRemaining: 300,
         bonusRemaining: 0,
+        paidRemaining: 0,
       },
       expiringCredits: [],
       referral: {

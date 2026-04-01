@@ -31,3 +31,4 @@ eval/*_results.tsv
 # CF Workers local secrets
 api/.dev.vars
 .vercel
+.claude/

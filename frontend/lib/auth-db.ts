@@ -18,13 +18,24 @@ function getDatabaseUrl(): string {
 }
 
 export function normalizeAuthDatabaseUrl(databaseUrl: string): string {
-  if (databaseUrl.includes("connect_timeout=")) {
-    return databaseUrl;
-  }
-
   try {
     const parsed = new URL(databaseUrl);
-    parsed.searchParams.set("connect_timeout", "30");
+    if (!parsed.searchParams.has("connect_timeout")) {
+      parsed.searchParams.set("connect_timeout", "30");
+    }
+
+    const useLibpqCompat = parsed.searchParams.get("uselibpqcompat") === "true";
+    const sslMode = parsed.searchParams.get("sslmode");
+
+    if (
+      !useLibpqCompat &&
+      (sslMode === "prefer" || sslMode === "require" || sslMode === "verify-ca")
+    ) {
+      // pg-connection-string v2 currently treats these aliases as verify-full and emits a warning.
+      // We normalize explicitly so the runtime keeps the stronger semantics without noisy startup logs.
+      parsed.searchParams.set("sslmode", "verify-full");
+    }
+
     return parsed.toString();
   } catch {
     return `${databaseUrl}${databaseUrl.includes("?") ? "&" : "?"}connect_timeout=30`;
