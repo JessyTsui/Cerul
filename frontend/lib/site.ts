@@ -262,7 +262,8 @@ export const authValueProps = [
 export const dashboardRoutes = [
   { label: "Overview", href: "/dashboard", meta: "01" },
   { label: "Usage", href: "/dashboard/usage", meta: "02" },
-  { label: "Settings", href: "/dashboard/settings", meta: "03" },
+  { label: "Billing", href: "/dashboard/billing", meta: "03" },
+  { label: "Settings", href: "/dashboard/settings", meta: "04" },
 ] as const;
 
 export const adminRoutes = [

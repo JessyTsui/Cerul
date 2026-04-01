@@ -6,8 +6,6 @@ import { apiKeys, billing, getApiErrorMessage, type DashboardApiKey } from "@/li
 import {
   formatBillingPeriod,
   formatNumber,
-  getExtraCreditsRemaining,
-  getIncludedCreditsUsed,
   getTierLabel,
   resolveDashboardBillingAction,
 } from "@/lib/dashboard";
@@ -117,6 +115,10 @@ export function DashboardOverviewScreen() {
     ? resolveDashboardBillingAction(data.tier, data.hasStripeCustomer)
     : null;
 
+  // Calculate request breakdown
+  const freeSearchesUsedToday = data ? data.dailyFreeLimit - data.dailyFreeRemaining : 0;
+  const paidSearches = data ? Math.max(0, data.requestCount - freeSearchesUsedToday) : 0;
+
   async function handleBillingAction() {
     if (!data || !availableBillingAction) return;
     setBillingAction(availableBillingAction);
@@ -133,8 +135,6 @@ export function DashboardOverviewScreen() {
     }
   }
 
-  const includedCreditsUsed = data ? getIncludedCreditsUsed(data) : 0;
-  const extraCreditsRemaining = data ? getExtraCreditsRemaining(data) : 0;
 
   return (
     <DashboardLayout
@@ -238,7 +238,7 @@ export function DashboardOverviewScreen() {
                 }
               />
             ) : (
-              <div className="surface-elevated overflow-hidden rounded-[30px]">
+              <div className="surface-elevated dashboard-card overflow-hidden rounded-[30px]">
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-left text-sm">
                     <thead className="border-b border-[var(--border)] bg-[var(--background-elevated)] text-[var(--foreground-secondary)]">
@@ -267,7 +267,7 @@ export function DashboardOverviewScreen() {
             )}
           </section>
 
-          <section className="surface-elevated overflow-hidden rounded-[30px] px-6 py-6">
+          <section className="surface-elevated dashboard-card overflow-hidden rounded-[30px] px-6 py-6">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--foreground-tertiary)]">
@@ -320,56 +320,88 @@ export function DashboardOverviewScreen() {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm font-medium text-[var(--foreground)]">Included credits this period</p>
                 <p className="text-sm text-[var(--foreground-secondary)]">
-                  {formatNumber(includedCreditsUsed)} / {formatNumber(data.creditsLimit)} included credits used
+                  0 / {formatNumber(data.creditsLimit)} included credits used
                 </p>
               </div>
-              {extraCreditsRemaining > 0 ? (
+              {data.creditBreakdown.paidRemaining + data.creditBreakdown.bonusRemaining > 0 ? (
                 <p className="mt-2 text-xs text-[var(--foreground-tertiary)]">
-                  Spendable balance also includes {formatNumber(extraCreditsRemaining)} bonus or purchased credits.
+                  Spendable balance also includes {formatNumber(data.creditBreakdown.paidRemaining + data.creditBreakdown.bonusRemaining)} bonus or purchased credits.
                 </p>
               ) : null}
-              <div className="mt-3 h-2.5 rounded-full bg-[rgba(36,29,21,0.08)]">
+              <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[rgba(36,29,21,0.08)]">
                 <div
-                  className="h-full rounded-full bg-[linear-gradient(90deg,var(--brand),var(--accent))]"
+                  className="animate-progress-fill h-full rounded-full bg-[linear-gradient(90deg,var(--brand),var(--accent))]"
                   style={{
                     width: `${Math.max(
                       4,
-                      Math.min(100, (includedCreditsUsed / Math.max(1, data.creditsLimit)) * 100),
+                      Math.min(100, (data.creditsUsed / Math.max(1, data.creditsLimit)) * 100),
                     )}%`,
                   }}
                 />
               </div>
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-[var(--foreground-secondary)]">
-                  Today: {formatNumber(data.dailyFreeRemaining)} / {formatNumber(data.dailyFreeLimit)} free searches left
-                  {" "}before Cerul touches any credits.
-                </p>
-                <span className="rounded-full border border-[rgba(97,125,233,0.16)] bg-[rgba(97,125,233,0.08)] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[rgb(72,98,198)]">
-                  0-credit window
-                </span>
+              {/* Request breakdown */}
+              <div className="mt-4 rounded-[16px] border border-[var(--border)] bg-white/56 px-4 py-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-[var(--foreground)]">
+                      {formatNumber(data.requestCount)} total requests
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--foreground-secondary)]">
+                      {freeSearchesUsedToday > 0 && (
+                        <>
+                          {formatNumber(Math.min(freeSearchesUsedToday, data.dailyFreeLimit))} free
+                          {paidSearches > 0 && (
+                            <>
+                              {" "}+ {formatNumber(paidSearches)} paid
+                            </>
+                          )}
+                          {" "}= {formatNumber(data.creditsUsed)} credits used
+                        </>
+                      )}
+                      {freeSearchesUsedToday === 0 && paidSearches > 0 && (
+                        <>
+                          {formatNumber(paidSearches)} paid = {formatNumber(data.creditsUsed)} credits used
+                        </>
+                      )}
+                      {freeSearchesUsedToday === 0 && paidSearches === 0 && (
+                        <>No credits used yet</>
+                      )}
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-[rgba(97,125,233,0.16)] bg-[rgba(97,125,233,0.08)] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[rgb(72,98,198)]">
+                    {formatNumber(data.dailyFreeRemaining)} free left today
+                  </span>
+                </div>
               </div>
             </div>
 
+            {/* Simplified credit stats - single remaining credits display */}
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
+              <div className="dashboard-card rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
                 <p className="text-sm text-[var(--foreground-secondary)]">Requests</p>
                 <p className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
                   {formatNumber(data.requestCount)}
                 </p>
               </div>
-              <div className="rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
-                <p className="text-sm text-[var(--foreground-secondary)]">Spendable balance</p>
+              <div className="dashboard-card rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
+                <p className="text-sm text-[var(--foreground-secondary)]">Credits remaining</p>
                 <p className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
                   {formatNumber(data.walletBalance)}
                 </p>
-              </div>
-              <div className="rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
-                <p className="text-sm text-[var(--foreground-secondary)]">Included remaining</p>
-                <p className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
-                  {formatNumber(data.creditBreakdown.includedRemaining)}
+                <p className="mt-1 text-xs text-[var(--foreground-tertiary)]">
+                  All available credits
                 </p>
               </div>
-              <div className="rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
+              <div className="dashboard-card rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
+                <p className="text-sm text-[var(--foreground-secondary)]">Credits used</p>
+                <p className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
+                  {formatNumber(data.creditsUsed)}
+                </p>
+                <p className="mt-1 text-xs text-[var(--foreground-tertiary)]">
+                  This billing period
+                </p>
+              </div>
+              <div className="dashboard-card rounded-[16px] border border-[var(--border)] bg-white/68 px-4 py-3">
                 <p className="text-sm text-[var(--foreground-secondary)]">Active keys</p>
                 <p className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
                   {formatNumber(data.apiKeysActive)}

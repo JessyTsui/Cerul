@@ -638,7 +638,8 @@ export function createDashboardRouter(): any {
       billing_hold: Boolean(summary.billing_hold),
       daily_free_remaining: dailyFree.remaining,
       daily_free_limit: dailyFree.limit,
-      daily_breakdown: dailyBreakdown
+      daily_breakdown: dailyBreakdown,
+      server_timestamp: new Date().toISOString()
     });
   });
 

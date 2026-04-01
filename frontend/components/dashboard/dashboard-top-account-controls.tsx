@@ -6,16 +6,8 @@ import { startTransition, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth";
 import { getAuthErrorMessage } from "@/lib/auth-shared";
-import {
-  formatNumber,
-  getTierLabel,
-  resolveDashboardBillingAction,
-} from "@/lib/dashboard";
+import { formatNumber, getTierLabel } from "@/lib/dashboard";
 import { useConsoleViewer } from "@/components/console/console-viewer-context";
-import type {
-  DashboardAccountCenterSection,
-  DashboardBillingModalView,
-} from "./dashboard-shell-controls";
 import { useMonthlyUsage } from "./use-monthly-usage";
 
 function getInitials(displayName: string | null, email: string | null): string {
@@ -31,10 +23,26 @@ function getInitials(displayName: string | null, email: string | null): string {
   return email?.[0]?.toUpperCase() ?? "U";
 }
 
-function IconBolt() {
+function IconBolt({ className }: { className?: string }) {
   return (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+    <svg className={className} fill="none" viewBox="0 0 24 24">
       <path d="M13.5 2.75 6.75 13.5h4.5l-.75 7.75 6.75-10.75h-4.5l.75-7.75Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconCreditCard({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M2.25 8.25h19.5M2.25 9h19.5m-1.5 10.5V7.5a2.25 2.25 0 0 0-2.25-2.25H4.5A2.25 2.25 0 0 0 2.25 7.5v12a2.25 2.25 0 0 0 2.25 2.25h15a2.25 2.25 0 0 0 2.25-2.25Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+function IconGift({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H4.5A1.5 1.5 0 0 1 3 19.5V11.25m18 0A1.5 1.5 0 0 0 21 9.75V8.25A2.25 2.25 0 0 0 18.75 6H18a3 3 0 0 0-3-3c-.86 0-1.637.366-2.182.952A3.001 3.001 0 0 0 10.5 3 3 3 0 0 0 7.5 6h-.75A2.25 2.25 0 0 0 4.5 8.25v1.5A1.5 1.5 0 0 0 6 11.25m15 0H6" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
     </svg>
   );
 }
@@ -47,89 +55,88 @@ function IconArrowRight({ className }: { className?: string }) {
   );
 }
 
-type DashboardTopAccountControlsProps = {
-  onOpenAccountCenter: (section: DashboardAccountCenterSection) => void;
-  onOpenBillingModal: (view: DashboardBillingModalView) => void;
-};
+function IconRefresh({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    </svg>
+  );
+}
 
-export function DashboardTopAccountControls({
-  onOpenAccountCenter,
-  onOpenBillingModal,
-}: DashboardTopAccountControlsProps) {
+export function DashboardTopAccountControls() {
   const viewer = useConsoleViewer();
-  const { data } = useMonthlyUsage();
+  const { data, refresh, lastUpdatedAt } = useMonthlyUsage();
   const router = useRouter();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const closeTimeoutRef = useRef<number | null>(null);
-  const [openMenu, setOpenMenu] = useState<"wallet" | "account" | null>(null);
+  const [creditDropdownOpen, setCreditDropdownOpen] = useState(false);
+  const [avatarDropdownOpen, setAvatarDropdownOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
 
-  const initials = getInitials(viewer.displayName, viewer.email);
-  const planLabel = data ? getTierLabel(data.tier) : "Account";
-  const billingAction = data
-    ? resolveDashboardBillingAction(data.tier, data.hasStripeCustomer)
-    : null;
-  const triggerLabel = data?.tier.toLowerCase() === "free" ? "Upgrade" : planLabel;
-  const primaryActionLabel =
-    data?.tier.toLowerCase() === "free" || billingAction === "checkout"
-      ? "Upgrade"
-      : "Manage";
+  // Refs for hover timeout
+  const creditTimeoutRef = useRef<number | null>(null);
+  const avatarTimeoutRef = useRef<number | null>(null);
 
+  const initials = getInitials(viewer.displayName, viewer.email);
+  const remainingCredits = data ? formatNumber(data.walletBalance) : "—";
+  const planLabel = data ? getTierLabel(data.tier) : "Free";
+
+  // Clear timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (creditTimeoutRef.current) window.clearTimeout(creditTimeoutRef.current);
+      if (avatarTimeoutRef.current) window.clearTimeout(avatarTimeoutRef.current);
+    };
+  }, []);
+
+  // Close dropdowns when clicking outside
   useEffect(() => {
     function handleDocumentClick(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpenMenu(null);
-      }
+      const target = event.target as Node;
+      const creditDropdown = document.getElementById("credit-dropdown");
+      const creditButton = document.getElementById("credit-button");
+      const avatarDropdown = document.getElementById("avatar-dropdown");
+      const avatarButton = document.getElementById("avatar-button");
+
+      const isCreditClick = creditDropdown?.contains(target) || creditButton?.contains(target);
+      const isAvatarClick = avatarDropdown?.contains(target) || avatarButton?.contains(target);
+
+      if (!isCreditClick) setCreditDropdownOpen(false);
+      if (!isAvatarClick) setAvatarDropdownOpen(false);
     }
 
     document.addEventListener("mousedown", handleDocumentClick);
     return () => document.removeEventListener("mousedown", handleDocumentClick);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (closeTimeoutRef.current !== null) {
-        window.clearTimeout(closeTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  function clearCloseTimer() {
-    if (closeTimeoutRef.current !== null) {
-      window.clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
+  // Credit dropdown handlers with delayed close
+  const openCreditDropdown = () => {
+    if (creditTimeoutRef.current) {
+      window.clearTimeout(creditTimeoutRef.current);
+      creditTimeoutRef.current = null;
     }
-  }
+    setCreditDropdownOpen(true);
+  };
 
-  function openPanel(panel: "wallet" | "account") {
-    clearCloseTimer();
-    setOpenMenu(panel);
-  }
+  const closeCreditDropdown = () => {
+    creditTimeoutRef.current = window.setTimeout(() => {
+      setCreditDropdownOpen(false);
+    }, 150);
+  };
 
-  function scheduleClose() {
-    clearCloseTimer();
-    closeTimeoutRef.current = window.setTimeout(() => {
-      setOpenMenu(null);
-      closeTimeoutRef.current = null;
-    }, 140);
-  }
-
-  function togglePanel(panel: "wallet" | "account") {
-    clearCloseTimer();
-    setOpenMenu((current) => (current === panel ? null : panel));
-  }
-
-  function handlePrimaryBillingAction() {
-    setOpenMenu(null);
-
-    if (data?.tier.toLowerCase() === "free" || billingAction === "checkout") {
-      onOpenBillingModal("pro");
-      return;
+  // Avatar dropdown handlers with delayed close
+  const openAvatarDropdown = () => {
+    if (avatarTimeoutRef.current) {
+      window.clearTimeout(avatarTimeoutRef.current);
+      avatarTimeoutRef.current = null;
     }
+    setAvatarDropdownOpen(true);
+  };
 
-    onOpenAccountCenter("subscription");
-  }
+  const closeAvatarDropdown = () => {
+    avatarTimeoutRef.current = window.setTimeout(() => {
+      setAvatarDropdownOpen(false);
+    }, 150);
+  };
 
   async function handleSignOut() {
     setSignOutError(null);
@@ -154,214 +161,201 @@ export function DashboardTopAccountControls({
   }
 
   return (
-    <div ref={containerRef} className="relative z-[110] flex items-center gap-3">
+    <div className="relative z-[110] flex items-center gap-3">
+      {/* Credits badge with hover dropdown - Lovart style */}
       <div
         className="relative"
-        onMouseEnter={() => openPanel("wallet")}
-        onMouseLeave={scheduleClose}
+        onMouseEnter={openCreditDropdown}
+        onMouseLeave={closeCreditDropdown}
       >
         <button
+          id="credit-button"
           type="button"
-          onClick={() => togglePanel("wallet")}
-          className="inline-flex h-11 items-center overflow-hidden rounded-full border border-[rgba(31,26,21,0.08)] bg-[linear-gradient(180deg,rgba(31,28,24,0.98),rgba(20,18,16,0.98))] text-white shadow-[0_16px_42px_rgba(22,17,13,0.14)]"
+          className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-white/88 px-3 py-1.5 text-sm font-medium text-[var(--foreground-secondary)] transition hover:bg-white hover:text-[var(--foreground)]"
         >
-          <span className="px-4 text-sm font-semibold">{triggerLabel}</span>
-          <span className="mr-1 flex h-[34px] items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-sm font-semibold text-white/92">
-            <IconBolt />
-            <span>{data ? formatNumber(data.walletBalance) : "—"}</span>
-          </span>
+          <IconBolt className="h-4 w-4 text-[var(--brand)]" />
+          <span>{remainingCredits}</span>
         </button>
 
-        {openMenu === "wallet" ? (
+        {/* Credits dropdown - Lovart style breakdown */}
+        {creditDropdownOpen && data && (
           <div
-            className="absolute right-0 top-full z-[140] mt-3 w-[360px] rounded-[28px] border border-[var(--border)] bg-[rgba(255,252,247,0.98)] p-4 shadow-[0_24px_70px_rgba(27,20,13,0.14)]"
-            onMouseEnter={clearCloseTimer}
-            onMouseLeave={scheduleClose}
+            id="credit-dropdown"
+            className="animate-dropdown-in absolute right-0 top-full z-[140] mt-2 w-[280px] rounded-[20px] border border-[var(--border)] bg-white/98 p-4 shadow-[0_24px_70px_rgba(27,20,13,0.14)] backdrop-blur-xl"
+            onMouseEnter={openCreditDropdown}
+            onMouseLeave={closeCreditDropdown}
           >
-            <div className="rounded-[24px] border border-[var(--border)] bg-white/88 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-[var(--foreground)]">{planLabel} plan</p>
-                  <p className="mt-1 text-sm text-[var(--foreground-secondary)]">
-                    {data ? `${formatNumber(data.walletBalance)} credits spendable now` : "Wallet status will load here."}
-                  </p>
+            {/* Plan header */}
+            <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+              <span className="text-base font-semibold text-[var(--foreground)]">{planLabel}</span>
+              <Link
+                href="/dashboard/billing"
+                className="rounded-full bg-[var(--foreground)] px-3 py-1 text-xs font-medium text-white transition hover:bg-[var(--foreground-secondary)]"
+                onClick={() => setCreditDropdownOpen(false)}
+              >
+                Upgrade
+              </Link>
+            </div>
+
+            {/* Credit breakdown */}
+            <div className="mt-3 space-y-3">
+              {/* Total remaining */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <IconBolt className="h-4 w-4 text-[var(--brand)]" />
+                  <span className="text-sm text-[var(--foreground)]">Total remaining</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handlePrimaryBillingAction}
-                  className="rounded-full bg-[var(--foreground)] px-3 py-1.5 text-sm font-medium text-white transition hover:bg-[var(--foreground-secondary)]"
-                >
-                  {primaryActionLabel}
-                </button>
+                <span className="text-sm font-semibold text-[var(--foreground)]">
+                  {formatNumber(data.walletBalance)}
+                </span>
               </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {[
-                  {
-                    label: "Included",
-                    value: data ? formatNumber(data.creditBreakdown.includedRemaining) : "—",
-                  },
-                  {
-                    label: "Purchased",
-                    value: data ? formatNumber(data.creditBreakdown.paidRemaining) : "—",
-                  },
-                  {
-                    label: "Bonus",
-                    value: data ? formatNumber(data.creditBreakdown.bonusRemaining) : "—",
-                  },
-                  {
-                    label: "Free today",
-                    value: data ? `${formatNumber(data.dailyFreeRemaining)} / ${formatNumber(data.dailyFreeLimit)}` : "—",
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="rounded-[18px] border border-[var(--border)] bg-[var(--background-elevated)] px-3 py-3"
-                  >
-                    <p className="text-xs uppercase tracking-[0.14em] text-[var(--foreground-tertiary)]">{item.label}</p>
-                    <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{item.value}</p>
-                  </div>
-                ))}
+              {/* Included */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <IconCreditCard className="h-4 w-4 text-[var(--accent)]" />
+                  <span className="text-xs text-[var(--foreground-secondary)]">Included</span>
+                </div>
+                <span className="text-xs text-[var(--foreground-secondary)]">
+                  {formatNumber(data.creditBreakdown.includedRemaining)}
+                </span>
+              </div>
+
+              {/* Purchased */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <IconCreditCard className="h-4 w-4 text-[var(--foreground-tertiary)]" />
+                  <span className="text-xs text-[var(--foreground-secondary)]">Purchased</span>
+                </div>
+                <span className="text-xs text-[var(--foreground-secondary)]">
+                  {formatNumber(data.creditBreakdown.paidRemaining)}
+                </span>
+              </div>
+
+              {/* Bonus */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <IconGift className="h-4 w-4 text-[var(--success)]" />
+                  <span className="text-xs text-[var(--foreground-secondary)]">Bonus</span>
+                </div>
+                <span className="text-xs text-[var(--foreground-secondary)]">
+                  {formatNumber(data.creditBreakdown.bonusRemaining)}
+                </span>
+              </div>
+
+              {/* Daily free */}
+              <div className="flex items-center justify-between rounded-[12px] bg-[var(--background-elevated)] px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <IconBolt className="h-4 w-4 text-[var(--foreground-tertiary)]" />
+                  <span className="text-xs text-[var(--foreground-secondary)]">Daily free</span>
+                </div>
+                <span className="text-xs font-medium text-[var(--foreground)]">
+                  {formatNumber(data.dailyFreeRemaining)} / {formatNumber(data.dailyFreeLimit)}
+                </span>
               </div>
             </div>
 
-            <div className="mt-3 flex gap-2">
+            {/* Usage details link */}
+            <Link
+              href="/dashboard/usage"
+              className="mt-4 flex items-center justify-between rounded-[14px] px-2 py-2 text-sm text-[var(--foreground-secondary)] transition hover:bg-[var(--background-elevated)] hover:text-[var(--foreground)]"
+              onClick={() => setCreditDropdownOpen(false)}
+            >
+              <span>Usage details</span>
+              <IconArrowRight className="h-4 w-4" />
+            </Link>
+
+            {/* Refresh button and timestamp */}
+            <div className="mt-3 flex items-center justify-between border-t border-[var(--border)] pt-3">
+              <span className="text-xs text-[var(--foreground-tertiary)]">
+                {lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString()}` : "Loading..."}
+              </span>
               <button
                 type="button"
                 onClick={() => {
-                  setOpenMenu(null);
-                  onOpenAccountCenter("usage");
+                  void refresh();
                 }}
-                className="button-secondary flex-1"
+                className="flex items-center gap-1 rounded-[10px] px-2 py-1 text-xs text-[var(--foreground-secondary)] transition hover:bg-[var(--background-elevated)] hover:text-[var(--foreground)]"
+                title="Refresh balance"
               >
-                Usage details
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenMenu(null);
-                  onOpenBillingModal("topup");
-                }}
-                className="button-primary flex-1"
-              >
-                Buy credits
+                <IconRefresh className="h-3.5 w-3.5" />
+                Refresh
               </button>
             </div>
           </div>
-        ) : null}
+        )}
       </div>
 
+      {/* User avatar with hover dropdown */}
       <div
         className="relative"
-        onMouseEnter={() => openPanel("account")}
-        onMouseLeave={scheduleClose}
+        onMouseEnter={openAvatarDropdown}
+        onMouseLeave={closeAvatarDropdown}
       >
         <button
+          id="avatar-button"
           type="button"
-          onClick={() => togglePanel("account")}
-          className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-white/88 shadow-[0_12px_30px_rgba(49,36,22,0.08)] transition hover:border-[var(--border-strong)]"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-white/88 transition hover:border-[var(--border-strong)] hover:bg-white"
         >
           {viewer.image ? (
-            // Avatar hosts come from auth providers, so we intentionally avoid a global next/image allowlist here.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={viewer.image} alt="" className="h-full w-full object-cover" />
+            <img src={viewer.image} alt="" className="h-full w-full rounded-full object-cover" />
           ) : (
             <span className="text-xs font-semibold text-[var(--foreground-secondary)]">{initials}</span>
           )}
         </button>
 
-        {openMenu === "account" ? (
+        {/* Avatar dropdown */}
+        {avatarDropdownOpen && (
           <div
-            className="absolute right-0 top-full z-[140] mt-3 w-[340px] rounded-[28px] border border-[var(--border)] bg-[rgba(255,252,247,0.98)] p-4 shadow-[0_24px_70px_rgba(27,20,13,0.14)]"
-            onMouseEnter={clearCloseTimer}
-            onMouseLeave={scheduleClose}
+            id="avatar-dropdown"
+            className="animate-dropdown-in absolute right-0 top-full z-[140] mt-2 w-[260px] rounded-[20px] border border-[var(--border)] bg-white/98 p-3 shadow-[0_24px_70px_rgba(27,20,13,0.14)] backdrop-blur-xl"
+            onMouseEnter={openAvatarDropdown}
+            onMouseLeave={closeAvatarDropdown}
           >
-            <div className="rounded-[24px] border border-[var(--border)] bg-white/88 p-4">
-              <div className="flex items-center gap-4">
-                <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background-elevated)] text-base font-semibold text-[var(--foreground-secondary)]">
-                  {viewer.image ? (
-                    // Avatar hosts come from auth providers, so we intentionally avoid a global next/image allowlist here.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={viewer.image} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    initials
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-base font-semibold text-[var(--foreground)]">
-                    {viewer.displayName ?? "Personal"}
-                  </p>
-                  <p className="truncate text-sm text-[var(--foreground-secondary)]">{viewer.email ?? ""}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handlePrimaryBillingAction}
-                  className="rounded-[16px] bg-[var(--foreground)] px-3 py-2 text-sm font-medium text-white transition hover:bg-[var(--foreground-secondary)]"
-                >
-                  {primaryActionLabel}
-                </button>
+            {/* User info header */}
+            <div className="flex items-center gap-3 border-b border-[var(--border)] pb-3">
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--background-elevated)] text-sm font-semibold text-[var(--foreground-secondary)]">
+                {viewer.image ? (
+                  <img src={viewer.image} alt="" className="h-full w-full rounded-full object-cover" />
+                ) : (
+                  initials
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-[var(--foreground)]">
+                  {viewer.displayName || "Personal"}
+                </p>
+                <p className="truncate text-xs text-[var(--foreground-secondary)]">{viewer.email || ""}</p>
               </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenMenu(null);
-                  onOpenAccountCenter("usage");
-                }}
-                className="mt-4 flex w-full items-center justify-between rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-3 text-left transition hover:border-[var(--border-strong)]"
-              >
-                <div>
-                  <p className="text-sm font-medium text-[var(--foreground)]">Credits</p>
-                  <p className="mt-1 text-sm text-[var(--foreground-secondary)]">{data ? formatNumber(data.walletBalance) : "—"}</p>
-                </div>
-                <IconArrowRight className="h-4 w-4 text-[var(--foreground-tertiary)]" />
-              </button>
             </div>
 
-            <div className="mt-3 space-y-1">
-              {[
-                {
-                  label: "Account center",
-                  action: () => onOpenAccountCenter("profile"),
-                },
-                {
-                  label: "Subscription",
-                  action: () => onOpenAccountCenter("subscription"),
-                },
-                {
-                  label: "Usage",
-                  action: () => onOpenAccountCenter("usage"),
-                },
-                {
-                  label: "Recharge",
-                  action: () => onOpenBillingModal("topup"),
-                },
-              ].map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => {
-                    setOpenMenu(null);
-                    item.action();
-                  }}
-                  className="flex w-full items-center justify-between rounded-[18px] px-3 py-3 text-left text-sm text-[var(--foreground-secondary)] transition hover:bg-[var(--background-elevated)] hover:text-[var(--foreground)]"
-                >
-                  <span>{item.label}</span>
-                  <IconArrowRight className="h-4 w-4 text-[var(--foreground-tertiary)]" />
-                </button>
-              ))}
+            {/* Menu items */}
+            <div className="mt-2 space-y-0.5">
               <Link
-                href={"/docs" as Route}
-                onClick={() => setOpenMenu(null)}
-                className="flex items-center justify-between rounded-[18px] px-3 py-3 text-sm text-[var(--foreground-secondary)] transition hover:bg-[var(--background-elevated)] hover:text-[var(--foreground)]"
+                href="/dashboard/settings"
+                onClick={() => setAvatarDropdownOpen(false)}
+                className="flex w-full items-center justify-between rounded-[14px] px-3 py-2.5 text-left text-sm text-[var(--foreground-secondary)] transition hover:bg-[var(--background-elevated)] hover:text-[var(--foreground)]"
               >
-                <span>Docs</span>
-                <IconArrowRight className="h-4 w-4 text-[var(--foreground-tertiary)]" />
+                <span>Account settings</span>
+              </Link>
+              <Link
+                href="/dashboard/billing"
+                onClick={() => setAvatarDropdownOpen(false)}
+                className="flex w-full items-center justify-between rounded-[14px] px-3 py-2.5 text-left text-sm text-[var(--foreground-secondary)] transition hover:bg-[var(--background-elevated)] hover:text-[var(--foreground)]"
+              >
+                <span>Billing & credits</span>
+              </Link>
+              <Link
+                href="/dashboard/usage"
+                onClick={() => setAvatarDropdownOpen(false)}
+                className="flex w-full items-center justify-between rounded-[14px] px-3 py-2.5 text-left text-sm text-[var(--foreground-secondary)] transition hover:bg-[var(--background-elevated)] hover:text-[var(--foreground)]"
+              >
+                <span>Usage</span>
               </Link>
             </div>
 
             {signOutError ? (
-              <p className="mt-3 rounded-[16px] border border-[rgba(191,91,70,0.22)] bg-[rgba(191,91,70,0.08)] px-3 py-2 text-xs text-[var(--error)]">
+              <p className="mt-2 rounded-[12px] border border-[rgba(191,91,70,0.35)] bg-[rgba(191,91,70,0.12)] px-3 py-2 text-xs text-[var(--error)]">
                 {signOutError}
               </p>
             ) : null}
@@ -370,13 +364,12 @@ export function DashboardTopAccountControls({
               type="button"
               disabled={isSigningOut}
               onClick={() => void handleSignOut()}
-              className="mt-3 flex w-full items-center justify-between rounded-[18px] border border-[var(--border)] bg-white/84 px-3 py-3 text-sm font-medium text-[var(--foreground-secondary)] transition hover:text-[var(--foreground)] disabled:opacity-60"
+              className="mt-2 flex w-full items-center justify-between rounded-[14px] px-3 py-2.5 text-left text-sm text-[var(--foreground-secondary)] transition hover:bg-[var(--background-elevated)] hover:text-[var(--foreground)] disabled:opacity-60"
             >
               <span>{isSigningOut ? "Signing out..." : "Sign out"}</span>
-              <IconArrowRight className="h-4 w-4 text-[var(--foreground-tertiary)]" />
             </button>
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );

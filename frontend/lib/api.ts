@@ -77,6 +77,7 @@ type MonthlyUsageWire = {
   daily_free_remaining?: number;
   daily_free_limit?: number;
   daily_breakdown?: DailyUsageWire[];
+  server_timestamp?: string;
 };
 
 type MonthlyUsageEnvelope = {
@@ -682,6 +683,9 @@ function normalizeUsage(payload: unknown): DashboardMonthlyUsage {
           requestCount: entry.request_count ?? 0,
         }))
     : [];
+
+  // eslint-disable-next-line no-console
+  console.log("[API] normalizeUsage - server_timestamp:", usagePayload.server_timestamp, "wallet_balance:", usagePayload.wallet_balance);
 
   return {
     tier: usagePayload.tier,

@@ -5,10 +5,6 @@ import Link from "next/link";
 import { BrandMark } from "@/components/brand-mark";
 import { useConsoleViewer } from "@/components/console/console-viewer-context";
 import { DashboardAccountHub } from "./dashboard-account-hub";
-import type {
-  DashboardAccountCenterSection,
-  DashboardBillingModalView,
-} from "./dashboard-shell-controls";
 import {
   dashboardRoutes,
   isDashboardRouteActive,
@@ -41,6 +37,14 @@ function IconCog({ className }: { className?: string }) {
   );
 }
 
+function IconCreditCard({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M2.25 8.25h19.5M2.25 9h19.5m-1.5 10.5V7.5a2.25 2.25 0 0 0-2.25-2.25H4.5A2.25 2.25 0 0 0 2.25 7.5v12a2.25 2.25 0 0 0 2.25 2.25h15a2.25 2.25 0 0 0 2.25-2.25Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
 function IconArrowRight({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -52,26 +56,23 @@ function IconArrowRight({ className }: { className?: string }) {
 const ROUTE_ICONS: Record<string, React.FC<{ className?: string }>> = {
   Overview: IconHome,
   Usage: IconChartBar,
+  Billing: IconCreditCard,
   Settings: IconCog,
 };
 
 type DashboardSidebarProps = {
   currentPath: string;
-  onOpenAccountCenter: (section: DashboardAccountCenterSection) => void;
-  onOpenBillingModal: (view: DashboardBillingModalView) => void;
 };
 
 export function DashboardSidebar({
   currentPath,
-  onOpenAccountCenter,
-  onOpenBillingModal,
 }: DashboardSidebarProps) {
   const viewer = useConsoleViewer();
 
   return (
     <aside className="hidden w-[292px] shrink-0 lg:block">
       <div className="sticky top-0 h-screen p-4 pr-0">
-        <div className="surface-elevated flex h-full flex-col overflow-hidden rounded-[34px] px-4 py-5">
+        <div className="surface-elevated animate-sidebar-in flex h-full flex-col overflow-hidden rounded-[34px] px-4 py-5">
           <BrandMark />
 
           <div className="mt-7">
@@ -140,10 +141,7 @@ export function DashboardSidebar({
             </div>
           </div>
 
-          <DashboardAccountHub
-            onOpenAccountCenter={onOpenAccountCenter}
-            onOpenBillingModal={onOpenBillingModal}
-          />
+          <DashboardAccountHub />
         </div>
       </div>
     </aside>

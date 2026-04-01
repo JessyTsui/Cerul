@@ -79,6 +79,11 @@ export function DashboardUsageScreen() {
   const recentRows = [...chartData].slice(-14).reverse();
   const totalRequestValue = Math.max(1, ...busiestDays.map((d) => d.requestCount));
 
+  // Calculate how many free searches were used
+  const freeSearchesUsedToday = data.dailyFreeLimit - data.dailyFreeRemaining;
+  // Calculate paid searches (total requests minus today's free searches, if positive)
+  const paidSearches = Math.max(0, data.requestCount - freeSearchesUsedToday);
+
   return (
     <DashboardLayout
       currentPath="/dashboard/usage"
@@ -98,49 +103,98 @@ export function DashboardUsageScreen() {
         />
       )}
 
-      <CreditBalancePanel
-        eyebrow="Credits"
-        title="See exactly what can pay for the next request."
-        description="Included Pro credits, bonus credits, and PAYG purchases stay visible as separate buckets so the total balance never feels mysterious."
-        total={data.walletBalance}
-        included={data.creditBreakdown.includedRemaining}
-        bonus={data.creditBreakdown.bonusRemaining}
-        purchased={data.creditBreakdown.paidRemaining}
-        dailyFreeRemaining={data.dailyFreeRemaining}
-        dailyFreeLimit={data.dailyFreeLimit}
-      />
+      {/* Simplified credit overview - only show total remaining */}
+      <article className="surface-elevated dashboard-card rounded-[32px] px-6 py-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+              Credits remaining
+            </p>
+            <h2 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
+              {formatNumber(data.walletBalance)}
+            </h2>
+            <p className="mt-2 text-sm text-[var(--foreground-secondary)]">
+              Available for your next search
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <div className="rounded-full border border-[rgba(97,125,233,0.16)] bg-[rgba(97,125,233,0.08)] px-4 py-3">
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(72,98,198)]">
+                Free today
+              </p>
+              <p className="mt-1 text-base font-semibold text-[var(--foreground)]">
+                {formatNumber(data.dailyFreeRemaining)} / {formatNumber(data.dailyFreeLimit)}
+              </p>
+            </div>
+          </div>
+        </div>
 
-      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-        <div className="space-y-3">
+        {/* Credit usage breakdown bar */}
+        <div className="mt-6">
           <CreditUsageBar
             label="Included credits this period"
             limit={data.creditsLimit}
             remaining={data.creditBreakdown.includedRemaining}
             used={includedCreditsUsed}
           />
-          <p className="px-1 text-sm leading-6 text-[var(--foreground-secondary)]">
-            This bar only tracks the plan allowance for the current billing window. Bonus and PAYG
-            credits remain spendable outside the monthly Pro bucket.
+          <p className="mt-2 px-1 text-sm leading-6 text-[var(--foreground-secondary)]">
+            {formatNumber(includedCreditsUsed)} / {formatNumber(data.creditsLimit)} included credits used
+            {data.creditBreakdown.paidRemaining > 0 || data.creditBreakdown.bonusRemaining > 0 ? (
+              <>
+                {" "}· plus {formatNumber(data.creditBreakdown.paidRemaining + data.creditBreakdown.bonusRemaining)} bonus/purchased credits
+              </>
+            ) : null}
           </p>
         </div>
+      </article>
 
-        <article className="surface-elevated rounded-[32px] px-6 py-6">
+      {/* Request breakdown - clarify free vs paid */}
+      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <article className="surface-elevated dashboard-card rounded-[32px] px-6 py-6">
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+            Request breakdown
+          </p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
+            {formatNumber(data.requestCount)} total requests
+          </h2>
+          <p className="mt-3 text-sm leading-7 text-[var(--foreground-secondary)]">
+            Free searches deduct 0 credits. Only searches after your daily free allowance consume credits.
+          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
+              <p className="text-xs text-[var(--foreground-tertiary)]">Free searches (today)</p>
+              <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
+                {formatNumber(Math.min(freeSearchesUsedToday, data.dailyFreeLimit))}
+              </p>
+              <p className="mt-1 text-xs text-[var(--foreground-secondary)]">
+                0 credits used
+              </p>
+            </div>
+            <div className="rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
+              <p className="text-xs text-[var(--foreground-tertiary)]">Paid searches</p>
+              <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
+                {formatNumber(paidSearches)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--foreground-secondary)]">
+                {formatNumber(data.creditsUsed)} credits consumed
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <article className="surface-elevated dashboard-card rounded-[32px] px-6 py-6">
           <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
             Current period
           </p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
-            Watch charged usage and free usage separately.
+          <h2 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
+            Activity summary
           </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--foreground-secondary)]">
-            Free searches still increase request count, but only charged requests move the credit
-            totals. This split keeps monthly allowance and spendable balance easy to read.
-          </p>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {[
               { label: "Requests", value: formatNumber(data.requestCount) },
               { label: "Charged credits", value: formatNumber(data.creditsUsed) },
-              { label: "Spendable now", value: formatNumber(data.walletBalance) },
               { label: "Active days", value: formatNumber(activeDays.length) },
+              { label: "Avg requests/day", value: formatNumber(averageDailyRequests) },
             ].map((item) => (
               <article
                 key={item.label}
@@ -154,7 +208,7 @@ export function DashboardUsageScreen() {
             ))}
           </div>
           <div className="mt-5 rounded-[22px] border border-[var(--border)] bg-white/72 px-4 py-4">
-            <p className="text-sm font-medium text-[var(--foreground)]">Today&apos;s free allowance</p>
+            <p className="text-sm font-medium text-[var(--foreground)]">Today's free allowance</p>
             <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
               {formatNumber(data.dailyFreeRemaining)} / {formatNumber(data.dailyFreeLimit)} remaining
             </p>
@@ -173,7 +227,7 @@ export function DashboardUsageScreen() {
       />
 
       <section className="grid gap-5 xl:grid-cols-2">
-        <article className="surface-elevated rounded-[28px] px-5 py-5">
+        <article className="surface-elevated dashboard-card rounded-[28px] px-5 py-5">
           <h2 className="text-lg font-semibold text-[var(--foreground)]">Highlights</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {[
@@ -208,7 +262,7 @@ export function DashboardUsageScreen() {
           </div>
         </article>
 
-        <article className="surface-elevated rounded-[28px] px-5 py-5">
+        <article className="surface-elevated dashboard-card rounded-[28px] px-5 py-5">
           <h2 className="text-lg font-semibold text-[var(--foreground)]">Most active days</h2>
           <div className="mt-5 space-y-4">
             {busiestDays.length > 0 ? busiestDays.map((item) => (
@@ -219,9 +273,9 @@ export function DashboardUsageScreen() {
                     {formatNumber(item.creditsUsed)} credits
                   </p>
                 </div>
-                <div className="h-3 rounded-full bg-[rgba(36,29,21,0.08)]">
+                <div className="h-3 overflow-hidden rounded-full bg-[rgba(36,29,21,0.08)]">
                   <div
-                    className="h-full rounded-full bg-[linear-gradient(90deg,var(--brand),var(--accent))]"
+                    className="animate-progress-fill h-full rounded-full bg-[linear-gradient(90deg,var(--brand),var(--accent))]"
                     style={{ width: `${Math.max(12, (item.requestCount / totalRequestValue) * 100)}%` }}
                   />
                 </div>
@@ -236,7 +290,7 @@ export function DashboardUsageScreen() {
         </article>
       </section>
 
-      <section className="surface-elevated overflow-hidden rounded-[28px]">
+      <section className="surface-elevated dashboard-card overflow-hidden rounded-[28px]">
         <div className="border-b border-[var(--border)] px-5 py-4">
           <h2 className="text-lg font-semibold text-[var(--foreground)]">Daily Breakdown</h2>
           <p className="mt-1 text-sm text-[var(--foreground-secondary)]">Last 14 days</p>

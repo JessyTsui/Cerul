@@ -497,6 +497,8 @@ button:focus-visible,
   background: linear-gradient(90deg, var(--brand), var(--accent));
   box-shadow: 0 0 10px var(--brand-glow);
   transition: width 0.5s ease;
+  transform-origin: left;
+  animation: progress-fill 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Code window */
@@ -802,6 +804,93 @@ button:focus-visible,
 .delay-600 { animation-delay: 600ms; }
 .delay-700 { animation-delay: 700ms; }
 .delay-800 { animation-delay: 800ms; }
+
+/* ========================================
+   Dashboard Animation Utilities
+   ======================================== */
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dropdown-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+}
+
+@keyframes progress-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes sidebar-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-dropdown-in {
+  animation: dropdown-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sidebar-in {
+  animation: sidebar-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+.animate-progress-fill {
+  transform-origin: left;
+  animation: progress-fill 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Dashboard staggered children — each direct child fades in with increasing delay */
+.dashboard-stagger > * {
+  opacity: 0;
+  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.dashboard-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.dashboard-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.dashboard-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.dashboard-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.dashboard-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.dashboard-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.dashboard-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.dashboard-stagger > *:nth-child(8) { animation-delay: 420ms; }
+.dashboard-stagger > *:nth-child(9) { animation-delay: 480ms; }
+.dashboard-stagger > *:nth-child(10) { animation-delay: 540ms; }
+
+/* Hover lift for dashboard cards */
+.dashboard-card {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+}
+
+.dashboard-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 50px rgba(70, 52, 29, 0.1);
+}
 
 /* ========================================
    New Modern UI Components

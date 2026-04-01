@@ -7,21 +7,11 @@ import { useEffect, useState } from "react";
 import {
   billing,
   getApiErrorMessage,
-  type AutoRechargeSettings,
   type BillingCatalog,
 } from "@/lib/api";
 import { useConsoleViewer } from "@/components/console/console-viewer-context";
-import {
-  formatBillingPeriod,
-  formatNumber,
-  getExtraCreditsRemaining,
-  getIncludedCreditsUsed,
-  getTierLabel,
-  resolveDashboardBillingAction,
-} from "@/lib/dashboard";
+import { formatNumber } from "@/lib/dashboard";
 import { AccountProfilePanel } from "./account-profile-panel";
-import { CreditBalancePanel } from "./credit-balance-panel";
-import { CreditUsageBar } from "./credit-usage-bar";
 import { DashboardLayout } from "./dashboard-layout";
 import { DashboardNotice, DashboardSkeleton, DashboardState } from "./dashboard-state";
 import { useMonthlyUsage } from "./use-monthly-usage";
@@ -35,32 +25,6 @@ type BootstrapAdminStatus =
   | "admin_exists"
   | "unavailable";
 
-const planFeatures: Record<string, string[]> = {
-  free: ["1 active API key", "100 credits on signup", "10 free searches / day"],
-  monthly: ["5 active API keys", "5,000 included credits / month", "Priority email support"],
-  builder: ["5 active API keys", "10,000 legacy credits / month", "Priority email support"],
-  pro: ["5 active API keys", "5,000 included credits / month", "Top up at $8 / 1K"],
-  enterprise: ["Unlimited keys", "Custom credit envelope", "Dedicated onboarding"],
-};
-
-const TOPUP_UNIT_PRICE_USD = 0.008;
-
-function normalizeCreditQuantity(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 1000;
-  }
-  return Math.max(Math.round(value / 100) * 100, 1000);
-}
-
-function formatUsd(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 export function DashboardSettingsScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -68,45 +32,16 @@ export function DashboardSettingsScreen() {
   const { data, error, isLoading, refresh } = useMonthlyUsage();
   const [catalog, setCatalog] = useState<BillingCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [billingAction, setBillingAction] = useState<"checkout" | "portal" | null>(null);
-  const [billingError, setBillingError] = useState<string | null>(null);
-  const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
-  const [selectedProductCode, setSelectedProductCode] = useState<string | null>(null);
-  const [topupQuantity, setTopupQuantity] = useState(1000);
-  const [isCreatingTopup, setIsCreatingTopup] = useState(false);
   const [referralInput, setReferralInput] = useState("");
   const [referralError, setReferralError] = useState<string | null>(null);
   const [referralSuccess, setReferralSuccess] = useState<string | null>(null);
   const [isRedeemingReferral, setIsRedeemingReferral] = useState(false);
-  const [autoRecharge, setAutoRecharge] = useState<AutoRechargeSettings>({
-    enabled: false,
-    threshold: 100,
-    quantity: 1000,
-  });
-  const [autoRechargeError, setAutoRechargeError] = useState<string | null>(null);
-  const [autoRechargeSuccess, setAutoRechargeSuccess] = useState<string | null>(null);
-  const [isAutoRechargeLoading, setIsAutoRechargeLoading] = useState(false);
-  const [isSavingAutoRecharge, setIsSavingAutoRecharge] = useState(false);
-  const includedCreditsUsed = data ? getIncludedCreditsUsed(data) : 0;
-  const extraCreditsRemaining = data ? getExtraCreditsRemaining(data) : 0;
   const [bootstrapSecret, setBootstrapSecret] = useState("");
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [isPromotingAdmin, setIsPromotingAdmin] = useState(false);
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapAdminStatus>(
     () => (viewer.isAdmin ? "already_admin" : "loading"),
   );
-
-  const availableBillingAction = data
-    ? resolveDashboardBillingAction(data.tier, data.hasStripeCustomer)
-    : null;
-  const canUpgrade = availableBillingAction === "checkout";
-  const canManageSubscription = availableBillingAction === "portal";
-  const normalizedTier = data?.tier.toLowerCase() ?? "free";
-  const usesManualBilling = data !== null && availableBillingAction === null && normalizedTier !== "free";
-  const normalizedTopupQuantity = normalizeCreditQuantity(topupQuantity);
-  const topupPrice = normalizedTopupQuantity * TOPUP_UNIT_PRICE_USD;
-  const projectedPurchasedBalance = (data?.creditBreakdown.paidRemaining ?? 0) + normalizedTopupQuantity;
-  const projectedSpendableBalance = (data?.walletBalance ?? 0) + normalizedTopupQuantity;
 
   async function loadCatalog() {
     setCatalogError(null);
@@ -148,150 +83,6 @@ export function DashboardSettingsScreen() {
   useEffect(() => {
     void loadCatalog();
   }, []);
-
-  useEffect(() => {
-    const checkoutState = searchParams.get("checkout");
-    const checkoutSessionId = searchParams.get("session_id");
-
-    if (checkoutState !== "success") {
-      return;
-    }
-
-    const clearCheckoutParams = () => {
-      const nextUrl = new URL(window.location.href);
-      nextUrl.searchParams.delete("checkout");
-      nextUrl.searchParams.delete("session_id");
-      nextUrl.searchParams.delete("type");
-      const query = nextUrl.searchParams.toString();
-      window.history.replaceState({}, "", `${nextUrl.pathname}${query ? `?${query}` : ""}`);
-    };
-
-    if (!checkoutSessionId) {
-      setCheckoutNotice("Payment completed. Refresh the page in a moment if your wallet does not update immediately.");
-      clearCheckoutParams();
-      return;
-    }
-
-    let cancelled = false;
-    void billing.reconcileCheckout(checkoutSessionId)
-      .then(async (result) => {
-        if (cancelled) {
-          return;
-        }
-        await Promise.all([refresh(), loadCatalog()]);
-        setCheckoutNotice(
-          result.mode === "payment"
-            ? `Credits added successfully${result.creditsGranted > 0 ? `: ${formatNumber(result.creditsGranted)} credits.` : "."}`
-            : "Billing synced successfully.",
-        );
-        clearCheckoutParams();
-      })
-      .catch((nextError) => {
-        if (cancelled) {
-          return;
-        }
-        setCheckoutNotice(getApiErrorMessage(nextError, "Payment completed, but settings still need a manual refresh."));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [refresh, searchParams]);
-
-  useEffect(() => {
-    if (!data?.hasStripeCustomer) {
-      setAutoRecharge({
-        enabled: false,
-        threshold: 100,
-        quantity: 1000,
-      });
-      setAutoRechargeError(null);
-      setAutoRechargeSuccess(null);
-      setIsAutoRechargeLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsAutoRechargeLoading(true);
-    setAutoRechargeError(null);
-    void billing.getAutoRecharge()
-      .then((settings) => {
-        if (!cancelled) {
-          setAutoRecharge(settings);
-        }
-      })
-      .catch((nextError) => {
-        if (!cancelled) {
-          setAutoRechargeError(getApiErrorMessage(nextError, "Failed to load auto-recharge settings."));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsAutoRechargeLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [data?.hasStripeCustomer]);
-
-  async function handleCheckout() {
-    setBillingAction("checkout");
-    setSelectedProductCode("pro");
-    setBillingError(null);
-    try {
-      const redirect = await billing.createCheckout();
-      window.location.assign(redirect.url);
-    } catch (nextError) {
-      setBillingError(getApiErrorMessage(nextError, "Failed to start checkout."));
-      setBillingAction(null);
-      setSelectedProductCode(null);
-    }
-  }
-
-  async function handlePortal() {
-    setBillingAction("portal");
-    setBillingError(null);
-    try {
-      const redirect = await billing.createPortal();
-      window.location.assign(redirect.url);
-    } catch (nextError) {
-      setBillingError(getApiErrorMessage(nextError, "Failed to open billing portal."));
-      setBillingAction(null);
-    }
-  }
-
-  async function handleTopup() {
-    setIsCreatingTopup(true);
-    setBillingError(null);
-    try {
-      const redirect = await billing.createTopup(normalizeCreditQuantity(topupQuantity));
-      window.location.assign(redirect.url);
-    } catch (nextError) {
-      setBillingError(getApiErrorMessage(nextError, "Failed to start the credit purchase."));
-      setIsCreatingTopup(false);
-    }
-  }
-
-  async function handleSaveAutoRecharge() {
-    setIsSavingAutoRecharge(true);
-    setAutoRechargeError(null);
-    setAutoRechargeSuccess(null);
-    try {
-      const nextSettings = await billing.updateAutoRecharge({
-        enabled: autoRecharge.enabled,
-        threshold: Math.max(Math.round(autoRecharge.threshold), 0),
-        quantity: normalizeCreditQuantity(autoRecharge.quantity),
-      });
-      setAutoRecharge(nextSettings);
-      setAutoRechargeSuccess("Auto-recharge settings saved.");
-    } catch (nextError) {
-      setAutoRechargeError(getApiErrorMessage(nextError, "Failed to save auto-recharge settings."));
-    } finally {
-      setIsSavingAutoRecharge(false);
-    }
-  }
 
   async function handleRedeemReferral() {
     const trimmedCode = referralInput.trim();
@@ -394,10 +185,10 @@ export function DashboardSettingsScreen() {
     <DashboardLayout
       currentPath="/dashboard/settings"
       title="Settings"
-      description="Account context, plan posture, and the operational defaults around your public API workspace."
+      description="Account profile and API keys management."
       actions={
-        <Link className="button-secondary" href={"/pricing" as Route}>
-          Compare plans
+        <Link className="button-secondary" href={"/dashboard/usage" as Route}>
+          Usage & billing
         </Link>
       }
     >
@@ -423,467 +214,60 @@ export function DashboardSettingsScreen() {
               tone="error"
             />
           ) : null}
-          {billingError ? (
-            <DashboardNotice title="Billing action failed" description={billingError} tone="error" />
-          ) : null}
-          {checkoutNotice ? (
-            <DashboardNotice title="Billing updated" description={checkoutNotice} tone="success" />
-          ) : null}
 
           <AccountProfilePanel />
 
-          <section className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
-            <article className="surface-elevated rounded-[32px] px-6 py-6">
-              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
-                Billing
+          {/* Referral Section */}
+          <article className="surface-elevated dashboard-card rounded-[32px] px-6 py-6">
+            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
+              Referral
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
+              Share credits, not spreadsheets.
+            </h2>
+            <div className="mt-5 rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
+              <p className="text-xs text-[var(--foreground-tertiary)]">Your code</p>
+              <p className="mt-2 font-mono text-2xl font-semibold tracking-[0.08em] text-[var(--foreground)]">
+                {catalog?.referral.code || "—"}
               </p>
-              <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
-                Keep one clear place for plan and credits
-              </h2>
-              <div className="mt-5 grid gap-3">
-                {[
-                  {
-                    label: "Current plan",
-                    value: getTierLabel(data.tier),
-                    note: formatBillingPeriod(data.periodStart, data.periodEnd),
-                  },
-                  {
-                    label: "Spendable balance",
-                    value: formatNumber(data.walletBalance),
-                    note: [
-                      `${formatNumber(data.creditBreakdown.includedRemaining)} included`,
-                      `${formatNumber(data.creditBreakdown.bonusRemaining)} bonus`,
-                      `${formatNumber(data.creditBreakdown.paidRemaining)} purchased`,
-                    ].filter(Boolean).join(" · "),
-                  },
-                  {
-                    label: "Requests this period",
-                    value: formatNumber(data.requestCount),
-                    note: `${formatNumber(data.apiKeysActive)} active keys`,
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4"
-                  >
-                    <p className="text-xs text-[var(--foreground-tertiary)]">{item.label}</p>
-                    <p className="mt-2 text-2xl font-semibold text-[var(--foreground)]">
-                      {item.value}
-                    </p>
-                    <p className="mt-2 text-sm text-[var(--foreground-secondary)]">{item.note}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-5 space-y-3">
-                {canUpgrade ? (
-                  <button
-                    className="button-primary w-full"
-                    disabled={billingAction !== null || data.billingHold}
-                    onClick={() => void handleCheckout()}
-                    type="button"
-                  >
-                    {billingAction === "checkout" && selectedProductCode === "pro"
-                      ? "Redirecting..."
-                      : "Upgrade to Pro"}
-                  </button>
-                ) : null}
-                {canManageSubscription ? (
-                  <button
-                    className="button-secondary w-full"
-                    disabled={billingAction !== null}
-                    onClick={() => void handlePortal()}
-                    type="button"
-                  >
-                    {billingAction === "portal" ? "Opening portal..." : "Manage subscription"}
-                  </button>
-                ) : null}
-                <button
-                  className="button-secondary w-full"
-                  disabled={data.billingHold}
-                  onClick={() => {
-                    document.getElementById("buy-credits")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  type="button"
-                >
-                  Buy PAYG credits
-                </button>
-                {usesManualBilling ? (
-                  <div className="rounded-[20px] border border-[var(--border-brand)] bg-[var(--brand-subtle)] px-4 py-4">
-                    <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--brand-bright)]">
-                      Managed account
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-[var(--foreground)]">
-                      Contact Cerul to change invoicing, seats, or contract terms.
-                    </p>
-                  </div>
-                ) : null}
-                {!canUpgrade && !canManageSubscription && !usesManualBilling ? (
-                  <p className="text-sm text-[var(--foreground-tertiary)]">
-                    No billing action available.
-                  </p>
-                ) : null}
-                {data.billingHold ? (
-                  <div className="rounded-[20px] border border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] px-4 py-4">
-                    <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--error)]">
-                      Billing hold
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-[var(--foreground)]">
-                      Payments or credits need manual review before more self-serve checkout is allowed.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            </article>
-
-            <div className="space-y-5">
-              <CreditBalancePanel
-                eyebrow="Wallet"
-                title="Know exactly what pays for the next request."
-                description="Plan credits, bonus credits, and PAYG purchases stay separated here so you can see why the total spendable balance might be higher than the monthly Pro allowance."
-                total={data.walletBalance}
-                included={data.creditBreakdown.includedRemaining}
-                bonus={data.creditBreakdown.bonusRemaining}
-                purchased={data.creditBreakdown.paidRemaining}
-                dailyFreeRemaining={data.dailyFreeRemaining}
-                dailyFreeLimit={data.dailyFreeLimit}
-              />
-
-              {catalogError ? (
-                <div className="rounded-[18px] border border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] px-4 py-3 text-sm text-[var(--error)]">
-                  {catalogError}
-                </div>
-              ) : null}
-
-              <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
-                <div className="space-y-3">
-                  <CreditUsageBar
-                    label="Included credits this period"
-                    used={includedCreditsUsed}
-                    limit={data.creditsLimit}
-                    remaining={data.creditBreakdown.includedRemaining}
-                  />
-                  <p className="px-1 text-sm leading-6 text-[var(--foreground-secondary)]">
-                    Only this bar tracks the monthly allowance for your plan.
-                    {" "}
-                    {extraCreditsRemaining > 0
-                      ? `${formatNumber(extraCreditsRemaining)} extra credits are waiting outside the monthly bucket.`
-                      : "You do not currently have extra credits outside the monthly bucket."}
-                  </p>
-                </div>
-
-                <article className="surface-elevated rounded-[32px] px-6 py-6">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
-                    Payment methods
-                  </p>
-                  <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
-                    Recurring checkout and one-time checkout do not show the same options.
-                  </h2>
-                  <p className="mt-3 text-sm leading-7 text-[var(--foreground-secondary)]">
-                    Pro uses a recurring Stripe subscription flow, so Stripe only shows payment methods
-                    that can support future subscription charges. PAYG top-up is a one-time payment flow,
-                    so methods like Alipay can appear there when Stripe considers them eligible.
-                  </p>
-                  <div className="mt-5 grid gap-3">
-                    {[
-                      {
-                        label: "Pro subscription",
-                        note: "Recurring checkout for monthly renewal. Alipay usually does not appear in this mode.",
-                      },
-                      {
-                        label: "PAYG top-up",
-                        note: "One-time checkout. Alipay can appear here because there is no recurring renewal to support.",
-                      },
-                    ].map((item) => (
-                      <div
-                        key={item.label}
-                        className="rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4"
-                      >
-                        <p className="text-sm font-medium text-[var(--foreground)]">{item.label}</p>
-                        <p className="mt-2 text-sm leading-6 text-[var(--foreground-secondary)]">{item.note}</p>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              </div>
-
-              {data.expiringCredits.length > 0 ? (
-                <article className="surface-elevated rounded-[32px] px-6 py-6">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
-                    Expiring soon
-                  </p>
-                  <div className="mt-4 space-y-2">
-                    {data.expiringCredits.map((entry) => (
-                      <p key={`${entry.grantType}-${entry.expiresAt}`} className="text-sm leading-6 text-[var(--foreground-secondary)]">
-                        {formatNumber(entry.credits)} {entry.grantType.replaceAll("_", " ")} by {entry.expiresAt.slice(0, 10)}
-                      </p>
-                    ))}
-                  </div>
-                </article>
-              ) : null}
-
-              <article className="surface-elevated rounded-[32px] px-6 py-6" id="buy-credits">
-                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
-                  Pay as you go
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
-                  Buy PAYG credits without changing your plan
-                </h2>
-                <p className="mt-3 text-sm leading-7 text-[var(--foreground-secondary)]">
-                  Manual top-up is available on every self-serve tier. Minimum purchase is 1,000 credits, adjustable in steps of 100.
-                </p>
-                <div className="mt-5 rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
-                  <label className="text-xs text-[var(--foreground-tertiary)]" htmlFor="topup-quantity">
-                    Credits to buy
-                  </label>
-                  <input
-                    id="topup-quantity"
-                    type="number"
-                    min={1000}
-                    step={100}
-                    value={topupQuantity}
-                    onChange={(event) => setTopupQuantity(Number.parseInt(event.target.value || "1000", 10) || 1000)}
-                    className="mt-2 h-12 w-full rounded-[16px] border border-[var(--border)] bg-white/78 px-4 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
-                  />
-                  <p className="mt-3 text-sm text-[var(--foreground-secondary)]">
-                    {formatNumber(normalizedTopupQuantity)} credits - {formatUsd(topupPrice)}
-                  </p>
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  {[
-                    {
-                      label: "Current purchased bucket",
-                      value: formatNumber(data.creditBreakdown.paidRemaining),
-                      note: "PAYG credits already in the wallet",
-                    },
-                    {
-                      label: "Purchased after checkout",
-                      value: formatNumber(projectedPurchasedBalance),
-                      note: "Your PAYG bucket if this order succeeds",
-                    },
-                    {
-                      label: "Spendable after checkout",
-                      value: formatNumber(projectedSpendableBalance),
-                      note: "Total usable balance after the new credits land",
-                    },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      className="rounded-[18px] border border-[var(--border)] bg-white/72 px-4 py-4"
-                    >
-                      <p className="text-xs text-[var(--foreground-tertiary)]">{item.label}</p>
-                      <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
-                        {item.value}
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-[var(--foreground-secondary)]">{item.note}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 rounded-[20px] border border-[var(--border)] bg-white/72 px-4 py-4">
-                  <p className="text-sm leading-6 text-[var(--foreground-secondary)]">
-                    If you still have {formatNumber(data.dailyFreeRemaining)} free searches left today,
-                    those requests will still deduct 0 credits before the new PAYG bucket is touched.
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-[var(--foreground-secondary)]">
-                    This is a one-time Stripe checkout, so Alipay can appear here when Stripe deems it
-                    eligible for your currency, location, and account configuration.
-                  </p>
-                </div>
-                <button
-                  className="button-primary mt-5 w-full"
-                  disabled={isCreatingTopup || data.billingHold}
-                  onClick={() => void handleTopup()}
-                  type="button"
-                >
-                  {isCreatingTopup ? "Redirecting..." : "Buy credits"}
-                </button>
-              </article>
-
-              {data.hasStripeCustomer ? (
-                <article className="surface-elevated rounded-[32px] px-6 py-6">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
-                    Auto-recharge
-                  </p>
-                  <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
-                    Refill before balance friction shows up
-                  </h2>
-                  <p className="mt-3 text-sm leading-7 text-[var(--foreground-secondary)]">
-                    When enabled, Cerul charges your saved payment method off-session once the wallet drops below your threshold.
-                  </p>
-                  <div className="mt-5 space-y-4">
-                    <label className="flex items-center justify-between rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
-                      <div>
-                        <p className="text-sm font-medium text-[var(--foreground)]">Enable auto-recharge</p>
-                        <p className="mt-1 text-xs text-[var(--foreground-tertiary)]">
-                          Uses your saved Stripe payment method.
-                        </p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={autoRecharge.enabled}
-                        disabled={isAutoRechargeLoading}
-                        onChange={(event) => setAutoRecharge((current) => ({
-                          ...current,
-                          enabled: event.target.checked,
-                        }))}
-                        className="h-5 w-5 accent-[var(--brand)]"
-                      />
-                    </label>
-
-                    <div className="rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
-                      <label className="text-xs text-[var(--foreground-tertiary)]" htmlFor="auto-recharge-threshold">
-                        Recharge when balance drops below
-                      </label>
-                      <input
-                        id="auto-recharge-threshold"
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={autoRecharge.threshold}
-                        disabled={isAutoRechargeLoading}
-                        onChange={(event) => setAutoRecharge((current) => ({
-                          ...current,
-                          threshold: Number.parseInt(event.target.value || "0", 10) || 0,
-                        }))}
-                        className="mt-2 h-12 w-full rounded-[16px] border border-[var(--border)] bg-white/78 px-4 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
-                      />
-                    </div>
-
-                    <div className="rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
-                      <label className="text-xs text-[var(--foreground-tertiary)]" htmlFor="auto-recharge-quantity">
-                        Add credits each time
-                      </label>
-                      <input
-                        id="auto-recharge-quantity"
-                        type="number"
-                        min={1000}
-                        step={100}
-                        value={autoRecharge.quantity}
-                        disabled={isAutoRechargeLoading}
-                        onChange={(event) => setAutoRecharge((current) => ({
-                          ...current,
-                          quantity: Number.parseInt(event.target.value || "1000", 10) || 1000,
-                        }))}
-                        className="mt-2 h-12 w-full rounded-[16px] border border-[var(--border)] bg-white/78 px-4 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
-                      />
-                    </div>
-                  </div>
-
-                  {autoRechargeError ? (
-                    <div className="mt-4 rounded-[16px] border border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] px-4 py-3 text-sm text-[var(--error)]">
-                      {autoRechargeError}
-                    </div>
-                  ) : null}
-                  {autoRechargeSuccess ? (
-                    <div className="mt-4 rounded-[16px] border border-[rgba(62,118,100,0.2)] bg-[rgba(62,118,100,0.08)] px-4 py-3 text-sm text-[var(--success)]">
-                      {autoRechargeSuccess}
-                    </div>
-                  ) : null}
-
-                  <button
-                    className="button-secondary mt-5 w-full"
-                    disabled={isAutoRechargeLoading || isSavingAutoRecharge}
-                    onClick={() => void handleSaveAutoRecharge()}
-                    type="button"
-                  >
-                    {isSavingAutoRecharge ? "Saving..." : "Save"}
-                  </button>
-                </article>
-              ) : null}
-
-              <article className="surface-elevated rounded-[32px] px-6 py-6">
-                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
-                  Referral
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
-                  Share credits, not spreadsheets.
-                </h2>
-                <div className="mt-5 rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4">
-                  <p className="text-xs text-[var(--foreground-tertiary)]">Your code</p>
-                  <p className="mt-2 font-mono text-2xl font-semibold tracking-[0.08em] text-[var(--foreground)]">
-                    {catalog?.referral.code || "—"}
-                  </p>
-                  <p className="mt-2 text-sm text-[var(--foreground-secondary)]">
-                    Both sides get {formatNumber(catalog?.referral.bonusCredits ?? 0)} bonus credits after the first paid order clears for {catalog?.referral.rewardDelayDays ?? 0} days.
-                  </p>
-                </div>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                  <input
-                    type="text"
-                    value={referralInput}
-                    onChange={(event) => setReferralInput(event.target.value)}
-                    placeholder="Enter a referral code"
-                    className="h-12 w-full rounded-[16px] border border-[var(--border)] bg-white/78 px-4 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground-tertiary)] focus:border-[var(--border-brand)]"
-                  />
-                  <button
-                    className="button-secondary shrink-0"
-                    disabled={isRedeemingReferral || Boolean(catalog?.referral.redeemedCode)}
-                    onClick={() => void handleRedeemReferral()}
-                    type="button"
-                  >
-                    {isRedeemingReferral ? "Redeeming..." : "Redeem"}
-                  </button>
-                </div>
-                {catalog?.referral.redeemedCode ? (
-                  <p className="mt-3 text-sm text-[var(--foreground-secondary)]">
-                    Redeemed code: <span className="font-mono text-[var(--foreground)]">{catalog.referral.redeemedCode}</span>
-                    {catalog.referral.status ? ` · ${catalog.referral.status}` : ""}
-                  </p>
-                ) : null}
-                {referralError ? (
-                  <div className="mt-3 rounded-[16px] border border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] px-4 py-3 text-sm text-[var(--error)]">
-                    {referralError}
-                  </div>
-                ) : null}
-                {referralSuccess ? (
-                  <div className="mt-3 rounded-[16px] border border-[rgba(62,118,100,0.2)] bg-[rgba(62,118,100,0.08)] px-4 py-3 text-sm text-[var(--success)]">
-                    {referralSuccess}
-                  </div>
-                ) : null}
-              </article>
-
-              <article className="surface-elevated rounded-[32px] px-6 py-6">
-                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--foreground-tertiary)]">
-                  Resources
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {(planFeatures[normalizedTier] ?? planFeatures.free).map((feature) => (
-                    <span
-                      key={feature}
-                      className="rounded-full border border-[var(--border)] bg-white/72 px-3 py-1.5 text-sm text-[var(--foreground-secondary)]"
-                    >
-                      {feature}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-5 space-y-3">
-                  {[
-                    {
-                      href: "/docs/api-reference",
-                      title: "Public API reference",
-                      description: "Keep request shapes close to the settings surface users actually revisit.",
-                    },
-                    {
-                      href: "/docs",
-                      title: "Quickstart guide",
-                      description: "Walk through the first authenticated request before you scale traffic.",
-                    },
-                  ].map((item) => (
-                    <Link
-                      key={item.href}
-                      href={item.href as Route}
-                      className="block rounded-[20px] border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-4 transition hover:border-[var(--border-strong)] hover:bg-white"
-                    >
-                      <p className="text-base font-semibold text-[var(--foreground)]">{item.title}</p>
-                      <p className="mt-2 text-sm leading-6 text-[var(--foreground-secondary)]">
-                        {item.description}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-              </article>
+              <p className="mt-2 text-sm text-[var(--foreground-secondary)]">
+                Both sides get {formatNumber(catalog?.referral.bonusCredits ?? 0)} bonus credits after the first paid order clears for {catalog?.referral.rewardDelayDays ?? 0} days.
+              </p>
             </div>
-          </section>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+              <input
+                type="text"
+                value={referralInput}
+                onChange={(event) => setReferralInput(event.target.value)}
+                placeholder="Enter a referral code"
+                className="h-12 w-full rounded-[16px] border border-[var(--border)] bg-white/78 px-4 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground-tertiary)] focus:border-[var(--border-brand)]"
+              />
+              <button
+                className="button-secondary shrink-0"
+                disabled={isRedeemingReferral || Boolean(catalog?.referral.redeemedCode)}
+                onClick={() => void handleRedeemReferral()}
+                type="button"
+              >
+                {isRedeemingReferral ? "Redeeming..." : "Redeem"}
+              </button>
+            </div>
+            {catalog?.referral.redeemedCode ? (
+              <p className="mt-3 text-sm text-[var(--foreground-secondary)]">
+                Redeemed code: <span className="font-mono text-[var(--foreground)]">{catalog.referral.redeemedCode}</span>
+                {catalog.referral.status ? ` · ${catalog.referral.status}` : ""}
+              </p>
+            ) : null}
+            {referralError ? (
+              <div className="mt-3 rounded-[16px] border border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] px-4 py-3 text-sm text-[var(--error)]">
+                {referralError}
+              </div>
+            ) : null}
+            {referralSuccess ? (
+              <div className="mt-3 rounded-[16px] border border-[rgba(62,118,100,0.2)] bg-[rgba(62,118,100,0.08)] px-4 py-3 text-sm text-[var(--success)]">
+                {referralSuccess}
+              </div>
+            ) : null}
+          </article>
 
           {bootstrapPanel}
         </>

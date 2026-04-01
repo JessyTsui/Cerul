@@ -4,29 +4,21 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useConsoleViewer } from "@/components/console/console-viewer-context";
 import { dashboardRoutes, isDashboardRouteActive } from "@/lib/site";
-import type {
-  DashboardAccountCenterSection,
-  DashboardBillingModalView,
-} from "./dashboard-shell-controls";
 import { DashboardTopAccountControls } from "./dashboard-top-account-controls";
 
 type DashboardTopNavProps = {
   currentPath: string;
-  onOpenAccountCenter: (section: DashboardAccountCenterSection) => void;
-  onOpenBillingModal: (view: DashboardBillingModalView) => void;
 };
 
 export function DashboardTopNav({
   currentPath,
-  onOpenAccountCenter,
-  onOpenBillingModal,
 }: DashboardTopNavProps) {
   const viewer = useConsoleViewer();
   const activeRoute =
     dashboardRoutes.find((item) => isDashboardRouteActive(currentPath, item.href))?.label ?? "Overview";
 
   return (
-    <header className="relative z-[80] overflow-visible border-b border-[var(--border)] bg-white/30 backdrop-blur-xl">
+    <header className="animate-fade-in relative z-[80] overflow-visible border-b border-[var(--border)] bg-white/30 backdrop-blur-xl">
       <div className="mx-auto flex max-w-[1120px] items-center justify-between gap-4 px-5 py-4 sm:px-6 lg:px-8">
         <div className="hidden items-center gap-2 text-sm md:flex">
           <span className="rounded-full border border-[var(--border)] bg-white/72 px-3 py-1 text-[var(--foreground-tertiary)]">
@@ -62,10 +54,7 @@ export function DashboardTopNav({
               <path d="M12 0C5.373 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.6.112.793-.26.793-.577v-2.234C5.662 21.303 4.967 19.16 4.967 19.16c-.546-1.387-1.333-1.756-1.333-1.756-1.089-.744.083-.729.083-.729 1.205.084 1.838 1.237 1.838 1.237 1.071 1.834 2.808 1.304 3.493.998.107-.776.418-1.305.762-1.605-2.665-.304-5.467-1.333-5.467-5.931 0-1.31.469-2.38 1.235-3.22-.123-.303-.535-1.524.118-3.176 0 0 1.007-.322 3.301 1.229A11.53 11.53 0 0 1 12 5.8c1.02.005 2.047.138 3.005.404 2.292-1.551 3.299-1.229 3.299-1.229.653 1.652.242 2.873.119 3.176.768.84 1.234 1.91 1.234 3.22 0 4.61-2.805 5.625-5.476 5.922.43.37.823 1.102.823 2.222v3.293c0 .319.192.69.8.576C20.565 21.796 24 17.3 24 12 24 5.373 18.627 0 12 0Z" />
             </svg>
           </a>
-          <DashboardTopAccountControls
-            onOpenAccountCenter={onOpenAccountCenter}
-            onOpenBillingModal={onOpenBillingModal}
-          />
+          <DashboardTopAccountControls />
         </div>
       </div>
     </header>

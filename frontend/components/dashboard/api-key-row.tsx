@@ -8,14 +8,35 @@ type ApiKeyRowProps = {
   apiKey: DashboardApiKey;
   isPending: boolean;
   onRevoke: (apiKey: DashboardApiKey) => void;
+  compact?: boolean;
 };
 
 export function ApiKeyRow({
   apiKey,
   isPending,
   onRevoke,
+  compact,
 }: ApiKeyRowProps) {
   const statusLabel = getApiKeyStatusLabel(apiKey);
+
+  if (compact) {
+    return (
+      <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2.5">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-[var(--foreground)]">{apiKey.name}</p>
+          <p className="text-xs text-[var(--foreground-tertiary)]">{apiKey.prefix}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onRevoke(apiKey)}
+          disabled={isPending || !apiKey.isActive}
+          className="ml-2 text-xs text-[var(--foreground-tertiary)] hover:text-[var(--error)] disabled:opacity-50"
+        >
+          {isPending ? "..." : apiKey.isActive ? "Revoke" : "Revoked"}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <tr className="border-t border-[var(--border)] text-[var(--foreground-secondary)]">
