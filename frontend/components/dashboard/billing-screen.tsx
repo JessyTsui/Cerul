@@ -77,7 +77,7 @@ const BRAND_ICONS: Record<string, string> = {
   unionpay: "UnionPay",
 };
 
-type BillingTab = "plan" | "credits" | "payment";
+type BillingTab = "plan" | "payment";
 
 /* ── Tab components ───────────────────────────────────── */
 
@@ -221,26 +221,26 @@ function CreditsTab({
 
   return (
     <div className="space-y-5">
-      {/* Balance */}
-      <div className="flex items-center gap-4 rounded-[18px] border border-[var(--border)] bg-white/60 px-5 py-4">
-        <IconBolt className="h-6 w-6 text-[var(--brand-bright)]" />
-        <div>
-          <p className="text-xs text-[var(--foreground-tertiary)]">Available credits</p>
-          <p className="text-2xl font-semibold text-[var(--foreground)]">{formatNumber(data.walletBalance + data.dailyFreeRemaining)}</p>
-        </div>
-      </div>
-
-      {/* Buy credits */}
+      {/* Balance + Buy credits — merged */}
       <div className="rounded-[18px] border border-[var(--border)] bg-white/60 px-5 py-5">
-        <p className="text-sm font-semibold text-[var(--foreground)]">Buy credits</p>
-        <p className="mt-1 text-xs text-[var(--foreground-tertiary)]">$0.008 per credit · never expire</p>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <IconBolt className="h-5 w-5 text-[var(--brand-bright)]" />
+            <div>
+              <p className="text-xs text-[var(--foreground-tertiary)]">Available credits</p>
+              <p className="text-xl font-semibold text-[var(--foreground)]">{formatNumber(data.walletBalance + data.dailyFreeRemaining)}</p>
+            </div>
+          </div>
+          <p className="text-xs text-[var(--foreground-tertiary)]">$0.008 / credit · never expire</p>
+        </div>
+
+        <div className="mt-4 flex items-center gap-2">
           {QUICK_TOPUP_OPTIONS.map((option) => (
             <button
               key={option}
               type="button"
               onClick={() => setTopupQuantity(option)}
-              className={`rounded-full border px-3.5 py-1.5 text-sm transition ${
+              className={`rounded-full border px-3 py-1 text-sm transition ${
                 normalizedTopupQuantity === option
                   ? "border-[var(--border-brand)] bg-[var(--brand-subtle)] font-medium text-[var(--brand-bright)]"
                   : "border-[var(--border)] bg-white/70 text-[var(--foreground-secondary)] hover:text-[var(--foreground)]"
@@ -249,18 +249,16 @@ function CreditsTab({
               {formatNumber(option)}
             </button>
           ))}
-        </div>
-        <div className="mt-4 flex gap-3">
           <input
             type="number"
             min={1000}
             step={100}
             value={topupQuantity}
             onChange={(e) => setTopupQuantity(Number.parseInt(e.target.value || "1000", 10) || 1000)}
-            className="h-10 flex-1 rounded-[12px] border border-[var(--border)] bg-white/82 px-3 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
+            className="h-9 w-24 rounded-[10px] border border-[var(--border)] bg-white/82 px-3 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
           />
           <button
-            className="button-primary h-10 shrink-0 px-5"
+            className="button-primary ml-auto h-9 shrink-0 px-5"
             disabled={isCreatingTopup || data.billingHold}
             onClick={onTopup}
             type="button"
@@ -272,11 +270,11 @@ function CreditsTab({
 
       {/* Auto-recharge */}
       {data.hasStripeCustomer && (
-        <div className="rounded-[18px] border border-[var(--border)] bg-white/60 px-5 py-5">
-          <div className="flex items-center justify-between">
+        <div className="rounded-[18px] border border-[var(--border)] bg-white/60 px-5 py-4">
+          <label className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-[var(--foreground)]">Auto-recharge</p>
-              <p className="mt-0.5 text-xs text-[var(--foreground-tertiary)]">Top up automatically when balance is low</p>
+              <p className="text-xs text-[var(--foreground-tertiary)]">Top up when balance drops low</p>
             </div>
             <input
               type="checkbox"
@@ -285,42 +283,42 @@ function CreditsTab({
               onChange={(e) => setAutoRecharge((c) => ({ ...c, enabled: e.target.checked }))}
               className="h-5 w-5 accent-[var(--brand)]"
             />
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="text-[11px] text-[var(--foreground-tertiary)]" htmlFor="ar-threshold">When below</label>
-              <input id="ar-threshold" type="number" min={0} step={1} value={autoRecharge.threshold} disabled={isAutoRechargeLoading}
-                onChange={(e) => setAutoRecharge((c) => ({ ...c, threshold: Number.parseInt(e.target.value || "0", 10) || 0 }))}
-                className="mt-1 h-10 w-full rounded-[12px] border border-[var(--border)] bg-white/78 px-3 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
-              />
+          </label>
+          {autoRecharge.enabled && (
+            <div className="mt-3 flex items-end gap-3">
+              <div className="flex-1">
+                <label className="text-[11px] text-[var(--foreground-tertiary)]" htmlFor="ar-threshold">When below</label>
+                <input id="ar-threshold" type="number" min={0} step={1} value={autoRecharge.threshold} disabled={isAutoRechargeLoading}
+                  onChange={(e) => setAutoRecharge((c) => ({ ...c, threshold: Number.parseInt(e.target.value || "0", 10) || 0 }))}
+                  className="mt-1 h-9 w-full rounded-[10px] border border-[var(--border)] bg-white/78 px-3 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-[11px] text-[var(--foreground-tertiary)]" htmlFor="ar-quantity">Add each time</label>
+                <input id="ar-quantity" type="number" min={1000} step={100} value={autoRecharge.quantity} disabled={isAutoRechargeLoading}
+                  onChange={(e) => setAutoRecharge((c) => ({ ...c, quantity: Number.parseInt(e.target.value || "1000", 10) || 1000 }))}
+                  className="mt-1 h-9 w-full rounded-[10px] border border-[var(--border)] bg-white/78 px-3 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
+                />
+              </div>
+              <button className="button-secondary h-9 shrink-0 px-4" disabled={isAutoRechargeLoading || isSavingAutoRecharge} onClick={onSaveAutoRecharge} type="button">
+                {isSavingAutoRecharge ? "..." : "Save"}
+              </button>
             </div>
-            <div>
-              <label className="text-[11px] text-[var(--foreground-tertiary)]" htmlFor="ar-quantity">Add each time</label>
-              <input id="ar-quantity" type="number" min={1000} step={100} value={autoRecharge.quantity} disabled={isAutoRechargeLoading}
-                onChange={(e) => setAutoRecharge((c) => ({ ...c, quantity: Number.parseInt(e.target.value || "1000", 10) || 1000 }))}
-                className="mt-1 h-10 w-full rounded-[12px] border border-[var(--border)] bg-white/78 px-3 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--border-brand)]"
-              />
-            </div>
-          </div>
-          {autoRechargeError && <div className="mt-3 rounded-[12px] border border-[rgba(191,91,70,0.2)] bg-[rgba(191,91,70,0.08)] px-3 py-2 text-sm text-[var(--error)]">{autoRechargeError}</div>}
-          {autoRechargeSuccess && <div className="mt-3 rounded-[12px] border border-[rgba(62,118,100,0.2)] bg-[rgba(62,118,100,0.08)] px-3 py-2 text-sm text-[var(--success)]">{autoRechargeSuccess}</div>}
-          <button className="button-secondary mt-4" disabled={isAutoRechargeLoading || isSavingAutoRecharge} onClick={onSaveAutoRecharge} type="button">
-            {isSavingAutoRecharge ? "Saving..." : "Save"}
-          </button>
+          )}
+          {autoRechargeError && <p className="mt-2 text-sm text-[var(--error)]">{autoRechargeError}</p>}
+          {autoRechargeSuccess && <p className="mt-2 text-sm text-[var(--success)]">{autoRechargeSuccess}</p>}
         </div>
       )}
 
       {/* Expiring */}
       {data.expiringCredits.length > 0 && (
-        <div className="rounded-[18px] border border-[var(--border)] bg-white/60 px-5 py-4">
-          <p className="text-sm font-semibold text-[var(--foreground)]">Expiring soon</p>
-          <div className="mt-2 space-y-1">
-            {data.expiringCredits.map((entry: any) => (
-              <p key={`${entry.grantType}-${entry.expiresAt}`} className="text-sm text-[var(--foreground-secondary)]">
-                {formatNumber(entry.credits)} {entry.grantType.replaceAll("_", " ")} credits — {entry.expiresAt.slice(0, 10)}
-              </p>
-            ))}
-          </div>
+        <div className="rounded-[18px] border border-[var(--border)] bg-white/60 px-5 py-3">
+          <p className="text-xs font-medium text-[var(--foreground-tertiary)]">Expiring soon</p>
+          {data.expiringCredits.map((entry: any) => (
+            <p key={`${entry.grantType}-${entry.expiresAt}`} className="mt-1 text-sm text-[var(--foreground-secondary)]">
+              {formatNumber(entry.credits)} {entry.grantType.replaceAll("_", " ")} — {entry.expiresAt.slice(0, 10)}
+            </p>
+          ))}
         </div>
       )}
     </div>
@@ -500,8 +498,7 @@ export function DashboardBillingScreen() {
   }
 
   const tabs: { key: BillingTab; label: string; icon: React.ReactNode }[] = [
-    { key: "plan", label: "Plan", icon: <IconBolt className="h-4 w-4" /> },
-    { key: "credits", label: "Credits", icon: <IconBolt className="h-4 w-4" /> },
+    { key: "plan", label: "Plan & Credits", icon: <IconBolt className="h-4 w-4" /> },
     { key: "payment", label: "Payment Methods", icon: <IconCard className="h-4 w-4" /> },
   ];
 
@@ -542,23 +539,25 @@ export function DashboardBillingScreen() {
       {/* Tab content */}
       <div className="animate-fade-in">
         {activeTab === "plan" && (
-          <PlanTab data={data} billingAction={billingAction} onCheckout={() => void handleCheckout()} onPortal={() => void handlePortal()} />
-        )}
-        {activeTab === "credits" && (
-          <CreditsTab
-            data={data}
-            topupQuantity={topupQuantity}
-            setTopupQuantity={setTopupQuantity}
-            isCreatingTopup={isCreatingTopup}
-            onTopup={() => void handleTopup()}
-            autoRecharge={autoRecharge}
-            setAutoRecharge={setAutoRecharge}
-            isAutoRechargeLoading={isAutoRechargeLoading}
-            isSavingAutoRecharge={isSavingAutoRecharge}
-            autoRechargeError={autoRechargeError}
-            autoRechargeSuccess={autoRechargeSuccess}
-            onSaveAutoRecharge={() => void handleSaveAutoRecharge()}
-          />
+          <>
+            <PlanTab data={data} billingAction={billingAction} onCheckout={() => void handleCheckout()} onPortal={() => void handlePortal()} />
+            <div className="mt-5">
+              <CreditsTab
+                data={data}
+                topupQuantity={topupQuantity}
+                setTopupQuantity={setTopupQuantity}
+                isCreatingTopup={isCreatingTopup}
+                onTopup={() => void handleTopup()}
+                autoRecharge={autoRecharge}
+                setAutoRecharge={setAutoRecharge}
+                isAutoRechargeLoading={isAutoRechargeLoading}
+                isSavingAutoRecharge={isSavingAutoRecharge}
+                autoRechargeError={autoRechargeError}
+                autoRechargeSuccess={autoRechargeSuccess}
+                onSaveAutoRecharge={() => void handleSaveAutoRecharge()}
+              />
+            </div>
+          </>
         )}
         {activeTab === "payment" && <PaymentTab data={data} />}
       </div>
