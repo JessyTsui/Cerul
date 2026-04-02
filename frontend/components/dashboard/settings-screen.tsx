@@ -28,14 +28,6 @@ function IconEdit({ className }: { className?: string }) {
   );
 }
 
-function IconLink({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
-    </svg>
-  );
-}
-
 function formatRelativeDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -55,7 +47,6 @@ export function DashboardSettingsScreen() {
   const [referralError, setReferralError] = useState<string | null>(null);
   const [referralSuccess, setReferralSuccess] = useState<string | null>(null);
   const [isRedeemingReferral, setIsRedeemingReferral] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [editingCode, setEditingCode] = useState(false);
   const [newCode, setNewCode] = useState("");
@@ -111,12 +102,6 @@ export function DashboardSettingsScreen() {
     finally { setIsSavingCode(false); }
   }
 
-  function handleCopyCode() {
-    const code = catalog?.referral.code;
-    if (!code) return;
-    void navigator.clipboard.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
-  }
-
   function handleCopyLink() {
     const code = catalog?.referral.code;
     if (!code) return;
@@ -158,51 +143,50 @@ export function DashboardSettingsScreen() {
           <section>
             <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">Referral</h2>
             <div className="space-y-3">
-              {/* Code + share */}
+              {/* Invite link + code */}
               <div className="rounded-[18px] border border-[var(--border)] bg-white/60 px-5 py-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-[var(--foreground-tertiary)]">Your referral code</p>
-                    {editingCode ? (
-                      <div className="mt-1 flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={newCode}
-                          onChange={(e) => setNewCode(e.target.value)}
-                          placeholder="New code (4–20 chars)"
-                          className="h-8 w-40 rounded-[8px] border border-[var(--border)] bg-white/82 px-2 font-mono text-sm text-[var(--foreground)] outline-none focus:border-[var(--border-brand)]"
-                          maxLength={20}
-                        />
-                        <button className="button-primary h-8 px-3 text-xs" disabled={isSavingCode} onClick={() => void handleUpdateCode()} type="button">
-                          {isSavingCode ? "..." : "Save"}
-                        </button>
-                        <button className="button-secondary h-8 px-3 text-xs" onClick={() => { setEditingCode(false); setCodeError(null); }} type="button">
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="mt-0.5 flex items-center gap-2">
-                        <p className="font-mono text-lg font-semibold tracking-[0.06em] text-[var(--foreground)]">
-                          {referral?.code || "—"}
-                        </p>
-                        <button type="button" onClick={() => { setEditingCode(true); setNewCode(referral?.code ?? ""); }} className="rounded-[6px] p-1 text-[var(--foreground-tertiary)] transition hover:bg-white/80 hover:text-[var(--foreground)]">
-                          <IconEdit className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )}
-                    {codeError && <p className="mt-1 text-xs text-[var(--error)]">{codeError}</p>}
+                <p className="text-xs text-[var(--foreground-tertiary)]">Your invite link</p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="min-w-0 flex-1 rounded-[10px] border border-[var(--border)] bg-white/80 px-3 py-2 font-mono text-sm text-[var(--foreground)]">
+                    {referral?.code ? `${typeof window !== "undefined" ? window.location.origin : ""}/ref/${referral.code}` : "—"}
                   </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={handleCopyCode} className="flex items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-white/70 px-3 py-1.5 text-xs text-[var(--foreground-secondary)] transition hover:bg-white hover:text-[var(--foreground)]">
-                      <IconCopy className="h-3.5 w-3.5" />
-                      {copied ? "Copied" : "Code"}
-                    </button>
-                    <button type="button" onClick={handleCopyLink} className="flex items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-white/70 px-3 py-1.5 text-xs text-[var(--foreground-secondary)] transition hover:bg-white hover:text-[var(--foreground)]">
-                      <IconLink className="h-3.5 w-3.5" />
-                      {copiedLink ? "Copied" : "Link"}
-                    </button>
-                  </div>
+                  <button type="button" onClick={handleCopyLink} className="flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-white/70 px-3 text-xs text-[var(--foreground-secondary)] transition hover:bg-white hover:text-[var(--foreground)]">
+                    <IconCopy className="h-3.5 w-3.5" />
+                    {copiedLink ? "Copied!" : "Copy"}
+                  </button>
                 </div>
+
+                {/* Editable code */}
+                <div className="mt-3 flex items-center gap-2">
+                  <p className="text-xs text-[var(--foreground-tertiary)]">Code:</p>
+                  {editingCode ? (
+                    <>
+                      <input
+                        type="text"
+                        value={newCode}
+                        onChange={(e) => setNewCode(e.target.value)}
+                        placeholder="4–20 characters"
+                        className="h-7 w-36 rounded-[6px] border border-[var(--border)] bg-white/82 px-2 font-mono text-xs text-[var(--foreground)] outline-none focus:border-[var(--border-brand)]"
+                        maxLength={20}
+                      />
+                      <button className="button-primary h-7 px-2.5 text-[11px]" disabled={isSavingCode} onClick={() => void handleUpdateCode()} type="button">
+                        {isSavingCode ? "..." : "Save"}
+                      </button>
+                      <button className="text-[11px] text-[var(--foreground-tertiary)] hover:text-[var(--foreground)]" onClick={() => { setEditingCode(false); setCodeError(null); }} type="button">
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-mono text-xs font-medium text-[var(--foreground)]">{referral?.code || "—"}</span>
+                      <button type="button" onClick={() => { setEditingCode(true); setNewCode(referral?.code ?? ""); }} className="text-[var(--foreground-tertiary)] transition hover:text-[var(--foreground)]">
+                        <IconEdit className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
+                  {codeError && <span className="text-[11px] text-[var(--error)]">{codeError}</span>}
+                </div>
+
                 <p className="mt-2 text-xs text-[var(--foreground-tertiary)]">
                   Both sides get {formatNumber(referral?.bonusCredits ?? 100)} bonus credits instantly. Credits expire in 90 days.
                 </p>
@@ -295,18 +279,6 @@ export function DashboardSettingsScreen() {
             </section>
           )}
 
-          {/* ── Workspace ──────────────────────────────── */}
-          <section>
-            <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">Workspace</h2>
-            <div className="rounded-[18px] border border-[var(--border)] bg-white/60 px-5 py-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-[var(--foreground)]">Role</p>
-                <span className="rounded-full border border-[var(--border)] bg-white/72 px-2.5 py-0.5 text-[11px] text-[var(--foreground-secondary)]">
-                  {viewer.isAdmin ? "Admin" : "Member"}
-                </span>
-              </div>
-            </div>
-          </section>
         </div>
       ) : (
         <DashboardState title="No data" description="Settings could not be loaded." />
