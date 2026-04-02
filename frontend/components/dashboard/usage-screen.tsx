@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { queryLogs, type QueryLogEntry } from "@/lib/api";
-import { buildUsageChartData, formatNumber } from "@/lib/dashboard";
+import { formatNumber, type UsageChartPoint } from "@/lib/dashboard";
 import { DashboardLayout } from "./dashboard-layout";
 import { DashboardSkeleton, DashboardState } from "./dashboard-state";
 import { UsageChart } from "./usage-chart";
@@ -211,7 +211,28 @@ export function DashboardUsageScreen() {
     void loadLogs(page * pageSize);
   }, [page]);
 
-  const chartData = usageData ? buildUsageChartData(usageData) : [];
+  // Build last-30-days chart data regardless of billing period
+  const chartData: UsageChartPoint[] = (() => {
+    if (!usageData) return [];
+    const byDate = new Map(usageData.dailyBreakdown.map((d) => [d.date, d]));
+    const days: UsageChartPoint[] = [];
+    const fmt = new Intl.DateTimeFormat("en-US", { month: "numeric", day: "numeric", timeZone: "UTC" });
+    const fmtFull = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const entry = byDate.get(key);
+      days.push({
+        date: key,
+        shortLabel: fmt.format(d),
+        fullLabel: fmtFull.format(d),
+        creditsUsed: entry?.creditsUsed ?? 0,
+        requestCount: entry?.requestCount ?? 0,
+      });
+    }
+    return days;
+  })();
   const totalPages = Math.ceil(total / pageSize);
 
   return (

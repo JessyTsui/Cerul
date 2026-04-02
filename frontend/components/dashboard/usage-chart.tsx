@@ -18,8 +18,7 @@ function niceMaxValue(max: number): number {
 }
 
 export function UsageChart({ title, description, data }: UsageChartProps) {
-  // Show last 30 days only
-  const recentData = data.slice(-30);
+  const recentData = data;
 
   if (recentData.length === 0) {
     return (
