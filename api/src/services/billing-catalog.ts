@@ -71,9 +71,12 @@ export const TOPUP_STEP_PRICE_CENTS = (TOPUP_RATE_PER_1K_CENTS * TOPUP_CREDIT_ST
 export const SIGNUP_BONUS_CREDITS = 100;
 export const FREE_DAILY_SEARCHES = 10;
 
-export const REFERRAL_BONUS_CREDITS = 500;
-export const REFERRAL_REWARD_DELAY_DAYS = 7;
+export const REFERRAL_BONUS_CREDITS = 100;
+export const REFERRAL_REWARD_DELAY_DAYS = 0;
 export const BONUS_CREDIT_EXPIRY_DAYS = 90;
+export const MAX_REFERRALS_PER_USER = 100;
+export const REFERRAL_CODE_MIN_LENGTH = 4;
+export const REFERRAL_CODE_MAX_LENGTH = 20;
 
 export function topupLineItemQuantity(quantityCredits: number): number {
   return Math.max(Math.round(quantityCredits / TOPUP_CREDIT_STEP), 1);

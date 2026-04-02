@@ -7,8 +7,11 @@ import {
   BONUS_CREDIT_EXPIRY_DAYS,
   FREE_DAILY_SEARCHES,
   includedCreditsForPlan,
+  MAX_REFERRALS_PER_USER,
   normalizePlanCode,
   REFERRAL_BONUS_CREDITS,
+  REFERRAL_CODE_MAX_LENGTH,
+  REFERRAL_CODE_MIN_LENGTH,
   REFERRAL_REWARD_DELAY_DAYS,
   SIGNUP_BONUS_CREDITS,
   topupAmountCents,
@@ -555,6 +558,8 @@ function generateReferralCode(): string {
   return `CRL${randomHex(4).toUpperCase()}`;
 }
 
+const REFERRAL_CODE_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 export async function ensureReferralCode(db: DatabaseClient, userId: string): Promise<ReferralCodeRecord> {
   const existing = await db.fetchrow<ReferralCodeRecord>(
     `
@@ -594,6 +599,105 @@ export async function ensureReferralCode(db: DatabaseClient, userId: string): Pr
   }
 
   throw new Error(`Unable to generate referral code for ${userId}`);
+}
+
+export async function updateReferralCode(
+  db: DatabaseClient,
+  userId: string,
+  newCode: string
+): Promise<ReferralCodeRecord> {
+  const trimmed = newCode.trim();
+  if (trimmed.length < REFERRAL_CODE_MIN_LENGTH || trimmed.length > REFERRAL_CODE_MAX_LENGTH) {
+    throw new Error(`Code must be ${REFERRAL_CODE_MIN_LENGTH}–${REFERRAL_CODE_MAX_LENGTH} characters.`);
+  }
+  if (!REFERRAL_CODE_PATTERN.test(trimmed)) {
+    throw new Error("Code may only contain letters, numbers, hyphens, and underscores.");
+  }
+
+  const normalized = trimmed.toUpperCase();
+
+  const conflict = await db.fetchrow<{ user_id: string }>(
+    `SELECT user_id FROM referral_codes WHERE code = $1`,
+    normalized
+  );
+  if (conflict && String(conflict.user_id) !== userId) {
+    throw new Error("This code is already taken.");
+  }
+
+  const updated = await db.fetchrow<ReferralCodeRecord>(
+    `
+      UPDATE referral_codes
+      SET code = $2, updated_at = NOW()
+      WHERE user_id = $1
+      RETURNING id, code, is_active
+    `,
+    userId,
+    normalized
+  );
+  if (!updated) {
+    throw new Error("Referral code not found for this user.");
+  }
+  return { id: String(updated.id), code: String(updated.code), is_active: Boolean(updated.is_active) };
+}
+
+export async function fetchReferralStats(
+  db: DatabaseClient,
+  userId: string
+): Promise<{ totalReferred: number; totalCreditsEarned: number; referrals: Array<{ refereeEmail: string; status: string; createdAt: string; creditsEarned: number }> }> {
+  const referralCode = await db.fetchrow<{ id: string }>(
+    `SELECT id FROM referral_codes WHERE user_id = $1`,
+    userId
+  );
+  if (!referralCode) {
+    return { totalReferred: 0, totalCreditsEarned: 0, referrals: [] };
+  }
+
+  const rows = await db.fetch<{
+    status: string;
+    created_at: string;
+    referee_email: string | null;
+    credits_earned: number;
+  }>(
+    `
+      SELECT
+          rr.status,
+          rr.created_at,
+          u.email AS referee_email,
+          COALESCE(
+            (SELECT SUM(cg.total_credits) FROM credit_grants cg
+             WHERE cg.referral_redemption_id = rr.id
+               AND cg.user_id = $2),
+            0
+          )::int AS credits_earned
+      FROM referral_redemptions rr
+      JOIN "user" u ON u.id = rr.referee_user_id
+      WHERE rr.referrer_user_id = $2
+        AND rr.referral_code_id = $1::uuid
+      ORDER BY rr.created_at DESC
+    `,
+    referralCode.id,
+    userId
+  );
+
+  const totalCreditsEarned = rows.reduce((sum, r) => sum + Number(r.credits_earned ?? 0), 0);
+
+  return {
+    totalReferred: rows.length,
+    totalCreditsEarned,
+    referrals: rows.map((r) => ({
+      refereeEmail: r.referee_email ? maskEmail(String(r.referee_email)) : "***",
+      status: String(r.status),
+      createdAt: String(r.created_at),
+      creditsEarned: Number(r.credits_earned ?? 0),
+    })),
+  };
+}
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return "***";
+  const visible = local.slice(0, 2);
+  return `${visible}***@${domain}`;
 }
 
 async function fetchReferralRedemption(db: DatabaseClient, refereeUserId: string): Promise<ReferralRedemptionRecord | null> {
@@ -1487,16 +1591,28 @@ export async function redeemReferralCode(
       throw new Error("You cannot redeem your own referral code.");
     }
 
-    await tx.execute(
+    // Check referral cap for the referrer
+    const referrerCount = await tx.fetchval<number>(
+      `SELECT COUNT(*)::int FROM referral_redemptions WHERE referrer_user_id = $1`,
+      referralCode.user_id
+    );
+    if (Number(referrerCount ?? 0) >= MAX_REFERRALS_PER_USER) {
+      throw new Error("This referral code has reached its maximum number of uses.");
+    }
+
+    // Insert redemption
+    const redemption = await tx.fetchrow<{ id: string }>(
       `
         INSERT INTO referral_redemptions (
             referral_code_id,
             referrer_user_id,
             referee_user_id,
             status,
+            reward_ready_at,
             metadata
         )
-        VALUES ($1::uuid, $2, $3, 'pending', $4::jsonb)
+        VALUES ($1::uuid, $2, $3, 'pending', NOW(), $4::jsonb)
+        RETURNING id
       `,
       referralCode.id,
       referralCode.user_id,
@@ -1504,9 +1620,42 @@ export async function redeemReferralCode(
       safeMetadata({ code: normalizedCode })
     );
 
+    if (!redemption) {
+      throw new Error("Failed to create referral redemption.");
+    }
+
+    // Award credits immediately to both parties
+    const expiresAt = addDays(new Date(), BONUS_CREDIT_EXPIRY_DAYS);
+    await createCreditGrant(tx, {
+      userId: String(referralCode.user_id),
+      grantKey: `referral_bonus:${redemption.id}:referrer`,
+      grantType: "referral_bonus",
+      planCode: null,
+      totalCredits: REFERRAL_BONUS_CREDITS,
+      expiresAt,
+      referralRedemptionId: String(redemption.id),
+      metadata: { role: "referrer" }
+    });
+    await createCreditGrant(tx, {
+      userId: refereeUserId,
+      grantKey: `referral_bonus:${redemption.id}:referee`,
+      grantType: "referral_bonus",
+      planCode: null,
+      totalCredits: REFERRAL_BONUS_CREDITS,
+      expiresAt,
+      referralRedemptionId: String(redemption.id),
+      metadata: { role: "referee" }
+    });
+
+    // Mark as awarded immediately
+    await tx.execute(
+      `UPDATE referral_redemptions SET status = 'awarded', awarded_at = NOW(), updated_at = NOW() WHERE id = $1::uuid`,
+      redemption.id
+    );
+
     return {
       code: normalizedCode,
-      status: "pending"
+      status: "awarded"
     };
   });
 }
@@ -1522,6 +1671,7 @@ export async function fetchBillingCatalogState(
     const referralCode = await ensureReferralCode(tx, userId);
     const wallet = await fetchCreditWalletSummary(tx, userId);
     const redemption = await fetchReferralRedemption(tx, userId);
+    const stats = await fetchReferralStats(tx, userId);
 
     return {
       plan_code: normalizePlanCode(profile.tier),
@@ -1533,7 +1683,16 @@ export async function fetchBillingCatalogState(
         bonus_credits: REFERRAL_BONUS_CREDITS,
         reward_delay_days: REFERRAL_REWARD_DELAY_DAYS,
         redeemed_code: redemption?.referee_code ?? null,
-        status: redemption?.status ?? null
+        status: redemption?.status ?? null,
+        max_referrals: MAX_REFERRALS_PER_USER,
+        total_referred: stats.totalReferred,
+        total_credits_earned: stats.totalCreditsEarned,
+        referrals: stats.referrals.map((r) => ({
+          referee_email: r.refereeEmail,
+          status: r.status,
+          created_at: r.createdAt,
+          credits_earned: r.creditsEarned,
+        })),
       }
     };
   });

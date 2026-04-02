@@ -6,10 +6,12 @@ import {
   calculateCreditsRemaining,
   fetchBillingCatalogState,
   fetchDailySearchAllowance,
+  fetchReferralStats,
   fetchUsageSummary as fetchUserUsageSummary,
   isPaidTier,
   keyLimitForTier,
-  redeemReferralCode
+  redeemReferralCode,
+  updateReferralCode
 } from "../services/billing";
 import { getProProduct } from "../services/billing-catalog";
 import {
@@ -1096,6 +1098,32 @@ export function createDashboardRouter(): any {
     } catch (error) {
       apiError(409, error instanceof Error ? error.message : "Unable to redeem referral code.");
     }
+  });
+
+  // ---- Referral code management ----
+
+  router.post("/billing/referrals/update-code", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const payload = ensureJsonObject(await c.req.json(), "Request body must be a JSON object.");
+    const code = typeof payload.code === "string" ? payload.code.trim() : "";
+    if (!code) {
+      apiError(422, "Code must not be empty.");
+    }
+
+    try {
+      const updated = await updateReferralCode(db, session.userId, code);
+      return c.json({ code: updated.code });
+    } catch (error) {
+      apiError(409, error instanceof Error ? error.message : "Unable to update referral code.");
+    }
+  });
+
+  router.get("/billing/referrals/stats", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const stats = await fetchReferralStats(db, session.userId);
+    return c.json(stats);
   });
 
   // ---- Payment methods ----

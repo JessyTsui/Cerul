@@ -317,6 +317,15 @@ export type BillingCatalog = {
     rewardDelayDays: number;
     redeemedCode: string | null;
     status: string | null;
+    maxReferrals: number;
+    totalReferred: number;
+    totalCreditsEarned: number;
+    referrals: Array<{
+      refereeEmail: string;
+      status: string;
+      createdAt: string;
+      creditsEarned: number;
+    }>;
   };
 };
 
@@ -839,6 +848,17 @@ function normalizeBillingCatalog(payload: unknown): BillingCatalog {
         typeof referral.status === "string"
           ? referral.status
           : null,
+      maxReferrals: typeof referral.max_referrals === "number" ? referral.max_referrals : 100,
+      totalReferred: typeof referral.total_referred === "number" ? referral.total_referred : 0,
+      totalCreditsEarned: typeof referral.total_credits_earned === "number" ? referral.total_credits_earned : 0,
+      referrals: Array.isArray(referral.referrals)
+        ? (referral.referrals as Record<string, unknown>[]).map((r) => ({
+            refereeEmail: String(r.referee_email ?? "***"),
+            status: String(r.status ?? "pending"),
+            createdAt: String(r.created_at ?? ""),
+            creditsEarned: Number(r.credits_earned ?? 0),
+          }))
+        : [],
     },
   };
 }
@@ -1301,6 +1321,14 @@ export const billing = {
     return normalizeBillingCatalog({
       referral: payload.referral ?? {},
     }).referral;
+  },
+
+  async updateReferralCode(code: string): Promise<{ code: string }> {
+    const raw = await fetchWithAuth<Record<string, unknown>>(
+      "/dashboard/billing/referrals/update-code",
+      { method: "POST", body: { code } },
+    );
+    return { code: String(raw.code ?? code) };
   },
 
   async listPaymentMethods(): Promise<PaymentMethod[]> {
