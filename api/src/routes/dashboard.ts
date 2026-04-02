@@ -660,6 +660,7 @@ export function createDashboardRouter(): any {
       latency_ms: number | null;
       created_at: string;
       credits_used: number | null;
+      answer_text: string | null;
     }>(
       `
         SELECT
@@ -670,6 +671,7 @@ export function createDashboardRouter(): any {
             ql.result_count,
             ql.latency_ms,
             ql.created_at,
+            ql.answer_text,
             ue.credits_used
         FROM query_logs ql
         LEFT JOIN usage_events ue ON ue.request_id = ql.request_id
@@ -681,6 +683,34 @@ export function createDashboardRouter(): any {
       limit,
       offset
     );
+
+    // Batch-fetch tracking links for all returned queries
+    const requestIds = rows.map((r) => r.request_id);
+    const trackingRows = requestIds.length > 0
+      ? await db.fetch<{
+          request_id: string;
+          result_rank: number;
+          title: string | null;
+          source: string | null;
+          thumbnail_url: string | null;
+          target_url: string | null;
+        }>(
+          `
+            SELECT request_id, result_rank, title, source, thumbnail_url, target_url
+            FROM tracking_links
+            WHERE request_id = ANY($1::text[])
+            ORDER BY request_id, result_rank ASC
+          `,
+          `{${requestIds.join(",")}}`
+        )
+      : [];
+
+    const resultsByRequest = new Map<string, typeof trackingRows>();
+    for (const tr of trackingRows) {
+      const existing = resultsByRequest.get(tr.request_id) ?? [];
+      existing.push(tr);
+      resultsByRequest.set(tr.request_id, existing);
+    }
 
     const total = await db.fetchval<number>(
       `SELECT COUNT(*)::int FROM query_logs WHERE user_id = $1`,
@@ -697,6 +727,14 @@ export function createDashboardRouter(): any {
         latency_ms: row.latency_ms != null ? Number(row.latency_ms) : null,
         credits_used: row.credits_used != null ? Number(row.credits_used) : 0,
         created_at: row.created_at,
+        answer_text: row.answer_text ?? null,
+        results: (resultsByRequest.get(row.request_id) ?? []).slice(0, 5).map((tr) => ({
+          rank: Number(tr.result_rank ?? 0),
+          title: tr.title ?? "",
+          source: tr.source ?? "",
+          thumbnail_url: tr.thumbnail_url ?? null,
+          target_url: tr.target_url ?? null,
+        })),
       })),
       total: Number(total ?? 0),
       limit,

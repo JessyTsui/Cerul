@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { queryLogs, type QueryLogEntry } from "@/lib/api";
-import { formatNumber } from "@/lib/dashboard";
+import { buildUsageChartData, formatNumber } from "@/lib/dashboard";
 import { DashboardLayout } from "./dashboard-layout";
 import { DashboardSkeleton, DashboardState } from "./dashboard-state";
+import { UsageChart } from "./usage-chart";
 import { useMonthlyUsage } from "./use-monthly-usage";
+
+/* ── Icons ────────────────────────────────────────────── */
 
 function IconSearch({ className }: { className?: string }) {
   return (
@@ -23,20 +26,39 @@ function IconBolt({ className }: { className?: string }) {
   );
 }
 
-function IconClock({ className }: { className?: string }) {
+function IconChevron({ className, open }: { className?: string; open: boolean }) {
   return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    <svg
+      className={`${className ?? ""} transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+    >
+      <path d="m19.5 8.25-7.5 7.5-7.5-7.5" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
     </svg>
   );
 }
 
+function IconSparkles({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+function IconLink({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+/* ── Helpers ───────────────────────────────────────────── */
+
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60_000);
+  const diffMin = Math.floor((Date.now() - date.getTime()) / 60_000);
   if (diffMin < 1) return "Just now";
   if (diffMin < 60) return `${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / 60);
@@ -49,14 +71,110 @@ function formatRelativeTime(iso: string): string {
 function formatTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
 }
+
+/* ── Query Row ─────────────────────────────────────────── */
+
+function QueryRow({ log }: { log: QueryLogEntry }) {
+  const [open, setOpen] = useState(false);
+  const hasDetails = log.answerText || log.results.length > 0;
+
+  return (
+    <div className="border-b border-[var(--border)] last:border-b-0">
+      <button
+        type="button"
+        onClick={() => hasDetails && setOpen((v) => !v)}
+        className={`flex w-full items-start gap-4 px-5 py-4 text-left transition ${hasDetails ? "cursor-pointer hover:bg-white/40" : "cursor-default"}`}
+      >
+        <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[rgba(136,165,242,0.1)]">
+          <IconSearch className="h-4 w-4 text-[var(--brand-bright)]" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium leading-snug text-[var(--foreground)]">{log.queryText}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--foreground-tertiary)]">
+            <span title={formatTimestamp(log.createdAt)}>{formatRelativeTime(log.createdAt)}</span>
+            <span className="flex items-center gap-0.5">
+              <IconBolt className="h-3 w-3" />
+              {log.creditsUsed}
+            </span>
+            <span>{log.resultCount} result{log.resultCount !== 1 ? "s" : ""}</span>
+            {log.latencyMs != null && <span>{log.latencyMs}ms</span>}
+            {log.answerText && (
+              <span className="flex items-center gap-0.5 text-[var(--brand-bright)]">
+                <IconSparkles className="h-3 w-3" />
+                Answer
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="hidden text-xs tabular-nums text-[var(--foreground-tertiary)] sm:block">
+            {formatTimestamp(log.createdAt)}
+          </span>
+          {hasDetails && <IconChevron className="h-4 w-4 text-[var(--foreground-tertiary)]" open={open} />}
+        </div>
+      </button>
+
+      {/* ── Expanded details ──────────────────────────── */}
+      {open && hasDetails && (
+        <div className="animate-fade-in border-t border-[var(--border)] bg-[var(--background-elevated)] px-5 py-4">
+          {/* Answer */}
+          {log.answerText && (
+            <div className="mb-4 rounded-[16px] border border-[var(--border-brand)] bg-[var(--brand-subtle)] px-4 py-3">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-[var(--brand-bright)]">
+                <IconSparkles className="h-3.5 w-3.5" />
+                AI Answer
+              </div>
+              <p className="text-sm leading-relaxed text-[var(--foreground)]">{log.answerText}</p>
+            </div>
+          )}
+
+          {/* Results */}
+          {log.results.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-[var(--foreground-tertiary)]">Top results</p>
+              {log.results.map((result) => (
+                <div key={result.rank} className="flex items-center gap-3 rounded-[12px] border border-[var(--border)] bg-white/60 px-3 py-2.5">
+                  {result.thumbnailUrl ? (
+                    <img
+                      src={result.thumbnailUrl}
+                      alt=""
+                      className="h-10 w-16 shrink-0 rounded-[6px] object-cover"
+                    />
+                  ) : (
+                    <span className="flex h-10 w-16 shrink-0 items-center justify-center rounded-[6px] bg-[rgba(36,29,21,0.06)] text-xs text-[var(--foreground-tertiary)]">
+                      {result.rank + 1}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-[var(--foreground)]">{result.title || "Untitled"}</p>
+                    {result.source && (
+                      <p className="truncate text-xs text-[var(--foreground-tertiary)]">{result.source}</p>
+                    )}
+                  </div>
+                  {result.targetUrl && (
+                    <a
+                      href={result.targetUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 rounded-[8px] p-1.5 text-[var(--foreground-tertiary)] transition hover:bg-white/80 hover:text-[var(--foreground)]"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <IconLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Main screen ──────────────────────────────────────── */
 
 export function DashboardUsageScreen() {
   const { data: usageData } = useMonthlyUsage();
@@ -85,13 +203,14 @@ export function DashboardUsageScreen() {
     void loadLogs(page * pageSize);
   }, [page]);
 
+  const chartData = usageData ? buildUsageChartData(usageData) : [];
   const totalPages = Math.ceil(total / pageSize);
 
   return (
     <DashboardLayout
       currentPath="/dashboard/usage"
       title="Usage"
-      description="Recent API queries and credit consumption."
+      description="Credit consumption and query history."
       actions={null}
     >
       {/* ── Summary strip ─────────────────────────────── */}
@@ -112,18 +231,27 @@ export function DashboardUsageScreen() {
             </div>
           </div>
           <div className="surface-elevated dashboard-card flex items-center gap-3 rounded-[20px] px-5 py-4">
-            <IconClock className="h-5 w-5 shrink-0 text-[var(--foreground-tertiary)]" />
+            <IconSparkles className="h-5 w-5 shrink-0 text-[var(--foreground-tertiary)]" />
             <div>
-              <p className="text-xs text-[var(--foreground-tertiary)]">Free today</p>
+              <p className="text-xs text-[var(--foreground-tertiary)]">Available</p>
               <p className="text-xl font-semibold tabular-nums text-[var(--foreground)]">
-                {formatNumber(usageData.dailyFreeRemaining)}<span className="text-sm font-normal text-[var(--foreground-tertiary)]"> / {formatNumber(usageData.dailyFreeLimit)}</span>
+                {formatNumber(usageData.walletBalance + usageData.dailyFreeRemaining)}
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Query log ─────────────────────────────────── */}
+      {/* ── Chart ─────────────────────────────────────── */}
+      {chartData.length > 0 && (
+        <UsageChart
+          title="Daily Activity"
+          description="Credit consumption over the current billing period."
+          data={chartData}
+        />
+      )}
+
+      {/* ── Query history ─────────────────────────────── */}
       {isLoading && logs.length === 0 ? (
         <DashboardSkeleton />
       ) : error ? (
@@ -145,47 +273,13 @@ export function DashboardUsageScreen() {
               <IconSearch className="h-4 w-4 text-[var(--foreground-tertiary)]" />
               <h2 className="text-base font-semibold text-[var(--foreground)]">Query History</h2>
             </div>
-            <span className="text-xs text-[var(--foreground-tertiary)]">
-              {formatNumber(total)} total
-            </span>
+            <span className="text-xs text-[var(--foreground-tertiary)]">{formatNumber(total)} total</span>
           </div>
 
-          <div className="divide-y divide-[var(--border)]">
-            {logs.map((log) => (
-              <div key={log.requestId} className="px-5 py-4 transition hover:bg-white/40">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-[var(--foreground)]">
-                      {log.queryText}
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--foreground-tertiary)]">
-                      <span title={formatTimestamp(log.createdAt)}>
-                        {formatRelativeTime(log.createdAt)}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <IconBolt className="h-3 w-3" />
-                        {log.creditsUsed} credit{log.creditsUsed !== 1 ? "s" : ""}
-                      </span>
-                      <span>{log.resultCount} result{log.resultCount !== 1 ? "s" : ""}</span>
-                      {log.latencyMs != null && (
-                        <span>{log.latencyMs}ms</span>
-                      )}
-                      {log.includeAnswer && (
-                        <span className="rounded-full border border-[var(--border-brand)] bg-[var(--brand-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--brand-bright)]">
-                          Answer
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <span className="shrink-0 text-xs tabular-nums text-[var(--foreground-tertiary)]">
-                    {formatTimestamp(log.createdAt)}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+          {logs.map((log) => (
+            <QueryRow key={log.requestId} log={log} />
+          ))}
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-[var(--border)] px-5 py-3">
               <button
@@ -196,9 +290,7 @@ export function DashboardUsageScreen() {
               >
                 Previous
               </button>
-              <span className="text-xs text-[var(--foreground-tertiary)]">
-                Page {page + 1} of {totalPages}
-              </span>
+              <span className="text-xs text-[var(--foreground-tertiary)]">Page {page + 1} of {totalPages}</span>
               <button
                 type="button"
                 disabled={page >= totalPages - 1}

@@ -243,6 +243,14 @@ export type DashboardMonthlyUsage = {
   dailyBreakdown: DashboardUsageDay[];
 };
 
+export type QueryLogResult = {
+  rank: number;
+  title: string;
+  source: string;
+  thumbnailUrl: string | null;
+  targetUrl: string | null;
+};
+
 export type QueryLogEntry = {
   requestId: string;
   searchType: string;
@@ -252,6 +260,8 @@ export type QueryLogEntry = {
   latencyMs: number | null;
   creditsUsed: number;
   createdAt: string;
+  answerText: string | null;
+  results: QueryLogResult[];
 };
 
 export type QueryLogsResponse = {
@@ -1330,6 +1340,16 @@ export const queryLogs = {
         latencyMs: typeof item.latency_ms === "number" ? item.latency_ms : null,
         creditsUsed: Number(item.credits_used ?? 0),
         createdAt: String(item.created_at ?? ""),
+        answerText: typeof item.answer_text === "string" ? item.answer_text : null,
+        results: Array.isArray(item.results)
+          ? (item.results as Record<string, unknown>[]).map((r) => ({
+              rank: Number(r.rank ?? 0),
+              title: String(r.title ?? ""),
+              source: String(r.source ?? ""),
+              thumbnailUrl: typeof r.thumbnail_url === "string" ? r.thumbnail_url : null,
+              targetUrl: typeof r.target_url === "string" ? r.target_url : null,
+            }))
+          : [],
       })),
       total: Number(raw.total ?? 0),
       limit: Number(raw.limit ?? 50),

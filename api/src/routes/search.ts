@@ -168,7 +168,8 @@ async function appendQueryLog(
   auth: any,
   payload: SearchRequest,
   resultsCount: number,
-  latencyMs: number
+  latencyMs: number,
+  answerText?: string | null
 ): Promise<void> {
   await db.execute(
     `
@@ -182,9 +183,10 @@ async function appendQueryLog(
           max_results,
           include_answer,
           result_count,
-          latency_ms
+          latency_ms,
+          answer_text
       )
-      VALUES ($1, $2, $3::uuid, $4, $5, $6::jsonb, $7, $8, $9, $10)
+      VALUES ($1, $2, $3::uuid, $4, $5, $6::jsonb, $7, $8, $9, $10, $11)
     `,
     requestId,
     auth.userId,
@@ -195,7 +197,8 @@ async function appendQueryLog(
     payload.max_results,
     payload.include_answer,
     resultsCount,
-    latencyMs
+    latencyMs,
+    answerText ?? null
   );
 }
 
@@ -309,7 +312,7 @@ export function createSearchRouter(): any {
 
       const latencyMs = Math.max(Date.now() - requestStartedAt, 0);
       const usageSummary = await db.transaction(async (tx) => {
-        await appendQueryLog(tx, requestId, auth, payload, execution.results.length, latencyMs);
+        await appendQueryLog(tx, requestId, auth, payload, execution.results.length, latencyMs, execution.answer);
         await appendTrackingLinks(tx, execution.tracking_links);
         return fetchUsageSummary(tx, auth.userId);
       });
