@@ -363,11 +363,11 @@ async function fetchDailyUsageBreakdown(
   periodStart: string,
   periodEnd: string
 ): Promise<Record<string, unknown>[]> {
-  return db.fetch(
+  const rows = await db.fetch<{ date: string; request_count: number; credits_used: number }>(
     `
-      SELECT DATE(occurred_at) AS date,
-             COUNT(*) AS request_count,
-             COALESCE(SUM(credits_used), 0) AS credits_used
+      SELECT TO_CHAR(DATE(occurred_at), 'YYYY-MM-DD') AS date,
+             COUNT(*)::int AS request_count,
+             COALESCE(SUM(credits_used), 0)::int AS credits_used
       FROM usage_events
       WHERE user_id = $1
         AND occurred_at >= $2
@@ -379,6 +379,7 @@ async function fetchDailyUsageBreakdown(
     periodStart,
     periodEnd
   );
+  return rows;
 }
 
 function notCancelledJobCondition(alias?: string): string {
@@ -696,7 +697,7 @@ export function createDashboardRouter(): any {
           target_url: string | null;
         }>(
           `
-            SELECT request_id, result_rank, title, source, thumbnail_url, target_url
+            SELECT request_id, result_rank, title, source, thumbnail_url, target_url, score
             FROM tracking_links
             WHERE request_id = ANY($1::text[])
             ORDER BY request_id, result_rank ASC
@@ -728,12 +729,13 @@ export function createDashboardRouter(): any {
         credits_used: row.credits_used != null ? Number(row.credits_used) : 0,
         created_at: row.created_at,
         answer_text: row.answer_text ?? null,
-        results: (resultsByRequest.get(row.request_id) ?? []).slice(0, 5).map((tr) => ({
+        results: (resultsByRequest.get(row.request_id) ?? []).slice(0, 5).map((tr: Record<string, unknown>) => ({
           rank: Number(tr.result_rank ?? 0),
           title: tr.title ?? "",
           source: tr.source ?? "",
           thumbnail_url: tr.thumbnail_url ?? null,
           target_url: tr.target_url ?? null,
+          score: tr.score != null ? Number(tr.score) : null,
         })),
       })),
       total: Number(total ?? 0),

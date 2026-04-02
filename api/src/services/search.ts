@@ -195,7 +195,8 @@ export class UnifiedSearchService {
         timestamp_end: coerceOptionalFloat(row.timestamp_end),
         transcript: row.transcript_text == null ? null : String(row.transcript_text),
         visual_desc: row.visual_description == null ? String(row.visual_summary ?? "") || null : String(row.visual_description),
-        keyframe_url: row.keyframe_url == null ? null : String(row.keyframe_url)
+        keyframe_url: row.keyframe_url == null ? null : String(row.keyframe_url),
+        score: row.score != null ? Number(row.score) : null
       });
 
       results.push({

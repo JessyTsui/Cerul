@@ -249,6 +249,7 @@ export type QueryLogResult = {
   source: string;
   thumbnailUrl: string | null;
   targetUrl: string | null;
+  score: number | null;
 };
 
 export type QueryLogEntry = {
@@ -1348,6 +1349,7 @@ export const queryLogs = {
               source: String(r.source ?? ""),
               thumbnailUrl: typeof r.thumbnail_url === "string" ? r.thumbnail_url : null,
               targetUrl: typeof r.target_url === "string" ? r.target_url : null,
+              score: typeof r.score === "number" ? r.score : null,
             }))
           : [],
       })),

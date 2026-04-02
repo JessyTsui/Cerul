@@ -222,25 +222,12 @@ async function appendTrackingLinks(db: DatabaseClient, trackingLinks: any[]): Pr
             timestamp_end,
             transcript,
             visual_desc,
-            keyframe_url
+            keyframe_url,
+            score
         )
         VALUES (
-            $1,
-            $2,
-            $3,
-            $4::uuid,
-            $5::uuid,
-            $6,
-            $7,
-            $8,
-            $9,
-            $10,
-            $11,
-            $12,
-            $13,
-            $14,
-            $15,
-            $16
+            $1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14, $15, $16, $17
         )
         ON CONFLICT (short_id) DO NOTHING
       `,
@@ -259,7 +246,8 @@ async function appendTrackingLinks(db: DatabaseClient, trackingLinks: any[]): Pr
       trackingLink.timestamp_end,
       trackingLink.transcript,
       trackingLink.visual_desc,
-      trackingLink.keyframe_url
+      trackingLink.keyframe_url,
+      trackingLink.score ?? null
     );
   }
 }
