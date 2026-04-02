@@ -25,6 +25,8 @@ export interface Bindings {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRO_PRICE_ID?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
   R2_BUCKET_NAME?: string;
   R2_PUBLIC_URL?: string;
   QUERY_IMAGES_BUCKET?: R2Bucket;
@@ -70,6 +72,10 @@ export interface AppConfig {
     secretKey: string | null;
     webhookSecret: string | null;
     proPriceId: string | null;
+  };
+  email: {
+    resendApiKey: string | null;
+    from: string;
   };
   r2: {
     bucketName: string;
@@ -130,6 +136,7 @@ export interface SearchResult {
   url: string;
   title: string;
   snippet: string;
+  transcript?: string | null;
   thumbnail_url?: string | null;
   keyframe_url?: string | null;
   duration: number;
@@ -149,13 +156,28 @@ export interface SearchResponse {
 
 export interface UsageResponse {
   tier: string;
+  plan_code?: string;
   period_start: string;
   period_end: string;
   credits_limit: number;
   credits_used: number;
   credits_remaining: number;
+  wallet_balance?: number;
+  credit_breakdown?: {
+    included_remaining: number;
+    bonus_remaining: number;
+    paid_remaining: number;
+  };
+  expiring_credits?: Array<{
+    grant_type: string;
+    credits: number;
+    expires_at: string;
+  }>;
   rate_limit_per_sec: number;
   api_keys_active: number;
+  billing_hold?: boolean;
+  daily_free_remaining?: number;
+  daily_free_limit?: number;
 }
 
 export interface IndexRequest {
@@ -227,6 +249,7 @@ export interface TrackingLinkRecord {
   transcript?: string | null;
   visual_desc?: string | null;
   keyframe_url?: string | null;
+  score?: number | null;
 }
 
 export interface ResolvedQueryImage {

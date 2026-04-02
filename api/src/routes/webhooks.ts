@@ -1,7 +1,21 @@
 import { Hono } from "hono";
 
 import type { DatabaseClient } from "../db/client";
-import { activateCheckoutSubscription, constructWebhookEvent, StripeServiceError, StripeWebhookVerificationError, syncSubscriptionStatus } from "../services/stripe";
+import {
+  fulfillAutoRechargePayment,
+  fulfillTopupCheckout,
+  fulfillSubscriptionInvoice,
+  recordFailedInvoice,
+  reverseBillingOrderByPaymentIntent
+} from "../services/billing";
+import {
+  activateCheckoutSubscription,
+  constructWebhookEvent,
+  StripeServiceError,
+  StripeWebhookVerificationError,
+  syncSubscriptionStatus
+} from "../services/stripe";
+import { sendBillingNotification } from "../services/transactional-email";
 import { apiError } from "../utils/http";
 
 async function fetchLoggedEvent(db: DatabaseClient, stripeEventId: string): Promise<Record<string, unknown> | null> {
@@ -45,31 +59,224 @@ async function markEventProcessed(db: DatabaseClient, stripeEventId: string): Pr
   );
 }
 
-async function processStripeEvent(db: DatabaseClient, event: Record<string, unknown>): Promise<void> {
-  const eventType = String(event.type ?? "");
-  const eventObject = (event.data as any)?.object ?? {};
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value != null ? value as Record<string, unknown> : {};
+}
 
-  if (eventType === "checkout.session.completed") {
-    const metadata = eventObject.metadata ?? {};
-    const userId = String(metadata.user_id ?? eventObject.client_reference_id ?? "").trim();
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function asInteger(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(Math.trunc(parsed), 0) : 0;
+}
+
+function stripeCreatedAt(value: unknown): Date | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return new Date(parsed * 1000);
+}
+
+function sumDiscounts(value: unknown): number {
+  if (!Array.isArray(value)) {
+    return 0;
+  }
+  return value.reduce((sum, item) => sum + asInteger(asRecord(item).amount), 0);
+}
+
+function extractInvoicePeriod(invoice: Record<string, unknown>): { periodStart: string; periodEnd: string } {
+  const lines = Array.isArray(asRecord(invoice.lines).data) ? asRecord(invoice.lines).data as unknown[] : [];
+  const firstLine = lines.find((line) => typeof line === "object" && line != null) as Record<string, unknown> | undefined;
+  const period = firstLine ? asRecord(firstLine.period) : {};
+  const startSeconds = Number(period.start);
+  const endSeconds = Number(period.end);
+  const createdAt = stripeCreatedAt(invoice.created) ?? new Date();
+
+  if (Number.isFinite(startSeconds) && Number.isFinite(endSeconds)) {
+    const periodStart = new Date(startSeconds * 1000).toISOString().slice(0, 10);
+    const periodEnd = new Date(Math.max(endSeconds * 1000 - 1000, startSeconds * 1000)).toISOString().slice(0, 10);
+    return { periodStart, periodEnd };
+  }
+
+  const year = createdAt.getUTCFullYear();
+  const month = createdAt.getUTCMonth();
+  const periodStart = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+  const periodEnd = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+  return { periodStart, periodEnd };
+}
+
+function isCheckoutComplete(checkoutSession: Record<string, unknown>): boolean {
+  return asString(checkoutSession.status) === "complete";
+}
+
+function isPaymentCheckoutPaid(checkoutSession: Record<string, unknown>): boolean {
+  return asString(checkoutSession.payment_status) === "paid";
+}
+
+function isSubscriptionCheckoutReady(checkoutSession: Record<string, unknown>): boolean {
+  const paymentStatus = asString(checkoutSession.payment_status);
+  return paymentStatus === "paid" || paymentStatus === "no_payment_required";
+}
+
+async function processStripeEvent(db: DatabaseClient, config: any, event: Record<string, unknown>): Promise<void> {
+  const eventType = String(event.type ?? "");
+  const eventObject = asRecord(asRecord(event.data).object);
+
+  if (eventType === "checkout.session.completed" || eventType === "checkout.session.async_payment_succeeded") {
+    const metadata = asRecord(eventObject.metadata);
+    const userId = asString(metadata.user_id) ?? asString(eventObject.client_reference_id);
     if (!userId) {
       return;
     }
-    await activateCheckoutSubscription(
-      db,
-      userId,
-      eventObject.customer == null ? null : String(eventObject.customer),
-      eventObject.subscription == null ? null : String(eventObject.subscription)
-    );
+
+    const mode = asString(eventObject.mode) ?? "";
+    if (mode === "subscription") {
+      if (!isCheckoutComplete(eventObject) || !isSubscriptionCheckoutReady(eventObject)) {
+        return;
+      }
+      await activateCheckoutSubscription(
+        db,
+        userId,
+        asString(eventObject.customer),
+        asString(eventObject.subscription)
+      );
+      return;
+    }
+
+    if (mode === "payment") {
+      if (!isPaymentCheckoutPaid(eventObject)) {
+        return;
+      }
+      const quantity = Number(metadata.quantity) || 1000;
+      const notification = await fulfillTopupCheckout(db, {
+        userId,
+        credits: quantity,
+        stripeCheckoutSessionId: String(eventObject.id ?? ""),
+        stripeCustomerId: asString(eventObject.customer),
+        stripePaymentIntentId: asString(eventObject.payment_intent),
+        currency: asString(eventObject.currency),
+        grossAmountCents: asInteger(eventObject.amount_subtotal ?? eventObject.amount_total),
+        discountAmountCents: asInteger(asRecord(eventObject.total_details).amount_discount),
+        netAmountCents: asInteger(eventObject.amount_total),
+        occurredAt: stripeCreatedAt(eventObject.created)
+      });
+      if (notification) {
+        void sendBillingNotification(config, notification).catch((error) => {
+          console.error("[billing] Failed to send top-up email:", error);
+        });
+      }
+    }
+    return;
+  }
+
+  if (eventType === "invoice.paid") {
+    const stripeCustomerId = asString(eventObject.customer);
+    if (!stripeCustomerId) {
+      return;
+    }
+    await syncSubscriptionStatus(db, stripeCustomerId, {
+      id: asString(eventObject.subscription),
+      status: "active"
+    });
+    const { periodStart, periodEnd } = extractInvoicePeriod(eventObject);
+    const notification = await fulfillSubscriptionInvoice(db, {
+      stripeInvoiceId: String(eventObject.id ?? ""),
+      stripeCustomerId,
+      stripeSubscriptionId: asString(eventObject.subscription),
+      stripePaymentIntentId: asString(eventObject.payment_intent),
+      currency: asString(eventObject.currency),
+      grossAmountCents: asInteger(eventObject.subtotal ?? eventObject.amount_due ?? eventObject.amount_paid),
+      discountAmountCents: sumDiscounts(eventObject.total_discount_amounts),
+      netAmountCents: asInteger(eventObject.amount_paid ?? eventObject.amount_due),
+      periodStart,
+      periodEnd,
+      occurredAt: stripeCreatedAt(eventObject.created),
+      metadata: {
+        billing_reason: asString(eventObject.billing_reason)
+      }
+    });
+    if (notification) {
+      void sendBillingNotification(config, notification).catch((error) => {
+        console.error("[billing] Failed to send subscription email:", error);
+      });
+    }
+    return;
+  }
+
+  if (eventType === "invoice.payment_failed") {
+    const stripeCustomerId = asString(eventObject.customer);
+    if (!stripeCustomerId) {
+      return;
+    }
+    await recordFailedInvoice(db, {
+      stripeInvoiceId: String(eventObject.id ?? ""),
+      stripeCustomerId,
+      stripeSubscriptionId: asString(eventObject.subscription),
+      stripePaymentIntentId: asString(eventObject.payment_intent),
+      currency: asString(eventObject.currency),
+      grossAmountCents: asInteger(eventObject.subtotal ?? eventObject.amount_due),
+      discountAmountCents: sumDiscounts(eventObject.total_discount_amounts),
+      netAmountCents: asInteger(eventObject.amount_due),
+      metadata: {
+        billing_reason: asString(eventObject.billing_reason)
+      }
+    });
     return;
   }
 
   if (eventType === "customer.subscription.deleted" || eventType === "customer.subscription.updated") {
-    const stripeCustomerId = String(eventObject.customer ?? "").trim();
+    const stripeCustomerId = asString(eventObject.customer);
     if (!stripeCustomerId) {
       return;
     }
     await syncSubscriptionStatus(db, stripeCustomerId, eventObject);
+    return;
+  }
+
+  if (eventType === "payment_intent.succeeded") {
+    const metadata = asRecord(eventObject.metadata);
+    if (asString(metadata.type) === "auto_recharge") {
+      const userId = asString(metadata.user_id);
+      const quantity = Number(metadata.quantity) || 1000;
+      if (userId) {
+        const amount = asInteger(eventObject.amount_received ?? eventObject.amount);
+        const notification = await fulfillAutoRechargePayment(db, {
+          userId,
+          stripePaymentIntentId: String(eventObject.id ?? ""),
+          stripeCustomerId: asString(eventObject.customer),
+          quantity,
+          currency: asString(eventObject.currency),
+          grossAmountCents: amount,
+          discountAmountCents: 0,
+          netAmountCents: amount,
+          occurredAt: stripeCreatedAt(eventObject.created)
+        });
+        if (notification) {
+          void sendBillingNotification(config, notification).catch((error) => {
+            console.error("[billing] Failed to send auto-recharge email:", error);
+          });
+        }
+      }
+    }
+    return;
+  }
+
+  if (eventType === "charge.refunded") {
+    const paymentIntentId = asString(eventObject.payment_intent);
+    if (paymentIntentId) {
+      await reverseBillingOrderByPaymentIntent(db, paymentIntentId, "refunded");
+    }
+    return;
+  }
+
+  if (eventType === "charge.dispute.created" || eventType === "charge.dispute.funds_withdrawn") {
+    const paymentIntentId = asString(asRecord(eventObject.payment_intent).id) ?? asString(eventObject.payment_intent);
+    if (paymentIntentId) {
+      await reverseBillingOrderByPaymentIntent(db, paymentIntentId, "disputed");
+    }
   }
 }
 
@@ -114,7 +321,7 @@ export function createWebhookRouter(): any {
       }
 
       try {
-        await processStripeEvent(tx, event);
+        await processStripeEvent(tx, config, event);
       } catch (error) {
         if (error instanceof StripeServiceError) {
           apiError(409, error.message);

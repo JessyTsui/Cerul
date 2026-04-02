@@ -8,11 +8,73 @@ API_DIR="${ROOT_DIR}/api"
 WORKERS_DIR="${ROOT_DIR}/workers"
 WORKERS_VENV="${WORKERS_DIR}/.venv"
 FAST_MODE="false"
-SKIP_MIGRATIONS="true"
+SKIP_MIGRATIONS="false"
 ENV_FILE="${CERUL_ENV_FILE:-${ROOT_DIR}/.env}"
 
 FRONTEND_PORT="${FRONTEND_PORT:-}"
 API_PORT="${API_PORT:-}"
+
+extract_url_authority() {
+  local url="$1"
+  local authority="${url#*://}"
+  printf '%s\n' "${authority%%/*}"
+}
+
+extract_url_host() {
+  local authority
+  authority="$(extract_url_authority "$1")"
+
+  if [[ "${authority}" == \[*\]* ]]; then
+    printf '%s]\n' "${authority%%]*}"
+    return 0
+  fi
+
+  printf '%s\n' "${authority%%:*}"
+}
+
+extract_url_port() {
+  local authority
+  authority="$(extract_url_authority "$1")"
+
+  if [[ "${authority}" == \[*\]*:* ]]; then
+    printf '%s\n' "${authority##*:}"
+    return 0
+  fi
+
+  if [[ "${authority}" == *:* ]]; then
+    printf '%s\n' "${authority##*:}"
+  fi
+}
+
+is_loopback_host() {
+  case "$1" in
+    localhost|127.0.0.1|::1|"[::1]")
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+port_from_loopback_url() {
+  local url="$1"
+  local host
+  local port
+
+  if [ -z "${url}" ]; then
+    return 1
+  fi
+
+  host="$(extract_url_host "${url}")"
+  port="$(extract_url_port "${url}")"
+
+  if ! is_loopback_host "${host}" || [ -z "${port}" ]; then
+    return 1
+  fi
+
+  printf '%s\n' "${port}"
+}
 
 print_help() {
   cat <<'EOF'
@@ -20,7 +82,8 @@ Usage: ./rebuild.sh [--fast]
 
 Options:
   --fast, -f   Skip dependency reinstall and only clear generated caches before restarting
-  --migrate      Run database migrations before starting (skipped by default)
+  --migrate      Run database migrations before starting (default)
+  --skip-migrate Skip database migrations before starting
   --env-file PATH  Load runtime variables from a specific env file
   --help, -h   Show this help
 EOF
@@ -34,6 +97,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --migrate)
       SKIP_MIGRATIONS="false"
+      shift
+      ;;
+    --skip-migrate)
+      SKIP_MIGRATIONS="true"
       shift
       ;;
     --env-file)
@@ -56,6 +123,14 @@ if [ -f "${ENV_FILE}" ]; then
   set -a
   . "${ENV_FILE}"
   set +a
+fi
+
+if [ -z "${FRONTEND_PORT}" ]; then
+  FRONTEND_PORT="$(port_from_loopback_url "${NEXT_PUBLIC_SITE_URL:-${WEB_BASE_URL:-}}" || true)"
+fi
+
+if [ -z "${API_PORT}" ]; then
+  API_PORT="$(port_from_loopback_url "${NEXT_PUBLIC_API_BASE_URL:-${API_BASE_URL:-}}" || true)"
 fi
 
 FRONTEND_PORT="${FRONTEND_PORT:-${WEB_PORT:-3000}}"

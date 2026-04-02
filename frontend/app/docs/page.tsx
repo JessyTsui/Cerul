@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { Route } from "next";
 import Link from "next/link";
 import { AIToolbar } from "@/components/ai-toolbar";
+import { DailyFreeSearchNote } from "@/components/daily-free-search-note";
 import { CodeBlock } from "@/components/code-block";
 import { DocsHeader } from "@/components/docs-header";
 import { DocsSidebar } from "@/components/docs-sidebar";
@@ -92,7 +93,7 @@ export default function DocsPage() {
                   </h2>
                   <p className="mt-4 max-w-3xl text-[15px] leading-8 text-[var(--foreground-secondary)]">
                     Sign up at cerul.ai and create an API key from the dashboard.
-                    The free tier gives you 1,000 requests per month — no credit card required.
+                    The free tier gives you 1,000 credits per month — no credit card required.
                   </p>
                   <div className="mt-6 flex flex-wrap gap-3">
                     <Link href="/login?mode=signup" className="button-primary">
@@ -177,7 +178,7 @@ export default function DocsPage() {
                         {[
                           { name: "score", desc: "Relevance from 0.0 to 1.0" },
                           { name: "url", desc: "Tracking link → redirects to source video" },
-                          { name: "unit_type", desc: "summary, speech, or visual" },
+                          { name: "transcript", desc: "Full ASR text for speech-backed segments" },
                           { name: "answer", desc: "AI summary (when include_answer is true)" },
                         ].map((field) => (
                           <div
@@ -193,8 +194,9 @@ export default function DocsPage() {
                   </FadeIn>
 
                   <FadeIn delay={100}>
-                    <CodeBlock
-                      code={`{
+                    <div className="space-y-4">
+                      <CodeBlock
+                        code={`{
   "results": [
     {
       "id": "unit_hmtuvNfytjM_1223",
@@ -202,12 +204,12 @@ export default function DocsPage() {
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AGI Timeline",
       "snippet": "AGI is coming sooner than most people expect.",
+      "transcript": "AGI is coming sooner than most people expect, and the roadmap gets clearer once model capability and product reliability converge.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1223.0,
-      "timestamp_end": 1345.0,
-      "unit_type": "speech"
+      "timestamp_end": 1345.0
     }
   ],
   "answer": "Summary grounded in matched evidence.",
@@ -215,9 +217,11 @@ export default function DocsPage() {
   "credits_remaining": 999,
   "request_id": "req_abc123xyz"
 }`}
-                      filename="response.json"
-                      language="json"
-                    />
+                        filename="response.json"
+                        language="json"
+                      />
+                      <DailyFreeSearchNote />
+                    </div>
                   </FadeIn>
                 </div>
               </section>
@@ -234,7 +238,7 @@ export default function DocsPage() {
                         Check your usage
                       </h2>
                       <p className="mt-4 max-w-3xl text-[15px] leading-8 text-[var(--foreground-secondary)]">
-                        Monitor your request count and remaining quota before scaling traffic.
+                        Monitor your credit balance, wallet breakdown, and rate limits before scaling traffic.
                       </p>
                       <p className="mt-4 text-sm text-[var(--foreground-secondary)]">
                         <Link href="/docs/usage-api" className="font-medium text-[var(--brand-bright)] transition hover:text-[var(--foreground)]">
@@ -254,6 +258,7 @@ export default function DocsPage() {
 #   "tier": "free",
 #   "credits_used": 128,
 #   "credits_remaining": 872,
+#   "wallet_balance": 872,
 #   "rate_limit_per_sec": 1,
 #   "api_keys_active": 1
 # }`}

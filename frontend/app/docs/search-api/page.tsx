@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AIToolbar } from "@/components/ai-toolbar";
+import { DailyFreeSearchNote } from "@/components/daily-free-search-note";
 import { CodeBlock } from "@/components/code-block";
 import { DocsHeader } from "@/components/docs-header";
 import { DocsSidebar } from "@/components/docs-sidebar";
@@ -74,15 +75,15 @@ const responseFields = [
   { name: "results[].url", type: "string", description: "Cerul tracking URL — redirects to the source video." },
   { name: "results[].title", type: "string", description: "Video title." },
   { name: "results[].snippet", type: "string", description: "Matched transcript or visual description." },
+  { name: "results[].transcript", type: "string | null", description: "Full ASR transcript text for the matched segment. Null for visual-only units." },
   { name: "results[].thumbnail_url", type: "string", description: "Preview image URL." },
   { name: "results[].source", type: "string", description: "Content source (e.g. \"youtube\")." },
   { name: "results[].speaker", type: "string | null", description: "Speaker name, if detected." },
   { name: "results[].timestamp_start", type: "number | null", description: "Start time in seconds." },
   { name: "results[].timestamp_end", type: "number | null", description: "End time in seconds." },
-  { name: "results[].unit_type", type: "string", description: "\"summary\", \"speech\", or \"visual\"." },
   { name: "answer", type: "string | null", description: "AI-generated summary. Only present when include_answer is true." },
   { name: "credits_used", type: "integer", description: "Credits consumed by this request." },
-  { name: "credits_remaining", type: "integer", description: "Remaining credits in current billing period." },
+  { name: "credits_remaining", type: "integer", description: "Remaining spendable credits after this request." },
   { name: "request_id", type: "string", description: "Unique request identifier for debugging." },
 ];
 
@@ -222,7 +223,7 @@ type SearchResult = {
   url: string;
   title: string;
   snippet: string;
-  unit_type: "summary" | "speech" | "visual";
+  transcript?: string | null;
 };
 
 type SearchResponse = {
@@ -405,12 +406,12 @@ console.log(data);`}
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AI video generation",
       "snippet": "Current AI video generation tools are improving quickly but still constrained by controllability.",
+      "transcript": "Current AI video generation tools are improving quickly but still constrained by controllability, production reliability, and the ability to steer outputs precisely.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1223.0,
-      "timestamp_end": 1345.0,
-      "unit_type": "speech"
+      "timestamp_end": 1345.0
     }
   ],
   "answer": "Sam Altman frames current AI video generation tools as improving quickly but still constrained by controllability.",
@@ -421,6 +422,7 @@ console.log(data);`}
                       language="json"
                       filename="response.json"
                     />
+                    <DailyFreeSearchNote />
                   </div>
                 </div>
               </section>

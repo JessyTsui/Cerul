@@ -5,6 +5,8 @@ import {
   formatDashboardDateTime,
   getAverageDailyCredits,
   getCreditsPercent,
+  getExtraCreditsRemaining,
+  getIncludedCreditsUsed,
   getTierLabel,
   resolveDashboardBillingAction,
 } from "./dashboard";
@@ -144,6 +146,42 @@ describe("dashboard helpers", () => {
     expect(getCreditsPercent(10, 0)).toBe(0);
   });
 
+  it("derives included credit usage from the remaining included balance", () => {
+    expect(
+      getIncludedCreditsUsed({
+        creditsLimit: 5000,
+        creditBreakdown: {
+          includedRemaining: 5000,
+          bonusRemaining: 900,
+          paidRemaining: 100,
+        },
+      }),
+    ).toBe(0);
+
+    expect(
+      getIncludedCreditsUsed({
+        creditsLimit: 5000,
+        creditBreakdown: {
+          includedRemaining: 4200,
+          bonusRemaining: 0,
+          paidRemaining: 0,
+        },
+      }),
+    ).toBe(800);
+  });
+
+  it("sums bonus and paid credits into extra spendable balance", () => {
+    expect(
+      getExtraCreditsRemaining({
+        creditBreakdown: {
+          includedRemaining: 5000,
+          bonusRemaining: 700,
+          paidRemaining: 300,
+        },
+      }),
+    ).toBe(1000);
+  });
+
   it("formats billing periods for dashboard copy", () => {
     expect(formatBillingPeriod("2026-03-01", "2026-03-31")).toBe(
       "Mar 1 - Mar 31",
@@ -152,8 +190,9 @@ describe("dashboard helpers", () => {
 
   it("maps known plan labels", () => {
     expect(getTierLabel("free")).toBe("Free");
-    expect(getTierLabel("builder")).toBe("Builder");
+    expect(getTierLabel("builder")).toBe("Monthly");
     expect(getTierLabel("pro")).toBe("Pro");
+    expect(getTierLabel("monthly")).toBe("Monthly");
     expect(getTierLabel("enterprise")).toBe("Enterprise");
   });
 

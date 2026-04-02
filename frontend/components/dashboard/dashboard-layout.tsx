@@ -17,22 +17,22 @@ export function DashboardLayout({
   children,
 }: DashboardLayoutProps) {
   return (
-    <div className="mx-auto max-w-[1120px]">
-      <div className="mb-6 flex flex-col gap-4 border-b border-[var(--border)] pb-6 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mx-auto w-full max-w-[1400px]">
+      {/* Minimal header */}
+      <div className="animate-fade-in mb-8 flex items-center justify-between border-b border-[var(--border)] pb-4">
         <div>
-          <p className="text-sm text-[var(--foreground-tertiary)]">Pages / {title}</p>
-          <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
+          <h1 className="text-lg font-medium text-[var(--foreground)]">
             {title}
           </h1>
           {description ? (
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--foreground-secondary)]">
+            <p className="mt-0.5 text-xs text-[var(--foreground-tertiary)]">
               {description}
             </p>
           ) : null}
         </div>
-        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-3">{actions}</div> : null}
+        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
       </div>
-      <div className="space-y-5">{children}</div>
+      <div className="dashboard-stagger space-y-6">{children}</div>
     </div>
   );
 }

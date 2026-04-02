@@ -178,6 +178,7 @@ describe("getAuthRouteHandlers", () => {
       id: "user_123",
       email: "owner@example.com",
       name: "Owner Example",
+      grantSignupBonus: true,
     });
     expect(state.sentEmails).toEqual([]);
 

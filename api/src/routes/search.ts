@@ -2,7 +2,15 @@ import { Hono } from "hono";
 
 import type { DatabaseClient } from "../db/client";
 import { apiKeyAuth } from "../middleware/auth";
-import { calculateCreditsRemaining, deductCredits, fetchUsageSummary, InsufficientCreditsError, refundCredits } from "../services/billing";
+import {
+  BillingHoldError,
+  calculateCreditsRemaining,
+  consumeSearchCredits,
+  fetchUsageSummary,
+  InsufficientCreditsError,
+  maybeAutoRecharge,
+  refundCredits
+} from "../services/billing";
 import { resolveImageToBytes, uploadQueryImageToR2 } from "../services/query-image";
 import { UnifiedSearchService } from "../services/search";
 import type { SearchRequest, UnifiedFilters } from "../types";
@@ -158,7 +166,8 @@ async function appendQueryLog(
   auth: any,
   payload: SearchRequest,
   resultsCount: number,
-  latencyMs: number
+  latencyMs: number,
+  answerText?: string | null
 ): Promise<void> {
   await db.execute(
     `
@@ -172,9 +181,10 @@ async function appendQueryLog(
           max_results,
           include_answer,
           result_count,
-          latency_ms
+          latency_ms,
+          answer_text
       )
-      VALUES ($1, $2, $3::uuid, $4, $5, $6::jsonb, $7, $8, $9, $10)
+      VALUES ($1, $2, $3::uuid, $4, $5, $6::jsonb, $7, $8, $9, $10, $11)
     `,
     requestId,
     auth.userId,
@@ -185,7 +195,8 @@ async function appendQueryLog(
     payload.max_results,
     payload.include_answer,
     resultsCount,
-    latencyMs
+    latencyMs,
+    answerText ?? null
   );
 }
 
@@ -209,25 +220,12 @@ async function appendTrackingLinks(db: DatabaseClient, trackingLinks: any[]): Pr
             timestamp_end,
             transcript,
             visual_desc,
-            keyframe_url
+            keyframe_url,
+            score
         )
         VALUES (
-            $1,
-            $2,
-            $3,
-            $4::uuid,
-            $5::uuid,
-            $6,
-            $7,
-            $8,
-            $9,
-            $10,
-            $11,
-            $12,
-            $13,
-            $14,
-            $15,
-            $16
+            $1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14, $15, $16, $17
         )
         ON CONFLICT (short_id) DO NOTHING
       `,
@@ -246,7 +244,8 @@ async function appendTrackingLinks(db: DatabaseClient, trackingLinks: any[]): Pr
       trackingLink.timestamp_end,
       trackingLink.transcript,
       trackingLink.visual_desc,
-      trackingLink.keyframe_url
+      trackingLink.keyframe_url,
+      trackingLink.score ?? null
     );
   }
 }
@@ -264,8 +263,9 @@ export function createSearchRouter(): any {
     const service = new UnifiedSearchService(db, c.env, config);
 
     let creditsUsed = 0;
+    let usageRecorded = false;
     try {
-      creditsUsed = await deductCredits(
+      const chargeRequest = async () => consumeSearchCredits(
         db,
         auth.userId,
         auth.apiKeyId,
@@ -273,6 +273,23 @@ export function createSearchRouter(): any {
         "unified",
         payload.include_answer
       );
+
+      try {
+        creditsUsed = await chargeRequest();
+      } catch (error) {
+        if (!(error instanceof InsufficientCreditsError)) {
+          throw error;
+        }
+
+        const recharge = await maybeAutoRecharge(db, config, auth.userId);
+        if (!recharge.triggered) {
+          throw error;
+        }
+
+        creditsUsed = await chargeRequest();
+      }
+      usageRecorded = true;
+
       const execution = await service.search({
         payload,
         userId: auth.userId,
@@ -282,13 +299,19 @@ export function createSearchRouter(): any {
 
       const latencyMs = Math.max(Date.now() - requestStartedAt, 0);
       const usageSummary = await db.transaction(async (tx) => {
-        await appendQueryLog(tx, requestId, auth, payload, execution.results.length, latencyMs);
+        await appendQueryLog(tx, requestId, auth, payload, execution.results.length, latencyMs, execution.answer);
         await appendTrackingLinks(tx, execution.tracking_links);
         return fetchUsageSummary(tx, auth.userId);
       });
 
       if (image) {
         c.executionCtx?.waitUntil(uploadQueryImageToR2(c.env, config, image, requestId));
+      }
+
+      if (creditsUsed > 0) {
+        void maybeAutoRecharge(db, config, auth.userId).catch((error) =>
+          console.error("[billing] auto-recharge error:", error)
+        );
       }
 
       return c.json({
@@ -299,10 +322,13 @@ export function createSearchRouter(): any {
         request_id: requestId
       });
     } catch (error) {
+      if (error instanceof BillingHoldError) {
+        apiError(403, "Billing account requires review before more requests can be served.");
+      }
       if (error instanceof InsufficientCreditsError) {
         apiError(403, "Insufficient credits for this request.");
       }
-      if (creditsUsed > 0) {
+      if (usageRecorded) {
         try {
           await refundCredits(db, requestId);
         } catch {

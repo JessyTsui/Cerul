@@ -171,6 +171,8 @@ describe("dashboard API client", () => {
             api_keys_active: 3,
             rate_limit_per_sec: 12,
             has_stripe_customer: true,
+            daily_free_remaining: 7,
+            daily_free_limit: 10,
             daily_breakdown: [
               {
                 date: "2026-03-01",
@@ -191,15 +193,26 @@ describe("dashboard API client", () => {
 
     await expect(usage.getMonthly()).resolves.toEqual({
       tier: "pro",
+      planCode: "pro",
       periodStart: "2026-03-01",
       periodEnd: "2026-03-07",
       creditsLimit: 10000,
       creditsUsed: 2450,
       creditsRemaining: 7550,
+      walletBalance: 7550,
+      creditBreakdown: {
+        includedRemaining: 0,
+        bonusRemaining: 0,
+        paidRemaining: 0,
+      },
+      expiringCredits: [],
       requestCount: 812,
       apiKeysActive: 3,
       rateLimitPerSec: 12,
       hasStripeCustomer: true,
+      billingHold: false,
+      dailyFreeRemaining: 7,
+      dailyFreeLimit: 10,
       dailyBreakdown: [
         {
           date: "2026-03-01",
@@ -246,6 +259,9 @@ describe("dashboard API client", () => {
     await expect(usage.getMonthly()).resolves.toEqual(
       expect.objectContaining({
         hasStripeCustomer: false,
+        walletBalance: 880,
+        dailyFreeRemaining: 0,
+        dailyFreeLimit: 0,
         dailyBreakdown: [
           {
             date: "2026-03-01",
@@ -277,6 +293,135 @@ describe("dashboard API client", () => {
     });
   });
 
+  it("creates a top-up checkout session with quantity", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          checkout_url: "https://billing.example/checkout",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(billing.createTopup(2500)).resolves.toEqual({
+      url: "https://billing.example/checkout",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/dashboard/billing/topup",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ quantity: 2500 }),
+      }),
+    );
+  });
+
+  it("reconciles a completed checkout session", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: "ok",
+          mode: "payment",
+          credits_granted: 1000,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(billing.reconcileCheckout("cs_test_123")).resolves.toEqual({
+      status: "ok",
+      mode: "payment",
+      tier: null,
+      creditsGranted: 1000,
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/dashboard/billing/reconcile-checkout",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ session_id: "cs_test_123" }),
+      }),
+    );
+  });
+
+  it("normalizes billing catalog payloads", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          plan_code: "pro",
+          wallet_balance: 5300,
+          credit_breakdown: {
+            included_remaining: 300,
+            bonus_remaining: 0,
+          },
+          referral: {
+            code: "CRL1A2B3C",
+            bonus_credits: 100,
+            reward_delay_days: 0,
+            redeemed_code: null,
+            status: null,
+            max_referrals: 100,
+            total_referred: 2,
+            total_credits_earned: 200,
+            referrals: [
+              {
+                referee_email: "te***@example.com",
+                status: "awarded",
+                created_at: "2026-04-01T00:00:00.000Z",
+                credits_earned: 100,
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(billing.getCatalog()).resolves.toEqual({
+      planCode: "pro",
+      walletBalance: 5300,
+      creditBreakdown: {
+        includedRemaining: 300,
+        bonusRemaining: 0,
+        paidRemaining: 0,
+      },
+      expiringCredits: [],
+      referral: {
+        code: "CRL1A2B3C",
+        bonusCredits: 100,
+        rewardDelayDays: 0,
+        redeemedCode: null,
+        status: null,
+        maxReferrals: 100,
+        totalReferred: 2,
+        totalCreditsEarned: 200,
+        referrals: [
+          {
+            refereeEmail: "te***@example.com",
+            status: "awarded",
+            createdAt: "2026-04-01T00:00:00.000Z",
+            creditsEarned: 100,
+          },
+        ],
+      },
+    });
+  });
+
   it("normalizes portal redirect urls", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
@@ -294,6 +439,58 @@ describe("dashboard API client", () => {
 
     await expect(billing.createPortal()).resolves.toEqual({
       url: "https://billing.example/portal",
+    });
+  });
+
+  it("normalizes auto-recharge settings payloads", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            enabled: true,
+            threshold: 120,
+            quantity: 1500,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            enabled: false,
+            threshold: 80,
+            quantity: 1000,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      );
+
+    await expect(billing.getAutoRecharge()).resolves.toEqual({
+      enabled: true,
+      threshold: 120,
+      quantity: 1500,
+    });
+
+    await expect(
+      billing.updateAutoRecharge({
+        enabled: false,
+        threshold: 80,
+        quantity: 1000,
+      }),
+    ).resolves.toEqual({
+      enabled: false,
+      threshold: 80,
+      quantity: 1000,
     });
   });
 

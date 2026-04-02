@@ -106,7 +106,7 @@ export const docsLandingSections = [
       "Include your API key in the Authorization header as a Bearer token. Create and manage keys from your dashboard.",
     list: [
       "Authorization: Bearer YOUR_CERUL_API_KEY",
-      "Free tier: 1,000 requests/month, no credit card",
+      "Free tier: 100 credits on signup, no credit card",
       "Keys start with cerul_ prefix",
     ],
     code: `curl "${API_BASE_URL}/v1/search" \\
@@ -141,9 +141,9 @@ export const docsLandingSections = [
     kicker: "Monitoring",
     title: "GET /v1/usage",
     description:
-      "Check your current request count, remaining quota, and rate limits. Call this before scaling traffic.",
+      "Check your credit balance, spendable wallet, and rate limits. Call this before scaling traffic.",
     list: [
-      "Current billing period and request counts",
+      "Current billing period and credit balance",
       "Rate limit status per tier",
       "No request body needed",
     ],
@@ -162,7 +162,7 @@ export const docsLandingSections = [
       "results[]: array of matched video segments",
       "score: relevance from 0.0 to 1.0",
       "url: Cerul tracking link → redirects to source",
-      "unit_type: summary, speech, or visual",
+      "transcript: full ASR text when speech exists",
     ],
     code: `{
   "results": [
@@ -172,12 +172,12 @@ export const docsLandingSections = [
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AGI Timeline",
       "snippet": "AGI is coming sooner than most people expect.",
+      "transcript": "AGI is coming sooner than most people expect, and the roadmap gets clearer as model capability and product reliability converge.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1223.0,
-      "timestamp_end": 1345.0,
-      "unit_type": "speech"
+      "timestamp_end": 1345.0
     }
   ],
   "answer": "Summary grounded in the matched evidence.",
@@ -210,14 +210,22 @@ export const docsPages: DocPage[] = [
       {
         title: "Response",
         body:
-          "The response includes your plan tier, billing window, credit balance, and active API key count.",
+          "The response includes your plan tier, billing window, spendable wallet balance, credit breakdown, and active API key count.",
         code: `{
   "tier": "free",
+  "plan_code": "free",
   "period_start": "2026-03-01",
   "period_end": "2026-03-31",
-  "credits_limit": 1000,
-  "credits_used": 128,
-  "credits_remaining": 872,
+  "credits_limit": 0,
+  "credits_used": 18,
+  "credits_remaining": 82,
+  "wallet_balance": 82,
+  "credit_breakdown": {
+    "included_remaining": 0,
+    "bonus_remaining": 82
+  },
+  "daily_free_remaining": 7,
+  "daily_free_limit": 10,
   "rate_limit_per_sec": 1,
   "api_keys_active": 1
 }`,
@@ -229,9 +237,10 @@ export const docsPages: DocPage[] = [
         body:
           "Requests exceeding your rate limit return HTTP 429. The limit resets every second.",
         bullets: [
-          "Free: 1 request/second, 1,000 requests/month",
-          "Pay as you go: 5 requests/second",
-          "Monthly: 10 requests/second, 5,000 requests included",
+          "All users: 10 free searches per day, no credits needed",
+          "Free: 1 request/second, 100 credits on signup",
+          "Pay as you go: $8/1K credits, standard rate limits",
+          "Pro: higher limits, 5,000 included credits/month, top up at $8/1K",
           "Enterprise: custom limits",
         ],
       },
@@ -361,7 +370,7 @@ export const docsFeatureCards: DocsFeatureCard[] = [
   },
   {
     title: "Usage",
-    description: "Check request counts, quotas, and rate limits.",
+    description: "Check credit balances, wallet breakdowns, and rate limits.",
     snippet: "GET /v1/usage",
     href: "/docs/usage-api",
   },
@@ -501,12 +510,12 @@ console.log(data);`,
       "url": "string (tracking URL → redirects to source)",
       "title": "string",
       "snippet": "string",
+      "transcript": "string | null",
       "thumbnail_url": "string",
       "source": "string",
       "speaker": "string | null",
       "timestamp_start": "number | null",
-      "timestamp_end": "number | null",
-      "unit_type": "summary | speech | visual"
+      "timestamp_end": "number | null"
     }
   ],
   "answer": "string | null",
@@ -522,12 +531,12 @@ console.log(data);`,
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AI video generation",
       "snippet": "Current AI video generation tools are improving quickly but still constrained by controllability.",
+      "transcript": "Current AI video generation tools are improving quickly but still constrained by controllability, production reliability, and the ability to steer outputs precisely.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1223.0,
-      "timestamp_end": 1345.0,
-      "unit_type": "speech"
+      "timestamp_end": 1345.0
     }
   ],
   "answer": "Sam Altman frames current AI video generation tools as improving quickly but still constrained by controllability and production reliability.",
@@ -542,7 +551,7 @@ console.log(data);`,
     method: "GET",
     path: "/v1/usage",
     title: "Check usage",
-    description: "Returns your current plan tier, billing period, request counts, and rate limit.",
+    description: "Returns your current plan tier, billing period, spendable wallet, and rate limit.",
     authLabel: "Bearer API key",
     authDescription:
       "Requires a Cerul API key. Use this to monitor usage before scaling traffic.",
@@ -584,21 +593,33 @@ console.log(data);`,
     ],
     responseSchema: `{
   "tier": "string",
+  "plan_code": "string",
   "period_start": "YYYY-MM-DD",
   "period_end": "YYYY-MM-DD",
   "credits_limit": "integer",
   "credits_used": "integer",
   "credits_remaining": "integer",
+  "wallet_balance": "integer",
+  "credit_breakdown": {
+    "included_remaining": "integer",
+    "bonus_remaining": "integer"
+  },
   "rate_limit_per_sec": "integer",
   "api_keys_active": "integer"
 }`,
     responseExample: `{
   "tier": "free",
+  "plan_code": "free",
   "period_start": "2026-03-01",
   "period_end": "2026-03-31",
   "credits_limit": 1000,
   "credits_used": 128,
   "credits_remaining": 872,
+  "wallet_balance": 872,
+  "credit_breakdown": {
+    "included_remaining": 872,
+    "bonus_remaining": 0
+  },
   "rate_limit_per_sec": 1,
   "api_keys_active": 1
 }`,

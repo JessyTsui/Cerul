@@ -46,18 +46,38 @@ type DailyUsageWire = {
   request_count?: number;
 };
 
+type CreditBreakdownWire = {
+  included_remaining?: number;
+  bonus_remaining?: number;
+  paid_remaining?: number;
+};
+
+type ExpiringCreditWire = {
+  grant_type?: string;
+  credits?: number;
+  expires_at?: string;
+};
+
 type MonthlyUsageWire = {
   tier: string;
+  plan_code?: string;
   period_start: string;
   period_end: string;
   credits_limit: number;
   credits_used: number;
   credits_remaining: number;
+  wallet_balance?: number;
+  credit_breakdown?: CreditBreakdownWire;
+  expiring_credits?: ExpiringCreditWire[];
   request_count?: number;
   api_keys_active?: number;
   rate_limit_per_sec?: number | null;
   has_stripe_customer?: boolean;
+  billing_hold?: boolean;
+  daily_free_remaining?: number;
+  daily_free_limit?: number;
   daily_breakdown?: DailyUsageWire[];
+  server_timestamp?: string;
 };
 
 type MonthlyUsageEnvelope = {
@@ -68,6 +88,43 @@ type BillingLinkWire = {
   url?: string;
   checkout_url?: string;
   portal_url?: string;
+  product_code?: string;
+};
+
+type BillingReconciliationWire = {
+  status?: string;
+  mode?: string;
+  tier?: string;
+  credits_granted?: number;
+};
+
+type BillingCatalogWire = {
+  plan_code?: string;
+  wallet_balance?: number;
+  credit_breakdown?: CreditBreakdownWire;
+  expiring_credits?: ExpiringCreditWire[];
+  referral?: {
+    code?: string;
+    bonus_credits?: number;
+    reward_delay_days?: number;
+    redeemed_code?: string | null;
+    status?: string | null;
+    max_referrals?: number;
+    total_referred?: number;
+    total_credits_earned?: number;
+    referrals?: Array<{
+      referee_email?: string;
+      status?: string;
+      created_at?: string;
+      credits_earned?: number;
+    }>;
+  };
+};
+
+type AutoRechargeSettingsWire = {
+  enabled?: boolean;
+  threshold?: number;
+  quantity?: number;
 };
 
 type JobStatusWire = "pending" | "running" | "retrying" | "completed" | "failed";
@@ -168,20 +225,117 @@ export type DashboardUsageDay = {
 
 export type DashboardMonthlyUsage = {
   tier: string;
+  planCode: string;
   periodStart: string;
   periodEnd: string;
   creditsLimit: number;
   creditsUsed: number;
   creditsRemaining: number;
+  walletBalance: number;
+  creditBreakdown: {
+    includedRemaining: number;
+    bonusRemaining: number;
+    paidRemaining: number;
+  };
+  expiringCredits: Array<{
+    grantType: string;
+    credits: number;
+    expiresAt: string;
+  }>;
   requestCount: number;
   apiKeysActive: number;
   rateLimitPerSec: number | null;
   hasStripeCustomer: boolean;
+  billingHold: boolean;
+  dailyFreeRemaining: number;
+  dailyFreeLimit: number;
   dailyBreakdown: DashboardUsageDay[];
+};
+
+export type PaymentMethod = {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  isDefault: boolean;
+};
+
+export type QueryLogResult = {
+  rank: number;
+  title: string;
+  source: string;
+  thumbnailUrl: string | null;
+  targetUrl: string | null;
+  score: number | null;
+};
+
+export type QueryLogEntry = {
+  requestId: string;
+  searchType: string;
+  queryText: string;
+  includeAnswer: boolean;
+  resultCount: number;
+  latencyMs: number | null;
+  creditsUsed: number;
+  createdAt: string;
+  answerText: string | null;
+  results: QueryLogResult[];
+};
+
+export type QueryLogsResponse = {
+  items: QueryLogEntry[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 export type BillingRedirect = {
   url: string;
+};
+
+export type AutoRechargeSettings = {
+  enabled: boolean;
+  threshold: number;
+  quantity: number;
+};
+
+export type BillingReconciliation = {
+  status: string;
+  mode: string | null;
+  tier: string | null;
+  creditsGranted: number;
+};
+
+export type BillingCatalog = {
+  planCode: string;
+  walletBalance: number;
+  creditBreakdown: {
+    includedRemaining: number;
+    bonusRemaining: number;
+    paidRemaining: number;
+  };
+  expiringCredits: Array<{
+    grantType: string;
+    credits: number;
+    expiresAt: string;
+  }>;
+  referral: {
+    code: string;
+    bonusCredits: number;
+    rewardDelayDays: number;
+    redeemedCode: string | null;
+    status: string | null;
+    maxReferrals: number;
+    totalReferred: number;
+    totalCreditsEarned: number;
+    referrals: Array<{
+      refereeEmail: string;
+      status: string;
+      createdAt: string;
+      creditsEarned: number;
+    }>;
+  };
 };
 
 export type JobStatus = JobStatusWire;
@@ -388,6 +542,15 @@ function isDailyUsageWire(value: unknown): value is DailyUsageWire {
   );
 }
 
+function isExpiringCreditWire(value: unknown): value is ExpiringCreditWire {
+  return (
+    isPlainObject(value) &&
+    typeof value.grant_type === "string" &&
+    isFiniteNumber(value.credits) &&
+    typeof value.expires_at === "string"
+  );
+}
+
 function isJobStatus(value: unknown): value is JobStatus {
   return (
     value === "pending" ||
@@ -579,11 +742,42 @@ function normalizeUsage(payload: unknown): DashboardMonthlyUsage {
 
   return {
     tier: usagePayload.tier,
+    planCode:
+      typeof usagePayload.plan_code === "string"
+        ? usagePayload.plan_code
+        : usagePayload.tier,
     periodStart: usagePayload.period_start,
     periodEnd: usagePayload.period_end,
     creditsLimit: usagePayload.credits_limit,
     creditsUsed: usagePayload.credits_used,
     creditsRemaining: usagePayload.credits_remaining,
+    walletBalance:
+      typeof usagePayload.wallet_balance === "number"
+        ? usagePayload.wallet_balance
+        : usagePayload.credits_remaining,
+    creditBreakdown: {
+      includedRemaining:
+        typeof usagePayload.credit_breakdown?.included_remaining === "number"
+          ? usagePayload.credit_breakdown.included_remaining
+          : 0,
+      bonusRemaining:
+        typeof usagePayload.credit_breakdown?.bonus_remaining === "number"
+          ? usagePayload.credit_breakdown.bonus_remaining
+          : 0,
+      paidRemaining:
+        typeof usagePayload.credit_breakdown?.paid_remaining === "number"
+          ? usagePayload.credit_breakdown.paid_remaining
+          : 0,
+    },
+    expiringCredits: Array.isArray(usagePayload.expiring_credits)
+      ? usagePayload.expiring_credits
+          .filter((entry): entry is ExpiringCreditWire => isExpiringCreditWire(entry))
+          .map((entry) => ({
+            grantType: entry.grant_type ?? "unknown",
+            credits: entry.credits ?? 0,
+            expiresAt: entry.expires_at ?? "",
+          }))
+      : [],
     requestCount: usagePayload.request_count ?? 0,
     apiKeysActive: usagePayload.api_keys_active ?? 0,
     rateLimitPerSec:
@@ -591,7 +785,103 @@ function normalizeUsage(payload: unknown): DashboardMonthlyUsage {
         ? usagePayload.rate_limit_per_sec
         : null,
     hasStripeCustomer: usagePayload.has_stripe_customer === true,
+    billingHold: usagePayload.billing_hold === true,
+    dailyFreeRemaining:
+      typeof usagePayload.daily_free_remaining === "number"
+        ? usagePayload.daily_free_remaining
+        : 0,
+    dailyFreeLimit:
+      typeof usagePayload.daily_free_limit === "number"
+        ? usagePayload.daily_free_limit
+        : 0,
     dailyBreakdown,
+  };
+}
+
+function normalizeBillingCatalog(payload: unknown): BillingCatalog {
+  if (!isPlainObject(payload)) {
+    throw new ApiClientError("Invalid billing catalog response.", {
+      status: 500,
+      code: "invalid_payload",
+      details: payload,
+    });
+  }
+
+  const breakdown = isPlainObject(payload.credit_breakdown) ? payload.credit_breakdown : {};
+  const referral = isPlainObject(payload.referral) ? payload.referral : {};
+
+  return {
+    planCode: typeof payload.plan_code === "string" ? payload.plan_code : "free",
+    walletBalance: typeof payload.wallet_balance === "number" ? payload.wallet_balance : 0,
+    creditBreakdown: {
+      includedRemaining:
+        typeof breakdown.included_remaining === "number"
+          ? breakdown.included_remaining
+          : 0,
+      bonusRemaining:
+        typeof breakdown.bonus_remaining === "number"
+          ? breakdown.bonus_remaining
+          : 0,
+      paidRemaining:
+        typeof breakdown.paid_remaining === "number"
+          ? breakdown.paid_remaining
+          : 0,
+    },
+    expiringCredits: Array.isArray(payload.expiring_credits)
+      ? payload.expiring_credits
+          .filter((entry): entry is ExpiringCreditWire => isExpiringCreditWire(entry))
+          .map((entry) => ({
+            grantType: entry.grant_type ?? "unknown",
+            credits: entry.credits ?? 0,
+            expiresAt: entry.expires_at ?? "",
+          }))
+      : [],
+    referral: {
+      code: typeof referral.code === "string" ? referral.code : "",
+      bonusCredits:
+        typeof referral.bonus_credits === "number"
+          ? referral.bonus_credits
+          : 0,
+      rewardDelayDays:
+        typeof referral.reward_delay_days === "number"
+          ? referral.reward_delay_days
+          : 0,
+      redeemedCode:
+        typeof referral.redeemed_code === "string"
+          ? referral.redeemed_code
+          : null,
+      status:
+        typeof referral.status === "string"
+          ? referral.status
+          : null,
+      maxReferrals: typeof referral.max_referrals === "number" ? referral.max_referrals : 100,
+      totalReferred: typeof referral.total_referred === "number" ? referral.total_referred : 0,
+      totalCreditsEarned: typeof referral.total_credits_earned === "number" ? referral.total_credits_earned : 0,
+      referrals: Array.isArray(referral.referrals)
+        ? (referral.referrals as Record<string, unknown>[]).map((r) => ({
+            refereeEmail: String(r.referee_email ?? "***"),
+            status: String(r.status ?? "pending"),
+            createdAt: String(r.created_at ?? ""),
+            creditsEarned: Number(r.credits_earned ?? 0),
+          }))
+        : [],
+    },
+  };
+}
+
+function normalizeAutoRechargeSettings(payload: unknown): AutoRechargeSettings {
+  if (!isPlainObject(payload)) {
+    throw new ApiClientError("Invalid auto-recharge response.", {
+      status: 500,
+      code: "invalid_payload",
+      details: payload,
+    });
+  }
+
+  return {
+    enabled: payload.enabled === true,
+    threshold: typeof payload.threshold === "number" ? payload.threshold : 100,
+    quantity: typeof payload.quantity === "number" ? payload.quantity : 1000,
   };
 }
 
@@ -785,6 +1075,16 @@ function normalizeBillingLink(payload: unknown): BillingRedirect {
   return { url };
 }
 
+function normalizeBillingReconciliation(payload: unknown): BillingReconciliation {
+  const raw = payload as BillingReconciliationWire | null | undefined;
+  return {
+    status: typeof raw?.status === "string" ? raw.status : "ok",
+    mode: typeof raw?.mode === "string" ? raw.mode : null,
+    tier: typeof raw?.tier === "string" ? raw.tier : null,
+    creditsGranted: typeof raw?.credits_granted === "number" ? raw.credits_granted : 0,
+  };
+}
+
 function buildQueryString(
   params: Record<string, string | number | null | undefined>,
 ): string {
@@ -930,11 +1230,36 @@ export const jobs = {
 };
 
 export const billing = {
+  async getCatalog(): Promise<BillingCatalog> {
+    const payload = await fetchWithAuth<BillingCatalogWire>(
+      "/dashboard/billing/catalog",
+      {
+        method: "GET",
+        cache: "no-store",
+      },
+    );
+
+    return normalizeBillingCatalog(payload);
+  },
+
   async createCheckout(): Promise<BillingRedirect> {
     const payload = await fetchWithAuth<BillingLinkWire>(
       "/dashboard/billing/checkout",
       {
         method: "POST",
+        body: {},
+      },
+    );
+
+    return normalizeBillingLink(payload);
+  },
+
+  async createTopup(quantity: number): Promise<BillingRedirect> {
+    const payload = await fetchWithAuth<BillingLinkWire>(
+      "/dashboard/billing/topup",
+      {
+        method: "POST",
+        body: { quantity },
       },
     );
 
@@ -949,6 +1274,90 @@ export const billing = {
       },
     );
 
+    return normalizeBillingLink(payload);
+  },
+
+  async reconcileCheckout(sessionId: string): Promise<BillingReconciliation> {
+    const payload = await fetchWithAuth<BillingReconciliationWire>(
+      "/dashboard/billing/reconcile-checkout",
+      {
+        method: "POST",
+        body: {
+          session_id: sessionId,
+        },
+      },
+    );
+
+    return normalizeBillingReconciliation(payload);
+  },
+
+  async getAutoRecharge(): Promise<AutoRechargeSettings> {
+    const payload = await fetchWithAuth<AutoRechargeSettingsWire>(
+      "/dashboard/billing/auto-recharge",
+      {
+        method: "GET",
+        cache: "no-store",
+      },
+    );
+
+    return normalizeAutoRechargeSettings(payload);
+  },
+
+  async updateAutoRecharge(settings: AutoRechargeSettings): Promise<AutoRechargeSettings> {
+    const payload = await fetchWithAuth<AutoRechargeSettingsWire>(
+      "/dashboard/billing/auto-recharge",
+      {
+        method: "POST",
+        body: settings,
+      },
+    );
+
+    return normalizeAutoRechargeSettings(payload);
+  },
+
+  async redeemReferral(code: string): Promise<BillingCatalog["referral"]> {
+    const payload = await fetchWithAuth<{ referral?: BillingCatalogWire["referral"] }>(
+      "/dashboard/billing/referrals/redeem",
+      {
+        method: "POST",
+        body: { code },
+      },
+    );
+
+    return normalizeBillingCatalog({
+      referral: payload.referral ?? {},
+    }).referral;
+  },
+
+  async updateReferralCode(code: string): Promise<{ code: string }> {
+    const raw = await fetchWithAuth<Record<string, unknown>>(
+      "/dashboard/billing/referrals/update-code",
+      { method: "POST", body: { code } },
+    );
+    return { code: String(raw.code ?? code) };
+  },
+
+  async listPaymentMethods(): Promise<PaymentMethod[]> {
+    const raw = await fetchWithAuth<Record<string, unknown>>(
+      "/dashboard/billing/payment-methods",
+      { method: "GET", cache: "no-store" },
+    );
+    const methods = Array.isArray(raw.methods) ? raw.methods : [];
+    return methods.map((m: Record<string, unknown>) => ({
+      id: String(m.id ?? ""),
+      brand: String(m.brand ?? "unknown"),
+      last4: String(m.last4 ?? "****"),
+      expMonth: Number(m.expMonth ?? m.exp_month ?? 0),
+      expYear: Number(m.expYear ?? m.exp_year ?? 0),
+      isDefault: m.isDefault === true || m.is_default === true,
+    }));
+  },
+
+  async setupPaymentMethod(): Promise<BillingRedirect> {
+    const payload = await fetchWithAuth<BillingLinkWire>(
+      "/dashboard/billing/setup-payment",
+      { method: "POST" },
+    );
     return normalizeBillingLink(payload);
   },
 };
@@ -977,3 +1386,43 @@ export type {
   AdminUsersSummary,
   AdminWindow,
 } from "./admin-api";
+
+export const queryLogs = {
+  async list(options?: { limit?: number; offset?: number }): Promise<QueryLogsResponse> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.offset) params.set("offset", String(options.offset));
+    const qs = params.toString();
+    const raw = await fetchWithAuth<Record<string, unknown>>(
+      `/dashboard/query-logs${qs ? `?${qs}` : ""}`,
+      { method: "GET", cache: "no-store" },
+    );
+    const items = Array.isArray(raw.items) ? raw.items : [];
+    return {
+      items: items.map((item: Record<string, unknown>) => ({
+        requestId: String(item.request_id ?? ""),
+        searchType: String(item.search_type ?? ""),
+        queryText: String(item.query_text ?? ""),
+        includeAnswer: item.include_answer === true,
+        resultCount: Number(item.result_count ?? 0),
+        latencyMs: typeof item.latency_ms === "number" ? item.latency_ms : null,
+        creditsUsed: Number(item.credits_used ?? 0),
+        createdAt: String(item.created_at ?? ""),
+        answerText: typeof item.answer_text === "string" ? item.answer_text : null,
+        results: Array.isArray(item.results)
+          ? (item.results as Record<string, unknown>[]).map((r) => ({
+              rank: Number(r.rank ?? 0),
+              title: String(r.title ?? ""),
+              source: String(r.source ?? ""),
+              thumbnailUrl: typeof r.thumbnail_url === "string" ? r.thumbnail_url : null,
+              targetUrl: typeof r.target_url === "string" ? r.target_url : null,
+              score: typeof r.score === "number" ? r.score : null,
+            }))
+          : [],
+      })),
+      total: Number(raw.total ?? 0),
+      limit: Number(raw.limit ?? 50),
+      offset: Number(raw.offset ?? 0),
+    };
+  },
+};

@@ -4,8 +4,8 @@ import type { Route } from "next";
 import Link from "next/link";
 import { BrandMark } from "@/components/brand-mark";
 import { useConsoleViewer } from "@/components/console/console-viewer-context";
+import { DashboardAccountHub } from "./dashboard-account-hub";
 import {
-  ACCOUNT_SETTINGS_ROUTE,
   dashboardRoutes,
   isDashboardRouteActive,
 } from "@/lib/site";
@@ -37,6 +37,14 @@ function IconCog({ className }: { className?: string }) {
   );
 }
 
+function IconCreditCard({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M2.25 8.25h19.5M2.25 9h19.5m-1.5 10.5V7.5a2.25 2.25 0 0 0-2.25-2.25H4.5A2.25 2.25 0 0 0 2.25 7.5v12a2.25 2.25 0 0 0 2.25 2.25h15a2.25 2.25 0 0 0 2.25-2.25Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
 function IconArrowRight({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,6 +56,7 @@ function IconArrowRight({ className }: { className?: string }) {
 const ROUTE_ICONS: Record<string, React.FC<{ className?: string }>> = {
   Overview: IconHome,
   Usage: IconChartBar,
+  Billing: IconCreditCard,
   Settings: IconCog,
 };
 
@@ -55,46 +64,16 @@ type DashboardSidebarProps = {
   currentPath: string;
 };
 
-export function DashboardSidebar({ currentPath }: DashboardSidebarProps) {
+export function DashboardSidebar({
+  currentPath,
+}: DashboardSidebarProps) {
   const viewer = useConsoleViewer();
-  const initials = (viewer.displayName ?? viewer.email ?? "U")
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0] ?? "")
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
 
   return (
     <aside className="hidden w-[292px] shrink-0 lg:block">
       <div className="sticky top-0 h-screen p-4 pr-0">
-        <div className="surface-elevated flex h-full flex-col overflow-hidden rounded-[34px] px-4 py-5">
+        <div className="surface-elevated animate-sidebar-in flex h-full flex-col overflow-hidden rounded-[34px] px-4 py-5">
           <BrandMark />
-
-          <div className="mt-7 rounded-[20px] border border-[var(--border-brand)] bg-[var(--brand-subtle)] px-4 py-4">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--brand-bright)]">
-              Workspace
-            </p>
-            <Link
-              href={ACCOUNT_SETTINGS_ROUTE as Route}
-              className="mt-3 flex items-center justify-between gap-3 rounded-full bg-white/78 px-3 py-2.5 transition hover:bg-white"
-            >
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--background-sunken)] text-xs font-semibold text-[var(--foreground-secondary)]">
-                  {initials || "U"}
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-[var(--foreground)]">Personal</p>
-                  <p className="truncate text-xs text-[var(--foreground-tertiary)]">
-                    {viewer.email ?? "Signed in"}
-                  </p>
-                </div>
-              </div>
-              <svg className="h-4 w-4 shrink-0 text-[var(--foreground-tertiary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
-              </svg>
-            </Link>
-          </div>
 
           <div className="mt-7">
             <p className="px-3 text-xs font-medium uppercase tracking-[0.18em] text-[var(--foreground-tertiary)]">
@@ -162,6 +141,7 @@ export function DashboardSidebar({ currentPath }: DashboardSidebarProps) {
             </div>
           </div>
 
+          <DashboardAccountHub />
         </div>
       </div>
     </aside>
