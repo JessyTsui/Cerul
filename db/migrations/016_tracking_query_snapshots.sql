@@ -8,18 +8,10 @@ ALTER TABLE query_logs
 ALTER TABLE retrieval_units
     ADD COLUMN IF NOT EXISTS short_id TEXT;
 
-UPDATE retrieval_units
-SET short_id = SUBSTRING(
-    ENCODE(
-        DIGEST(
-            CONCAT_WS(':', video_id::text, unit_type, unit_index::text),
-            'sha256'
-        ),
-        'hex'
-    )
-    FROM 1 FOR 12
-)
-WHERE short_id IS NULL;
+-- Existing rows intentionally stay NULL here.
+-- Retrieval paths already fall back to the deterministic short_id expression at read time,
+-- and any production backfill should be done operationally in small batches rather than
+-- as a single migration transaction on Neon.
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_retrieval_units_short_id
     ON retrieval_units (short_id)

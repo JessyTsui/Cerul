@@ -301,9 +301,7 @@ export function AdminAnalyticsScreen() {
     let cancelled = false;
 
     async function load() {
-      if (!data) {
-        setIsLoading(true);
-      }
+      setIsLoading(true);
       setError(null);
 
       try {

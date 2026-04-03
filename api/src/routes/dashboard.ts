@@ -3,12 +3,14 @@ import { Hono } from "hono";
 import type { DatabaseClient } from "../db/client";
 import { adminAuth, sessionAuth } from "../middleware/auth";
 import {
+  BillingHoldError,
   calculateCreditsRemaining,
   consumeSearchCredits,
   fetchBillingCatalogState,
   fetchDailySearchAllowance,
   fetchReferralStats,
   fetchUsageSummary as fetchUserUsageSummary,
+  InsufficientCreditsError,
   isPaidTier,
   keyLimitForTier,
   redeemReferralCode,
@@ -35,7 +37,7 @@ import {
 import { sendBillingNotification } from "../services/transactional-email";
 import { apiError, emptyResponse } from "../utils/http";
 import { sha256Hex, randomHex } from "../utils/crypto";
-import { ensureJsonObject, parseBoolean, parseInteger, asString, isPlainObject } from "../utils/validation";
+import { ensureJsonObject, parseBoolean, parseInteger, asString, isPlainObject, parseDateString } from "../utils/validation";
 import { UnifiedSearchService } from "../services/search";
 import type { SearchRequest, UnifiedFilters } from "../types";
 
@@ -141,7 +143,6 @@ function normalizeApiKeySummary(record: Record<string, unknown> | null): Record<
     id: String(payload.id ?? ""),
     name: String(payload.name ?? ""),
     prefix: String(payload.prefix ?? ""),
-    raw_key: typeof payload.raw_key === "string" ? payload.raw_key : null,
     created_at: payload.created_at ?? null,
     last_used_at: payload.last_used_at ?? null,
     is_active: Boolean(payload.is_active ?? false)
@@ -326,20 +327,18 @@ async function insertApiKey(
   userId: string,
   name: string,
   keyHash: string,
-  prefix: string,
-  rawKey: string
+  prefix: string
 ): Promise<Record<string, unknown>> {
   const row = await db.fetchrow(
     `
-      INSERT INTO api_keys (user_id, name, key_hash, prefix, raw_key, is_active)
-      VALUES ($1, $2, $3, $4, $5, TRUE)
-      RETURNING id, name, prefix, raw_key, created_at, last_used_at, is_active
+      INSERT INTO api_keys (user_id, name, key_hash, prefix, is_active)
+      VALUES ($1, $2, $3, $4, TRUE)
+      RETURNING id, name, prefix, created_at, last_used_at, is_active
     `,
     userId,
     name,
     keyHash,
-    prefix,
-    rawKey
+    prefix
   );
   if (!row) {
     apiError(500, "Failed to create API key.");
@@ -350,7 +349,7 @@ async function insertApiKey(
 async function listApiKeysForUser(db: DatabaseClient, userId: string): Promise<Record<string, unknown>[]> {
   const rows = await db.fetch(
     `
-      SELECT id, name, prefix, raw_key, created_at, last_used_at, is_active
+      SELECT id, name, prefix, created_at, last_used_at, is_active
       FROM api_keys
       WHERE user_id = $1
       ORDER BY created_at DESC
@@ -397,6 +396,66 @@ async function resolvePlaygroundApiKeyId(
   }
 
   return String(row.id);
+}
+
+function normalizePlaygroundFilters(filters: unknown): UnifiedFilters | null {
+  if (filters == null) {
+    return null;
+  }
+  if (!isPlainObject(filters)) {
+    apiError(400, "filters must be an object.");
+  }
+
+  const normalized: UnifiedFilters = {
+    speaker: asString(filters.speaker),
+    published_after: parseDateString(filters.published_after, "filters.published_after"),
+    min_duration: filters.min_duration == null ? null : parseInteger(filters.min_duration, "filters.min_duration", 0),
+    max_duration: filters.max_duration == null ? null : parseInteger(filters.max_duration, "filters.max_duration", 0),
+    source: asString(filters.source),
+  };
+
+  if ((normalized.min_duration ?? 0) < 0 || (normalized.max_duration ?? 0) < 0) {
+    apiError(400, "filters duration values must be greater than or equal to 0.");
+  }
+  if (
+    normalized.min_duration != null &&
+    normalized.max_duration != null &&
+    normalized.min_duration > normalized.max_duration
+  ) {
+    apiError(400, "min_duration must be less than or equal to max_duration");
+  }
+
+  return normalized;
+}
+
+async function ensurePlaygroundResultOwnership(
+  db: DatabaseClient,
+  userId: string,
+  requestId: string,
+  resultId: string
+): Promise<void> {
+  const row = await db.fetchrow(
+    `
+      SELECT 1
+      FROM query_logs AS ql
+      WHERE ql.request_id = $1
+        AND ql.user_id = $2
+        AND ql.search_surface = 'playground'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(ql.results_preview) AS preview(item)
+          WHERE preview.item->>'result_id' = $3
+        )
+      LIMIT 1
+    `,
+    requestId,
+    userId,
+    resultId
+  );
+
+  if (!row) {
+    apiError(404, "Playground result not found for this request.");
+  }
 }
 
 async function softDeleteApiKey(db: DatabaseClient, keyId: string, userId: string): Promise<boolean> {
@@ -646,7 +705,7 @@ export function createDashboardRouter(): any {
     }
 
     const generated = await generateApiKey();
-    const created = await insertApiKey(db, session.userId, name, generated.keyHash, generated.prefix, generated.rawKey);
+    const created = await insertApiKey(db, session.userId, name, generated.keyHash, generated.prefix);
     return c.json(
       {
         key_id: String(created.id),
@@ -1314,14 +1373,7 @@ export function createDashboardRouter(): any {
     const rankingMode = rankingModeRaw === "rerank" ? "rerank" as const : "embedding" as const;
 
     // Parse optional filters
-    const rawFilters = isPlainObject(rawPayload.filters) ? rawPayload.filters : null;
-    const filters: SearchRequest["filters"] = rawFilters ? {
-      speaker: asString(rawFilters.speaker),
-      published_after: rawFilters.published_after != null ? String(rawFilters.published_after) : null,
-      min_duration: rawFilters.min_duration != null ? Number(rawFilters.min_duration) : null,
-      max_duration: rawFilters.max_duration != null ? Number(rawFilters.max_duration) : null,
-      source: asString(rawFilters.source),
-    } : null;
+    const filters = normalizePlaygroundFilters(rawPayload.filters);
 
     const requestId = `req_${randomHex(24)}`;
     const requestStartedAt = Date.now();
@@ -1369,7 +1421,7 @@ export function createDashboardRouter(): any {
         "unified",
         "playground",
         query,
-        JSON.stringify({}),
+        JSON.stringify(payload.filters ?? {}),
         payload.max_results,
         payload.include_answer,
         execution.results.length,
@@ -1388,6 +1440,12 @@ export function createDashboardRouter(): any {
         request_id: requestId,
       });
     } catch (error) {
+      if (error instanceof BillingHoldError) {
+        apiError(403, "Billing account requires review before more requests can be served.");
+      }
+      if (error instanceof InsufficientCreditsError) {
+        apiError(403, "Insufficient credits for this request.");
+      }
       if (usageRecorded) {
         try { await refundCredits(db, requestId); } catch { /* best-effort */ }
       }
@@ -1404,25 +1462,43 @@ export function createDashboardRouter(): any {
 
     const requestId = asString(rawPayload.request_id);
     const resultId = asString(rawPayload.result_id);
-    const rating = Number(rawPayload.rating);
+    const rawRating = rawPayload.rating;
 
     if (!requestId || !resultId) {
       apiError(400, "request_id and result_id are required.");
     }
-    if (rating !== 1 && rating !== -1) {
-      apiError(400, "rating must be 1 (thumbs up) or -1 (thumbs down).");
+    const rating =
+      rawRating === null
+        ? null
+        : typeof rawRating === "number" && Number.isFinite(rawRating)
+          ? rawRating
+          : Number.NaN;
+    if (rating !== null && rating !== 1 && rating !== -1) {
+      apiError(400, "rating must be 1 (thumbs up), -1 (thumbs down), or null to clear feedback.");
     }
 
-    await db.execute(
-      `INSERT INTO playground_feedback (user_id, request_id, result_id, rating)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (user_id, request_id, result_id)
-       DO UPDATE SET rating = EXCLUDED.rating`,
-      session.userId,
-      requestId,
-      resultId,
-      rating
-    );
+    await ensurePlaygroundResultOwnership(db, session.userId, requestId, resultId);
+
+    if (rating === null) {
+      await db.execute(
+        `DELETE FROM playground_feedback
+         WHERE user_id = $1 AND request_id = $2 AND result_id = $3`,
+        session.userId,
+        requestId,
+        resultId
+      );
+    } else {
+      await db.execute(
+        `INSERT INTO playground_feedback (user_id, request_id, result_id, rating)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, request_id, result_id)
+         DO UPDATE SET rating = EXCLUDED.rating`,
+        session.userId,
+        requestId,
+        resultId,
+        rating
+      );
+    }
 
     return c.json({ ok: true });
   });

@@ -130,7 +130,7 @@ describe("dashboard API client", () => {
             {
               id: "key_1",
               name: "Primary key",
-              prefix: "cerul_sk_abcd",
+              prefix: "cerul_abcd1234",
               created_at: "2026-03-01T10:00:00Z",
               last_used_at: null,
               is_active: true,
@@ -150,7 +150,7 @@ describe("dashboard API client", () => {
       {
         id: "key_1",
         name: "Primary key",
-        prefix: "cerul_sk_abcd",
+        prefix: "cerul_abcd1234",
         createdAt: "2026-03-01T10:00:00Z",
         lastUsedAt: null,
         isActive: true,
@@ -537,6 +537,8 @@ describe("dashboard API client", () => {
           query: "find attention explanation",
           max_results: 7,
           include_answer: true,
+          include_summary: false,
+          ranking_mode: "embedding",
           api_key_id: "key_selected_123",
         }),
       }),

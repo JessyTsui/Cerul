@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   apiKeys,
   playground,
@@ -31,8 +31,7 @@ function formatDuration(seconds: number): string {
 
 /* ── Code snippet builders ───────────────────────── */
 
-function buildCodeSnippet(lang: CodeLang, query: string, keyPrefix: string, forCopy = false, rawKey: string | null = null): string {
-  const masked = forCopy ? (rawKey ?? "<YOUR_API_KEY>") : maskKey(keyPrefix);
+function buildCodeSnippet(lang: CodeLang, query: string, authToken: string): string {
   const q = query || "your search query here";
 
   if (lang === "python") {
@@ -41,7 +40,7 @@ import requests
 
 response = requests.post(
     "https://api.cerul.ai/v1/search",
-    headers={"Authorization": "Bearer ${masked}"},
+    headers={"Authorization": "Bearer ${authToken}"},
     json={
         "query": ${JSON.stringify(q)},
         "max_results": 5,
@@ -54,7 +53,7 @@ print(response.json())`;
     return `const response = await fetch("https://api.cerul.ai/v1/search", {
   method: "POST",
   headers: {
-    "Authorization": "Bearer ${masked}",
+    "Authorization": "Bearer ${authToken}",
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
@@ -85,7 +84,7 @@ func main() {
     req, _ := http.NewRequest("POST",
         "https://api.cerul.ai/v1/search",
         bytes.NewBuffer(body))
-    req.Header.Set("Authorization", "Bearer ${masked}")
+    req.Header.Set("Authorization", "Bearer ${authToken}")
     req.Header.Set("Content-Type", "application/json")
 
     resp, _ := http.DefaultClient.Do(req)
@@ -97,7 +96,7 @@ func main() {
 
   // shell / curl
   return `curl -X POST https://api.cerul.ai/v1/search \\
-  -H "Authorization: Bearer ${masked}" \\
+  -H "Authorization: Bearer ${authToken}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "query": ${JSON.stringify(q)},
@@ -460,11 +459,11 @@ function ResultCard({
 
   async function handleRate(value: 1 | -1) {
     if (feedbackPending) return;
-    const nextValue = rating === value ? null : value;
+    const nextRating = rating === value ? null : value;
     setFeedbackPending(true);
     try {
-      await playground.feedback(requestId, result.id, nextValue ?? value);
-      setRating(nextValue === null ? null : value);
+      await playground.feedback(requestId, result.id, nextRating);
+      setRating(nextRating);
     } catch {
       // silent
     } finally {
@@ -486,6 +485,7 @@ function ResultCard({
           {!imgLoaded ? (
             <div className="absolute inset-0 animate-pulse bg-[rgba(36,29,21,0.06)]" />
           ) : null}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imageUrl}
             alt={result.title}
@@ -598,16 +598,16 @@ export function PlaygroundScreen() {
   const selectedKey = keys.find((k) => k.id === selectedKeyId) ?? keys[0] ?? null;
 
   const codeSnippet = useMemo(
-    () => buildCodeSnippet(codeLang, query, selectedKey?.prefix ?? "cerul_xxxx"),
+    () => buildCodeSnippet(codeLang, query, maskKey(selectedKey?.prefix ?? "cerul_xxxx")),
     [codeLang, query, selectedKey?.prefix],
   );
 
   const codeSnippetForCopy = useMemo(
-    () => buildCodeSnippet(codeLang, query, selectedKey?.prefix ?? "cerul_xxxx", true, selectedKey?.rawKey ?? null),
-    [codeLang, query, selectedKey?.prefix, selectedKey?.rawKey],
+    () => buildCodeSnippet(codeLang, query, "<YOUR_API_KEY>"),
+    [codeLang, query],
   );
 
-  const handleSearch = useCallback(async () => {
+  async function handleSearch() {
     if (!query.trim() || isLoading) return;
     if (!selectedKeyId) {
       setError("Select an API key before sending a playground request.");
@@ -637,7 +637,7 @@ export function PlaygroundScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [query, isLoading, selectedKeyId]);
+  }
 
   const rawJson = useMemo(() => {
     if (!response) return null;
@@ -813,7 +813,7 @@ export function PlaygroundScreen() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
                         </svg>
                         <span className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-56 rounded-lg bg-[var(--foreground)] px-3 py-2 text-xs leading-relaxed text-white opacity-0 shadow-lg transition group-hover:opacity-100">
-                          "embedding" for fast vector search, "rerank" for higher-quality LLM re-ranking.
+                          &quot;embedding&quot; for fast vector search, &quot;rerank&quot; for higher-quality LLM re-ranking.
                         </span>
                       </span>
                     </label>

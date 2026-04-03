@@ -53,9 +53,9 @@ When adding a new parameter:
 ## Architecture Notes
 
 ### API key format
-- Prefix: `cerul_` followed by 32 hex chars. Auth middleware pattern: `^cerul_[A-Za-z0-9]{32,}$` (also matches legacy `cerul_sk_` keys).
-- Keys are SHA256-hashed before storage. Raw key shown only once at creation.
-- A default key named "Default" is auto-created on user signup.
+- Prefix: `cerul_` followed by 32 hex chars. Auth middleware pattern: `^cerul_[A-Za-z0-9]{32,}$`.
+- Keys are SHA256-hashed before storage. Raw key is never persisted and is shown only once at creation.
+- Users create API keys explicitly from the dashboard when needed.
 - Users cannot delete their last active key (backend returns 403).
 
 ### Tracking links

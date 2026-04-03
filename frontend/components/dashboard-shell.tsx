@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import type { ReactNode } from "react";
 import type { DashboardSnapshot } from "@/lib/demo-api";
 import { DashboardLiveStatus } from "@/components/dashboard-live-status";
@@ -52,7 +53,7 @@ export function DashboardShell({
               {dashboardRoutes.map((item) => (
                 <Link
                   key={item.href}
-                  href={item.href as any}
+                  href={item.href as Route}
                   className={`dashboard-sidebar-link ${
                     isDashboardRouteActive(currentPath, item.href)
                       ? "dashboard-sidebar-link-active"

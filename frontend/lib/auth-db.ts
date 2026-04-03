@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 
@@ -202,16 +201,6 @@ type ProfileInput = {
 };
 
 const SIGNUP_BONUS_CREDITS = 100;
-const API_KEY_PREFIX = "cerul_";
-const API_KEY_TOKEN_LENGTH = 32;
-const API_KEY_PREFIX_LENGTH = 16;
-
-function generateDefaultApiKey(): { rawKey: string; keyHash: string; prefix: string } {
-  const token = randomBytes(API_KEY_TOKEN_LENGTH / 2).toString("hex");
-  const rawKey = `${API_KEY_PREFIX}${token}`;
-  const keyHash = createHash("sha256").update(rawKey).digest("hex");
-  return { rawKey, keyHash, prefix: rawKey.slice(0, API_KEY_PREFIX_LENGTH) };
-}
 
 export async function upsertUserProfile(profile: ProfileInput): Promise<void> {
   const displayName = profile.name.trim() || null;
@@ -284,12 +273,6 @@ export async function upsertUserProfile(profile: ProfileInput): Promise<void> {
         )
       `.execute(trx);
 
-      // Auto-create a default API key for new users
-      const generated = generateDefaultApiKey();
-      await sql`
-        INSERT INTO api_keys (user_id, name, key_hash, prefix, raw_key, is_active)
-        VALUES (${profile.id}, ${"Default"}, ${generated.keyHash}, ${generated.prefix}, ${generated.rawKey}, TRUE)
-      `.execute(trx);
     }),
   );
 }

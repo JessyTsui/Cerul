@@ -201,7 +201,6 @@ export type DashboardApiKey = {
   id: string;
   name: string;
   prefix: string;
-  rawKey: string | null;
   createdAt: string;
   lastUsedAt: string | null;
   isActive: boolean;
@@ -625,7 +624,6 @@ function normalizeApiKey(input: ApiKeyWire): DashboardApiKey {
     id: input.id,
     name: input.name,
     prefix: input.prefix,
-    rawKey: typeof input.raw_key === "string" ? input.raw_key : null,
     createdAt: input.created_at,
     lastUsedAt: input.last_used_at ?? null,
     isActive: input.is_active ?? true,
@@ -1492,7 +1490,7 @@ export const playground = {
     };
   },
 
-  async feedback(requestId: string, resultId: string, rating: 1 | -1): Promise<void> {
+  async feedback(requestId: string, resultId: string, rating: 1 | -1 | null): Promise<void> {
     await fetchWithAuth<unknown>("/dashboard/playground/feedback", {
       method: "POST",
       body: { request_id: requestId, result_id: resultId, rating },
