@@ -6,6 +6,8 @@ import {
   fetchWithAuth,
   getApiErrorMessage,
   jobs,
+  playground,
+  queryLogs,
   usage,
 } from "./api";
 
@@ -128,7 +130,7 @@ describe("dashboard API client", () => {
             {
               id: "key_1",
               name: "Primary key",
-              prefix: "cerul_sk_abcd",
+              prefix: "cerul_abcd1234",
               created_at: "2026-03-01T10:00:00Z",
               last_used_at: null,
               is_active: true,
@@ -148,7 +150,7 @@ describe("dashboard API client", () => {
       {
         id: "key_1",
         name: "Primary key",
-        prefix: "cerul_sk_abcd",
+        prefix: "cerul_abcd1234",
         createdAt: "2026-03-01T10:00:00Z",
         lastUsedAt: null,
         isActive: true,
@@ -491,6 +493,135 @@ describe("dashboard API client", () => {
       enabled: false,
       threshold: 80,
       quantity: 1000,
+    });
+  });
+
+  it("sends the selected API key when running playground searches", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          results: [],
+          answer: null,
+          credits_used: 1,
+          credits_remaining: 19,
+          request_id: "req_playground_123",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(
+      playground.search("find attention explanation", {
+        maxResults: 7,
+        includeAnswer: true,
+        apiKeyId: "key_selected_123",
+      }),
+    ).resolves.toEqual({
+      results: [],
+      answer: null,
+      creditsUsed: 1,
+      creditsRemaining: 19,
+      requestId: "req_playground_123",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/dashboard/playground/search",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          query: "find attention explanation",
+          max_results: 7,
+          include_answer: true,
+          include_summary: false,
+          ranking_mode: "embedding",
+          api_key_id: "key_selected_123",
+        }),
+      }),
+    );
+  });
+
+  it("normalizes query log search surfaces", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              request_id: "req_api_1",
+              search_type: "unified",
+              search_surface: "api",
+              query_text: "attention is all you need",
+              include_answer: true,
+              result_count: 5,
+              latency_ms: 182,
+              credits_used: 2,
+              created_at: "2026-04-02T08:00:00Z",
+              answer_text: "summary",
+              results: [],
+            },
+            {
+              request_id: "req_legacy_1",
+              search_type: "unified",
+              search_surface: null,
+              query_text: "legacy row",
+              include_answer: false,
+              result_count: 0,
+              latency_ms: null,
+              credits_used: 1,
+              created_at: "2026-04-01T08:00:00Z",
+              answer_text: null,
+              results: [],
+            },
+          ],
+          total: 2,
+          limit: 50,
+          offset: 0,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(queryLogs.list()).resolves.toEqual({
+      items: [
+        {
+          requestId: "req_api_1",
+          searchType: "unified",
+          searchSurface: "api",
+          queryText: "attention is all you need",
+          includeAnswer: true,
+          resultCount: 5,
+          latencyMs: 182,
+          creditsUsed: 2,
+          createdAt: "2026-04-02T08:00:00Z",
+          answerText: "summary",
+          results: [],
+        },
+        {
+          requestId: "req_legacy_1",
+          searchType: "unified",
+          searchSurface: null,
+          queryText: "legacy row",
+          includeAnswer: false,
+          resultCount: 0,
+          latencyMs: null,
+          creditsUsed: 1,
+          createdAt: "2026-04-01T08:00:00Z",
+          answerText: null,
+          results: [],
+        },
+      ],
+      total: 2,
+      limit: 50,
+      offset: 0,
     });
   });
 

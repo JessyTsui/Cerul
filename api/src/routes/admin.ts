@@ -31,6 +31,14 @@ import {
   fetchUsersSummary,
   upsertTargets
 } from "../services/admin-summary";
+import {
+  fetchAdminAnalyticsContent,
+  fetchAdminAnalyticsCreators,
+  fetchAdminAnalyticsFeedback,
+  fetchAdminAnalyticsOverview,
+  fetchAdminAnalyticsSearchQuality,
+  normalizeAnalyticsSearchSurface
+} from "../services/admin-analytics";
 import { apiError, emptyResponse } from "../utils/http";
 import { ensureJsonObject, parseInteger } from "../utils/validation";
 
@@ -59,6 +67,14 @@ function parseSourceAnalyticsRange(rangeKey: string | null | undefined): string 
     apiError(422, "range must be one of: 24h, 3d, 7d, 15d, 30d.");
   }
   return normalized;
+}
+
+function parseSearchSurface(value: string | null | undefined): "api" | "playground" | null {
+  try {
+    return normalizeAnalyticsSearchSurface(value);
+  } catch (error) {
+    apiError(422, (error as Error).message);
+  }
 }
 
 function requireString(value: unknown, fieldName: string): string {
@@ -125,6 +141,56 @@ export function createAdminRouter(): any {
   router.get("/workers/summary", async (c: any) => {
     const db = c.get("db") as DatabaseClient;
     return c.json(await fetchWorkersSummary(db, parseAdminRange(c.req.query("range"))));
+  });
+
+  router.get("/analytics/overview", async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    return c.json(
+      await fetchAdminAnalyticsOverview(db, {
+        rangeKey: parseAdminRange(c.req.query("range")) as "today" | "7d" | "30d",
+        searchSurface: parseSearchSurface(c.req.query("surface"))
+      })
+    );
+  });
+
+  router.get("/analytics/content", async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    return c.json(
+      await fetchAdminAnalyticsContent(db, {
+        rangeKey: parseAdminRange(c.req.query("range")) as "today" | "7d" | "30d",
+        searchSurface: parseSearchSurface(c.req.query("surface"))
+      })
+    );
+  });
+
+  router.get("/analytics/creators", async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    return c.json(
+      await fetchAdminAnalyticsCreators(db, {
+        rangeKey: parseAdminRange(c.req.query("range")) as "today" | "7d" | "30d",
+        searchSurface: parseSearchSurface(c.req.query("surface"))
+      })
+    );
+  });
+
+  router.get("/analytics/search-quality", async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    return c.json(
+      await fetchAdminAnalyticsSearchQuality(db, {
+        rangeKey: parseAdminRange(c.req.query("range")) as "today" | "7d" | "30d",
+        searchSurface: parseSearchSurface(c.req.query("surface"))
+      })
+    );
+  });
+
+  router.get("/analytics/feedback", async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    return c.json(
+      await fetchAdminAnalyticsFeedback(db, {
+        rangeKey: parseAdminRange(c.req.query("range")) as "today" | "7d" | "30d",
+        searchSurface: parseSearchSurface(c.req.query("surface"))
+      })
+    );
   });
 
   router.get("/targets", async (c: any) => {

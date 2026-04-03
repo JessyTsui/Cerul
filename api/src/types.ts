@@ -114,6 +114,8 @@ export interface UnifiedFilters {
   source?: string | null;
 }
 
+export type SearchSurface = "api" | "playground";
+
 export interface SearchImageInput {
   url?: string | null;
   base64?: string | null;
@@ -229,26 +231,18 @@ export interface DeleteIndexResponse {
 export interface SearchExecution {
   results: SearchResult[];
   answer: string | null;
-  tracking_links: TrackingLinkRecord[];
+  result_previews: QueryLogResultPreview[];
 }
 
-export interface TrackingLinkRecord {
-  short_id: string;
-  request_id: string;
-  result_rank: number;
-  unit_id: string;
-  video_id: string;
-  target_url: string;
+export interface QueryLogResultPreview {
+  rank: number;
+  result_id: string;
+  short_id?: string;
+  video_id?: string;
+  url: string;
   title: string;
   thumbnail_url?: string | null;
   source: string;
-  speaker?: string | null;
-  unit_type: string;
-  timestamp_start?: number | null;
-  timestamp_end?: number | null;
-  transcript?: string | null;
-  visual_desc?: string | null;
-  keyframe_url?: string | null;
   score?: number | null;
 }
 

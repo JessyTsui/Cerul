@@ -5,13 +5,12 @@ import { AnswerGenerator } from "./answer";
 import type {
   AppConfig,
   Bindings,
+  QueryLogResultPreview,
   ResolvedQueryImage,
   SearchExecution,
   SearchRequest,
-  SearchResult,
-  TrackingLinkRecord
+  SearchResult
 } from "../types";
-import { randomShortId } from "../utils/crypto";
 
 const DEFAULT_KNOWLEDGE_VECTOR_DIMENSION = 3072;
 const DEFAULT_MMR_LAMBDA = 0.75;
@@ -114,6 +113,13 @@ function truncateText(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit - 3).trimEnd()}...`;
 }
 
+function buildTrackingUrl(webBaseUrl: string, shortId: string, requestId: string, rank: number): string {
+  const url = new URL(`/v/${shortId}`, webBaseUrl.replace(/\/+$/, "/"));
+  url.searchParams.set("req", requestId);
+  url.searchParams.set("rank", String(rank));
+  return url.toString();
+}
+
 export class UnifiedSearchService {
   private readonly embeddingClient;
   private readonly reranker;
@@ -154,7 +160,7 @@ export class UnifiedSearchService {
 
     candidateRows = this.dedupeRows(candidateRows);
     if (candidateRows.length === 0) {
-      return { results: [], answer: null, tracking_links: [] };
+      return { results: [], answer: null, result_previews: [] };
     }
 
     candidateRows.sort((left, right) => Number(right.score ?? 0) - Number(left.score ?? 0));
@@ -172,55 +178,51 @@ export class UnifiedSearchService {
       ? await this.answerGenerator.generate(input.payload.query ?? "Image search query", selectedRows)
       : null;
 
-    const trackingLinks: TrackingLinkRecord[] = [];
     const results: SearchResult[] = [];
+    const resultPreviews: QueryLogResultPreview[] = [];
 
     selectedRows.forEach((row, rank) => {
-      const shortId = randomShortId(8);
-      const trackingUrl = `${this.config.public.webBaseUrl.replace(/\/+$/, "")}/v/${shortId}`;
-      const targetUrl = this.buildTargetUrl(row);
-      trackingLinks.push({
-        short_id: shortId,
-        request_id: input.requestId,
-        result_rank: rank,
-        unit_id: String(row.id),
-        video_id: String(row.video_id),
-        target_url: targetUrl,
-        title: String(row.title ?? ""),
-        thumbnail_url: row.thumbnail_url == null ? null : String(row.thumbnail_url),
-        source: String(row.source ?? ""),
-        speaker: row.speaker == null ? null : String(row.speaker),
-        unit_type: String(row.unit_type ?? "speech"),
-        timestamp_start: coerceOptionalFloat(row.timestamp_start),
-        timestamp_end: coerceOptionalFloat(row.timestamp_end),
-        transcript: row.transcript_text == null ? null : String(row.transcript_text),
-        visual_desc: row.visual_description == null ? String(row.visual_summary ?? "") || null : String(row.visual_description),
-        keyframe_url: row.keyframe_url == null ? null : String(row.keyframe_url),
-        score: row.score != null ? Number(row.score) : null
-      });
+      const shortId = String(row.short_id ?? "").trim();
+      const trackingUrl = buildTrackingUrl(this.config.public.webBaseUrl, shortId, input.requestId, rank);
+      const title = String(row.title ?? "");
+      const source = String(row.source ?? "");
+      const thumbnailUrl = row.thumbnail_url == null ? null : String(row.thumbnail_url);
+      const score = row.score != null ? Number(row.score) : null;
 
       results.push({
         id: String(row.id),
         score: clampScore(row.score),
         rerank_score: row.rerank_score == null ? null : clampScore(row.rerank_score),
         url: trackingUrl,
-        title: String(row.title ?? ""),
+        title,
         snippet: this.buildSnippet(row),
         transcript: row.transcript_text == null ? null : String(row.transcript_text),
-        thumbnail_url: row.thumbnail_url == null ? null : String(row.thumbnail_url),
+        thumbnail_url: thumbnailUrl,
         keyframe_url: row.keyframe_url == null ? null : String(row.keyframe_url),
         duration: Number(row.duration ?? 0),
-        source: String(row.source ?? ""),
+        source,
         speaker: row.speaker == null ? null : String(row.speaker),
         timestamp_start: coerceOptionalFloat(row.timestamp_start),
         timestamp_end: coerceOptionalFloat(row.timestamp_end)
+      });
+
+      resultPreviews.push({
+        rank,
+        result_id: String(row.id),
+        short_id: shortId,
+        video_id: String(row.video_id ?? ""),
+        url: trackingUrl,
+        title,
+        thumbnail_url: thumbnailUrl,
+        source,
+        score
       });
     });
 
     return {
       results,
       answer,
-      tracking_links: trackingLinks
+      result_previews: resultPreviews
     };
   }
 
@@ -279,11 +281,17 @@ export class UnifiedSearchService {
     const distanceSql =
       `(ru.embedding::halfvec(${DEFAULT_KNOWLEDGE_VECTOR_DIMENSION}) <=> ` +
       `($1::vector(${DEFAULT_KNOWLEDGE_VECTOR_DIMENSION}))::halfvec(${DEFAULT_KNOWLEDGE_VECTOR_DIMENSION}))`;
+    const shortIdSql =
+      "COALESCE(" +
+      "ru.short_id, " +
+      "SUBSTRING(ENCODE(DIGEST(CONCAT_WS(':', ru.video_id::text, ru.unit_type, ru.unit_index::text), 'sha256'), 'hex') FROM 1 FOR 12)" +
+      ")";
 
     return this.db.fetch(
       `
         SELECT
             ru.id::text AS id,
+            ${shortIdSql} AS short_id,
             v.id::text AS video_id,
             ru.unit_type,
             ru.unit_index,
@@ -397,25 +405,6 @@ export class UnifiedSearchService {
       selected.push(row);
     }
     return selected;
-  }
-
-  private buildTargetUrl(row: Record<string, unknown>): string {
-    const targetUrl = String(row.source_url ?? row.video_url ?? "").trim();
-    if (!targetUrl) {
-      return this.config.public.webBaseUrl.replace(/\/+$/, "");
-    }
-
-    const timestampStart = coerceOptionalFloat(row.timestamp_start);
-    if (timestampStart == null) {
-      return targetUrl;
-    }
-
-    if (String(row.source ?? "").trim().toLowerCase() === "youtube") {
-      const url = new URL(targetUrl);
-      url.searchParams.set("t", String(Math.max(Math.trunc(timestampStart), 0)));
-      return url.toString();
-    }
-    return targetUrl;
   }
 
   private buildSnippet(row: Record<string, unknown>): string {

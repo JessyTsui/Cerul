@@ -172,6 +172,9 @@ function getPool(): Pool {
   if (!pool) {
     pool = new Pool({
       connectionString: normalizeAuthDatabaseUrl(getDatabaseUrl()),
+      connectionTimeoutMillis: 60_000,
+      idleTimeoutMillis: 30_000,
+      max: 5,
     });
   }
 
@@ -269,6 +272,7 @@ export async function upsertUserProfile(profile: ProfileInput): Promise<void> {
           })}::jsonb
         )
       `.execute(trx);
+
     }),
   );
 }

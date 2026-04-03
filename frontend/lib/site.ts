@@ -261,17 +261,19 @@ export const authValueProps = [
 
 export const dashboardRoutes = [
   { label: "Overview", href: "/dashboard", meta: "01" },
-  { label: "Usage", href: "/dashboard/usage", meta: "02" },
-  { label: "Billing", href: "/dashboard/billing", meta: "03" },
-  { label: "Settings", href: "/dashboard/settings", meta: "04" },
+  { label: "API Playground", href: "/dashboard/playground", meta: "02" },
+  { label: "Usage", href: "/dashboard/usage", meta: "03" },
+  { label: "Billing", href: "/dashboard/billing", meta: "04" },
+  { label: "Settings", href: "/dashboard/settings", meta: "05" },
 ] as const;
 
 export const adminRoutes = [
   { label: "Overview", href: "/admin", meta: "A1" },
-  { label: "Requests", href: "/admin/requests", meta: "A2" },
-  { label: "Workers", href: "/admin/workers", meta: "A3" },
-  { label: "Sources", href: "/admin/sources", meta: "A4" },
-  { label: "Content", href: "/admin/content", meta: "A5" },
+  { label: "Analytics", href: "/admin/analytics", meta: "A2" },
+  { label: "Requests", href: "/admin/requests", meta: "A3" },
+  { label: "Workers", href: "/admin/workers", meta: "A4" },
+  { label: "Sources", href: "/admin/sources", meta: "A5" },
+  { label: "Content", href: "/admin/content", meta: "A6" },
 ] as const;
 
 export function isPrimaryRoute(path: string): boolean {

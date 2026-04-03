@@ -118,7 +118,7 @@ export function CreateKeyDialog({
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm"
       role="dialog"
       onClick={() => {
         if (!isSubmitting) {
@@ -127,7 +127,7 @@ export function CreateKeyDialog({
       }}
     >
       <div
-        className="surface-elevated w-full max-w-[560px] px-6 py-6"
+        className="surface-elevated w-full max-w-[560px] rounded-[24px] px-6 py-6"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
