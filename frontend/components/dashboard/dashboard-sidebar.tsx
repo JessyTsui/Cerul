@@ -45,6 +45,14 @@ function IconCreditCard({ className }: { className?: string }) {
   );
 }
 
+function IconCode({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 17.25V6.75A2.25 2.25 0 0 0 18.75 4.5H5.25A2.25 2.25 0 0 0 3 6.75v10.5A2.25 2.25 0 0 0 5.25 20.25Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
 function IconArrowRight({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,6 +63,7 @@ function IconArrowRight({ className }: { className?: string }) {
 
 const ROUTE_ICONS: Record<string, React.FC<{ className?: string }>> = {
   Overview: IconHome,
+  "API Playground": IconCode,
   Usage: IconChartBar,
   Billing: IconCreditCard,
   Settings: IconCog,

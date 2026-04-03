@@ -1,7 +1,13 @@
 import { Hono } from "hono";
 
 import type { DatabaseClient } from "../db/client";
+import type { AppConfig } from "../types";
 import { sha256Hex } from "../utils/crypto";
+
+type TrackingContext = {
+  requestId: string | null;
+  resultRank: number | null;
+};
 
 function buildSnippet(trackingRow: Record<string, unknown>): string {
   const value = trackingRow.transcript ?? trackingRow.visual_desc ?? "";
@@ -18,7 +24,34 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function renderDetailPage(trackingRow: Record<string, unknown>, shortId: string): string {
+function normalizeOptionalText(value: unknown): string | null {
+  const text = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+  return text ? text : null;
+}
+
+function normalizeOptionalRank(value: unknown): number | null {
+  if (value == null) {
+    return null;
+  }
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function buildTrackingPath(shortId: string, suffix: "" | "/go", context: TrackingContext): string {
+  const params = new URLSearchParams();
+  if (context.requestId) {
+    params.set("req", context.requestId);
+  }
+  if (context.resultRank != null) {
+    params.set("rank", String(context.resultRank));
+  }
+
+  const encodedShortId = encodeURIComponent(shortId);
+  const query = params.toString();
+  return query ? `/v/${encodedShortId}${suffix}?${query}` : `/v/${encodedShortId}${suffix}`;
+}
+
+function renderDetailPage(trackingRow: Record<string, unknown>, shortId: string, context: TrackingContext): string {
   const title = escapeHtml(String(trackingRow.title ?? "Cerul video"));
   const snippet = escapeHtml(buildSnippet(trackingRow));
   const mediaUrl = escapeHtml(String(trackingRow.thumbnail_url ?? trackingRow.keyframe_url ?? ""));
@@ -30,6 +63,7 @@ function renderDetailPage(trackingRow: Record<string, unknown>, shortId: string)
     timestampStart != null && timestampEnd != null
       ? `${Number(timestampStart).toFixed(1)}s - ${Number(timestampEnd).toFixed(1)}s`
       : "";
+  const goHref = escapeHtml(buildTrackingPath(shortId, "/go", context));
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -138,7 +172,7 @@ function renderDetailPage(trackingRow: Record<string, unknown>, shortId: string)
         </div>
         <p>${snippet}</p>
         <div class="actions">
-          <a class="button" href="/v/${escapeHtml(shortId)}/go">Watch on Source</a>
+          <a class="button" href="${goHref}">Watch on Source</a>
           <a class="button ghost" href="/">Back to Cerul</a>
         </div>
       </div>
@@ -187,7 +221,81 @@ function renderNotFoundPage(shortId: string): string {
 </html>`;
 }
 
-async function fetchTrackingRow(db: DatabaseClient, shortId: string): Promise<Record<string, unknown> | null> {
+function buildTargetUrl(trackingRow: Record<string, unknown>, webBaseUrl: string): string {
+  const storedTargetUrl = normalizeOptionalText(trackingRow.target_url);
+  if (storedTargetUrl) {
+    return storedTargetUrl;
+  }
+
+  const sourceUrl = normalizeOptionalText(trackingRow.source_url ?? trackingRow.video_url);
+  if (!sourceUrl) {
+    return webBaseUrl.replace(/\/+$/, "");
+  }
+
+  const timestampStart = trackingRow.timestamp_start == null ? null : Number(trackingRow.timestamp_start);
+  if (timestampStart == null || !Number.isFinite(timestampStart)) {
+    return sourceUrl;
+  }
+
+  if (String(trackingRow.source ?? "").trim().toLowerCase() === "youtube") {
+    try {
+      const url = new URL(sourceUrl);
+      url.searchParams.set("t", String(Math.max(Math.trunc(timestampStart), 0)));
+      return url.toString();
+    } catch {
+      return sourceUrl;
+    }
+  }
+
+  return sourceUrl;
+}
+
+function resolveTrackingContext(c: any, trackingRow: Record<string, unknown>): TrackingContext {
+  return {
+    requestId: normalizeOptionalText(c.req.query("req")) ?? normalizeOptionalText(trackingRow.request_id),
+    resultRank: normalizeOptionalRank(c.req.query("rank")) ?? normalizeOptionalRank(trackingRow.result_rank)
+  };
+}
+
+async function fetchPermanentTrackingRow(db: DatabaseClient, shortId: string): Promise<Record<string, unknown> | null> {
+  const shortIdSql =
+    "COALESCE(" +
+    "ru.short_id, " +
+    "SUBSTRING(ENCODE(DIGEST(CONCAT_WS(':', ru.video_id::text, ru.unit_type, ru.unit_index::text), 'sha256'), 'hex') FROM 1 FOR 12)" +
+    ")";
+
+  return db.fetchrow(
+    `
+      SELECT
+          ${shortIdSql} AS short_id,
+          NULL::text AS request_id,
+          NULL::smallint AS result_rank,
+          ru.id::text AS unit_id,
+          ru.video_id::text AS video_id,
+          NULL::text AS target_url,
+          ru.unit_type,
+          ru.timestamp_start,
+          ru.timestamp_end,
+          ru.transcript,
+          ru.visual_desc,
+          ru.keyframe_url,
+          v.title,
+          v.thumbnail_url,
+          v.source,
+          v.speaker,
+          v.source_url,
+          v.video_url
+      FROM retrieval_units AS ru
+      JOIN videos AS v
+          ON v.id = ru.video_id
+      WHERE ${shortIdSql} = $1
+      LIMIT 1
+    `,
+    shortId
+  );
+}
+
+async function fetchLegacyTrackingRow(db: DatabaseClient, shortId: string): Promise<Record<string, unknown> | null> {
   return db.fetchrow(
     `
       SELECT
@@ -206,16 +314,27 @@ async function fetchTrackingRow(db: DatabaseClient, shortId: string): Promise<Re
           COALESCE(v.title, tl.title) AS title,
           COALESCE(v.thumbnail_url, tl.thumbnail_url) AS thumbnail_url,
           COALESCE(v.source, tl.source) AS source,
-          COALESCE(v.speaker, tl.speaker) AS speaker
+          COALESCE(v.speaker, tl.speaker) AS speaker,
+          v.source_url,
+          v.video_url
       FROM tracking_links AS tl
       LEFT JOIN retrieval_units AS ru
           ON ru.id = tl.unit_id
       LEFT JOIN videos AS v
           ON v.id = tl.video_id
       WHERE tl.short_id = $1
+      LIMIT 1
     `,
     shortId
   );
+}
+
+async function fetchTrackingRow(db: DatabaseClient, shortId: string): Promise<Record<string, unknown> | null> {
+  const permanentRow = await fetchPermanentTrackingRow(db, shortId);
+  if (permanentRow) {
+    return permanentRow;
+  }
+  return fetchLegacyTrackingRow(db, shortId);
 }
 
 async function recordTrackingEvent(
@@ -223,6 +342,7 @@ async function recordTrackingEvent(
   shortId: string,
   eventType: string,
   trackingRow: Record<string, unknown>,
+  trackingContext: TrackingContext,
   request: Request
 ): Promise<void> {
   const rawIp = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
@@ -245,10 +365,10 @@ async function recordTrackingEvent(
       `,
       shortId,
       eventType,
-      String(trackingRow.request_id ?? ""),
-      Number(trackingRow.result_rank ?? 0),
-      String(trackingRow.unit_id ?? ""),
-      String(trackingRow.video_id ?? ""),
+      trackingContext.requestId,
+      trackingContext.resultRank,
+      normalizeOptionalText(trackingRow.unit_id),
+      normalizeOptionalText(trackingRow.video_id),
       request.headers.get("referer"),
       request.headers.get("user-agent"),
       ipHash
@@ -263,13 +383,15 @@ export function createTrackingRouter(): any {
 
   router.get("/v/:shortId", async (c: any) => {
     const db = c.get("db") as DatabaseClient;
+    const config = c.get("config") as AppConfig;
     const shortId = c.req.param("shortId");
     const trackingRow = await fetchTrackingRow(db, shortId);
     if (!trackingRow) {
       return c.html(renderNotFoundPage(shortId), 404);
     }
-    await recordTrackingEvent(db, shortId, "redirect", trackingRow, c.req.raw);
-    return c.redirect(String(trackingRow.target_url), 302);
+    const trackingContext = resolveTrackingContext(c, trackingRow);
+    await recordTrackingEvent(db, shortId, "redirect", trackingRow, trackingContext, c.req.raw);
+    return c.redirect(buildTargetUrl(trackingRow, config.public.webBaseUrl), 302);
   });
 
   router.get("/v/:shortId/detail", async (c: any) => {
@@ -279,19 +401,22 @@ export function createTrackingRouter(): any {
     if (!trackingRow) {
       return c.html(renderNotFoundPage(shortId), 404);
     }
-    await recordTrackingEvent(db, shortId, "page_view", trackingRow, c.req.raw);
-    return c.html(renderDetailPage(trackingRow, shortId), 200);
+    const trackingContext = resolveTrackingContext(c, trackingRow);
+    await recordTrackingEvent(db, shortId, "page_view", trackingRow, trackingContext, c.req.raw);
+    return c.html(renderDetailPage(trackingRow, shortId, trackingContext), 200);
   });
 
   router.get("/v/:shortId/go", async (c: any) => {
     const db = c.get("db") as DatabaseClient;
+    const config = c.get("config") as AppConfig;
     const shortId = c.req.param("shortId");
     const trackingRow = await fetchTrackingRow(db, shortId);
     if (!trackingRow) {
       return c.html(renderNotFoundPage(shortId), 404);
     }
-    await recordTrackingEvent(db, shortId, "outbound_click", trackingRow, c.req.raw);
-    return c.redirect(String(trackingRow.target_url), 302);
+    const trackingContext = resolveTrackingContext(c, trackingRow);
+    await recordTrackingEvent(db, shortId, "outbound_click", trackingRow, trackingContext, c.req.raw);
+    return c.redirect(buildTargetUrl(trackingRow, config.public.webBaseUrl), 302);
   });
 
   return router;

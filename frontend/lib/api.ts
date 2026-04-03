@@ -20,6 +20,7 @@ type ApiKeyWire = {
   id: string;
   name: string;
   prefix: string;
+  raw_key?: string | null;
   created_at: string;
   last_used_at?: string | null;
   is_active?: boolean;
@@ -200,6 +201,7 @@ export type DashboardApiKey = {
   id: string;
   name: string;
   prefix: string;
+  rawKey: string | null;
   createdAt: string;
   lastUsedAt: string | null;
   isActive: boolean;
@@ -273,6 +275,7 @@ export type QueryLogResult = {
 export type QueryLogEntry = {
   requestId: string;
   searchType: string;
+  searchSurface: string | null;
   queryText: string;
   includeAnswer: boolean;
   resultCount: number;
@@ -622,6 +625,7 @@ function normalizeApiKey(input: ApiKeyWire): DashboardApiKey {
     id: input.id,
     name: input.name,
     prefix: input.prefix,
+    rawKey: typeof input.raw_key === "string" ? input.raw_key : null,
     createdAt: input.created_at,
     lastUsedAt: input.last_used_at ?? null,
     isActive: input.is_active ?? true,
@@ -1387,6 +1391,115 @@ export type {
   AdminWindow,
 } from "./admin-api";
 
+/* ── Playground types ─────────────────────────────── */
+
+export type PlaygroundSearchResult = {
+  id: string;
+  score: number;
+  rerankScore: number | null;
+  url: string;
+  title: string;
+  snippet: string;
+  transcript: string | null;
+  thumbnailUrl: string | null;
+  keyframeUrl: string | null;
+  duration: number;
+  source: string;
+  speaker: string | null;
+  timestampStart: number | null;
+  timestampEnd: number | null;
+};
+
+export type PlaygroundSearchResponse = {
+  results: PlaygroundSearchResult[];
+  answer: string | null;
+  creditsUsed: number;
+  creditsRemaining: number;
+  requestId: string;
+};
+
+function normalizePlaygroundResult(raw: Record<string, unknown>): PlaygroundSearchResult {
+  return {
+    id: String(raw.id ?? ""),
+    score: Number(raw.score ?? 0),
+    rerankScore: typeof raw.rerank_score === "number" ? raw.rerank_score : null,
+    url: String(raw.url ?? ""),
+    title: String(raw.title ?? ""),
+    snippet: String(raw.snippet ?? ""),
+    transcript: typeof raw.transcript === "string" ? raw.transcript : null,
+    thumbnailUrl: typeof raw.thumbnail_url === "string" ? raw.thumbnail_url : null,
+    keyframeUrl: typeof raw.keyframe_url === "string" ? raw.keyframe_url : null,
+    duration: Number(raw.duration ?? 0),
+    source: String(raw.source ?? ""),
+    speaker: typeof raw.speaker === "string" ? raw.speaker : null,
+    timestampStart: typeof raw.timestamp_start === "number" ? raw.timestamp_start : null,
+    timestampEnd: typeof raw.timestamp_end === "number" ? raw.timestamp_end : null,
+  };
+}
+
+export const playground = {
+  async search(query: string, options?: {
+    maxResults?: number;
+    includeAnswer?: boolean;
+    includeSummary?: boolean;
+    rankingMode?: "embedding" | "rerank";
+    apiKeyId?: string | null;
+    filters?: {
+      speaker?: string | null;
+      publishedAfter?: string | null;
+      minDuration?: number | null;
+      maxDuration?: number | null;
+      source?: string | null;
+    } | null;
+  }): Promise<PlaygroundSearchResponse> {
+    const body: Record<string, unknown> = {
+      query,
+      max_results: options?.maxResults ?? 5,
+      include_answer: options?.includeAnswer ?? false,
+      include_summary: options?.includeSummary ?? false,
+      ranking_mode: options?.rankingMode ?? "embedding",
+    };
+    if (options?.apiKeyId) {
+      body.api_key_id = options.apiKeyId;
+    }
+    const f = options?.filters;
+    if (f && (f.speaker || f.publishedAfter || f.minDuration || f.maxDuration || f.source)) {
+      body.filters = {
+        ...(f.speaker ? { speaker: f.speaker } : {}),
+        ...(f.publishedAfter ? { published_after: f.publishedAfter } : {}),
+        ...(f.minDuration != null ? { min_duration: f.minDuration } : {}),
+        ...(f.maxDuration != null ? { max_duration: f.maxDuration } : {}),
+        ...(f.source ? { source: f.source } : {}),
+      };
+    }
+
+    const raw = await fetchWithAuth<Record<string, unknown>>(
+      "/dashboard/playground/search",
+      {
+        method: "POST",
+        body,
+      },
+    );
+    const results = Array.isArray(raw.results)
+      ? (raw.results as Record<string, unknown>[]).map(normalizePlaygroundResult)
+      : [];
+    return {
+      results,
+      answer: typeof raw.answer === "string" ? raw.answer : null,
+      creditsUsed: Number(raw.credits_used ?? 0),
+      creditsRemaining: Number(raw.credits_remaining ?? 0),
+      requestId: String(raw.request_id ?? ""),
+    };
+  },
+
+  async feedback(requestId: string, resultId: string, rating: 1 | -1): Promise<void> {
+    await fetchWithAuth<unknown>("/dashboard/playground/feedback", {
+      method: "POST",
+      body: { request_id: requestId, result_id: resultId, rating },
+    });
+  },
+};
+
 export const queryLogs = {
   async list(options?: { limit?: number; offset?: number }): Promise<QueryLogsResponse> {
     const params = new URLSearchParams();
@@ -1402,6 +1515,7 @@ export const queryLogs = {
       items: items.map((item: Record<string, unknown>) => ({
         requestId: String(item.request_id ?? ""),
         searchType: String(item.search_type ?? ""),
+        searchSurface: typeof item.search_surface === "string" ? item.search_surface : null,
         queryText: String(item.query_text ?? ""),
         includeAnswer: item.include_answer === true,
         resultCount: Number(item.result_count ?? 0),

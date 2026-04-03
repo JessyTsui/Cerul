@@ -281,14 +281,13 @@ export function DashboardOverviewScreen() {
               <div className="surface-elevated dashboard-card overflow-hidden rounded-[24px]">
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-[var(--border)] bg-[var(--background-elevated)] text-[var(--foreground-secondary)]">
+                    <thead className="border-b border-[var(--border)] bg-[var(--background-elevated)] text-xs font-semibold uppercase tracking-[0.08em] text-[var(--foreground-tertiary)]">
                       <tr>
-                        <th className="px-5 py-3.5 font-medium">Name</th>
-                        <th className="px-5 py-3.5 font-medium">Key</th>
-                        <th className="px-5 py-3.5 font-medium">Created</th>
-                        <th className="px-5 py-3.5 font-medium">Last used</th>
-                        <th className="px-5 py-3.5 font-medium">Status</th>
-                        <th className="px-5 py-3.5 text-right font-medium">Actions</th>
+                        <th className="px-5 py-3.5">Name</th>
+                        <th className="px-5 py-3.5">Key</th>
+                        <th className="px-5 py-3.5">Created</th>
+                        <th className="px-5 py-3.5">Last used</th>
+                        <th className="px-5 py-3.5 text-right">Options</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -298,6 +297,7 @@ export function DashboardOverviewScreen() {
                           apiKey={apiKey}
                           isPending={pendingKeyId === apiKey.id}
                           onRevoke={handleRevoke}
+                          isLastKey={keys.filter((k) => k.isActive).length <= 1}
                         />
                       ))}
                     </tbody>

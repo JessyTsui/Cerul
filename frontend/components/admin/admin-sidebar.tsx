@@ -28,6 +28,19 @@ function IconChartBar({ className }: { className?: string }) {
   );
 }
 
+function IconPulse({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path
+        d="M3 12h3l2.4-4.8a.5.5 0 01.9.02L12 16l2.2-4.4a.5.5 0 01.9.02L16.8 15H21"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+      />
+    </svg>
+  );
+}
+
 function IconArrows({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -92,6 +105,7 @@ function IconCog({ className }: { className?: string }) {
 
 const ROUTE_ICONS: Record<string, React.FC<{ className?: string }>> = {
   Overview: IconChartBar,
+  Analytics: IconPulse,
   Pipelines: IconArrows,
   Requests: IconArrowPath,
   Users: IconUsers,

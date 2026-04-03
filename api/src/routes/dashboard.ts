@@ -4,6 +4,7 @@ import type { DatabaseClient } from "../db/client";
 import { adminAuth, sessionAuth } from "../middleware/auth";
 import {
   calculateCreditsRemaining,
+  consumeSearchCredits,
   fetchBillingCatalogState,
   fetchDailySearchAllowance,
   fetchReferralStats,
@@ -11,6 +12,7 @@ import {
   isPaidTier,
   keyLimitForTier,
   redeemReferralCode,
+  refundCredits,
   updateReferralCode
 } from "../services/billing";
 import { getProProduct } from "../services/billing-catalog";
@@ -33,9 +35,11 @@ import {
 import { sendBillingNotification } from "../services/transactional-email";
 import { apiError, emptyResponse } from "../utils/http";
 import { sha256Hex, randomHex } from "../utils/crypto";
-import { ensureJsonObject } from "../utils/validation";
+import { ensureJsonObject, parseBoolean, parseInteger, asString, isPlainObject } from "../utils/validation";
+import { UnifiedSearchService } from "../services/search";
+import type { SearchRequest, UnifiedFilters } from "../types";
 
-const API_KEY_PREFIX = "cerul_sk_";
+const API_KEY_PREFIX = "cerul_";
 const API_KEY_TOKEN_LENGTH = 32;
 const API_KEY_PREFIX_LENGTH = 16;
 
@@ -137,6 +141,7 @@ function normalizeApiKeySummary(record: Record<string, unknown> | null): Record<
     id: String(payload.id ?? ""),
     name: String(payload.name ?? ""),
     prefix: String(payload.prefix ?? ""),
+    raw_key: typeof payload.raw_key === "string" ? payload.raw_key : null,
     created_at: payload.created_at ?? null,
     last_used_at: payload.last_used_at ?? null,
     is_active: Boolean(payload.is_active ?? false)
@@ -209,6 +214,23 @@ function normalizeProcessingJobStep(record: Record<string, unknown> | null): Rec
     guidance: typeof (artifacts as any).guidance === "string" ? String((artifacts as any).guidance).trim() || null : null,
     logs
   };
+}
+
+function normalizeQueryLogResultPreviews(value: unknown): Record<string, unknown>[] {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed.filter((item): item is Record<string, unknown> => typeof item === "object" && item != null);
 }
 
 async function findAuthUser(db: DatabaseClient, userId: string): Promise<Record<string, unknown> | null> {
@@ -304,18 +326,20 @@ async function insertApiKey(
   userId: string,
   name: string,
   keyHash: string,
-  prefix: string
+  prefix: string,
+  rawKey: string
 ): Promise<Record<string, unknown>> {
   const row = await db.fetchrow(
     `
-      INSERT INTO api_keys (user_id, name, key_hash, prefix, is_active)
-      VALUES ($1, $2, $3, $4, TRUE)
-      RETURNING id, name, prefix, created_at, last_used_at, is_active
+      INSERT INTO api_keys (user_id, name, key_hash, prefix, raw_key, is_active)
+      VALUES ($1, $2, $3, $4, $5, TRUE)
+      RETURNING id, name, prefix, raw_key, created_at, last_used_at, is_active
     `,
     userId,
     name,
     keyHash,
-    prefix
+    prefix,
+    rawKey
   );
   if (!row) {
     apiError(500, "Failed to create API key.");
@@ -326,7 +350,7 @@ async function insertApiKey(
 async function listApiKeysForUser(db: DatabaseClient, userId: string): Promise<Record<string, unknown>[]> {
   const rows = await db.fetch(
     `
-      SELECT id, name, prefix, created_at, last_used_at, is_active
+      SELECT id, name, prefix, raw_key, created_at, last_used_at, is_active
       FROM api_keys
       WHERE user_id = $1
       ORDER BY created_at DESC
@@ -334,6 +358,45 @@ async function listApiKeysForUser(db: DatabaseClient, userId: string): Promise<R
     userId
   );
   return rows.map((row) => normalizeApiKeySummary(row));
+}
+
+async function resolvePlaygroundApiKeyId(
+  db: DatabaseClient,
+  userId: string,
+  requestedKeyId?: string | null
+): Promise<string> {
+  const row = requestedKeyId
+    ? await db.fetchrow(
+        `
+          SELECT id
+          FROM api_keys
+          WHERE id = $1
+            AND user_id = $2
+            AND is_active = TRUE
+        `,
+        requestedKeyId,
+        userId
+      )
+    : await db.fetchrow(
+        `
+          SELECT id
+          FROM api_keys
+          WHERE user_id = $1
+            AND is_active = TRUE
+          ORDER BY created_at ASC
+          LIMIT 1
+        `,
+        userId
+      );
+
+  if (!row) {
+    if (requestedKeyId) {
+      apiError(404, "Selected API key not found or inactive.");
+    }
+    apiError(403, "No active API key found. Create an API key first.");
+  }
+
+  return String(row.id);
 }
 
 async function softDeleteApiKey(db: DatabaseClient, keyId: string, userId: string): Promise<boolean> {
@@ -583,7 +646,7 @@ export function createDashboardRouter(): any {
     }
 
     const generated = await generateApiKey();
-    const created = await insertApiKey(db, session.userId, name, generated.keyHash, generated.prefix);
+    const created = await insertApiKey(db, session.userId, name, generated.keyHash, generated.prefix, generated.rawKey);
     return c.json(
       {
         key_id: String(created.id),
@@ -604,6 +667,10 @@ export function createDashboardRouter(): any {
   router.delete("/api-keys/:keyId", sessionAuth(), async (c: any) => {
     const db = c.get("db") as DatabaseClient;
     const session = c.get("session") as DashboardSession;
+    const activeCount = await countActiveApiKeys(db, session.userId);
+    if (activeCount <= 1) {
+      apiError(403, "Cannot delete your last API key. At least one active key is required.");
+    }
     const deleted = await softDeleteApiKey(db, c.req.param("keyId"), session.userId);
     if (!deleted) {
       apiError(404, "API key not found.");
@@ -672,6 +739,7 @@ export function createDashboardRouter(): any {
     const rows = await db.fetch<{
       request_id: string;
       search_type: string;
+      search_surface: string | null;
       query_text: string;
       include_answer: boolean;
       result_count: number;
@@ -679,17 +747,20 @@ export function createDashboardRouter(): any {
       created_at: string;
       credits_used: number | null;
       answer_text: string | null;
+      results_preview: unknown;
     }>(
       `
         SELECT
             ql.request_id,
             ql.search_type,
+            ql.search_surface,
             ql.query_text,
             ql.include_answer,
             ql.result_count,
             ql.latency_ms,
             ql.created_at,
             ql.answer_text,
+            ql.results_preview,
             ue.credits_used
         FROM query_logs ql
         LEFT JOIN usage_events ue ON ue.request_id = ql.request_id
@@ -702,34 +773,6 @@ export function createDashboardRouter(): any {
       offset
     );
 
-    // Batch-fetch tracking links for all returned queries
-    const requestIds = rows.map((r) => r.request_id);
-    const trackingRows = requestIds.length > 0
-      ? await db.fetch<{
-          request_id: string;
-          result_rank: number;
-          title: string | null;
-          source: string | null;
-          thumbnail_url: string | null;
-          target_url: string | null;
-        }>(
-          `
-            SELECT request_id, result_rank, title, source, thumbnail_url, target_url, score
-            FROM tracking_links
-            WHERE request_id = ANY($1::text[])
-            ORDER BY request_id, result_rank ASC
-          `,
-          `{${requestIds.join(",")}}`
-        )
-      : [];
-
-    const resultsByRequest = new Map<string, typeof trackingRows>();
-    for (const tr of trackingRows) {
-      const existing = resultsByRequest.get(tr.request_id) ?? [];
-      existing.push(tr);
-      resultsByRequest.set(tr.request_id, existing);
-    }
-
     const total = await db.fetchval<number>(
       `SELECT COUNT(*)::int FROM query_logs WHERE user_id = $1`,
       session.userId
@@ -739,6 +782,7 @@ export function createDashboardRouter(): any {
       items: rows.map((row) => ({
         request_id: row.request_id,
         search_type: row.search_type,
+        search_surface: row.search_surface,
         query_text: row.query_text,
         include_answer: row.include_answer,
         result_count: Number(row.result_count ?? 0),
@@ -746,13 +790,13 @@ export function createDashboardRouter(): any {
         credits_used: row.credits_used != null ? Number(row.credits_used) : 0,
         created_at: row.created_at,
         answer_text: row.answer_text ?? null,
-        results: (resultsByRequest.get(row.request_id) ?? []).slice(0, 5).map((tr: Record<string, unknown>) => ({
-          rank: Number(tr.result_rank ?? 0),
-          title: tr.title ?? "",
-          source: tr.source ?? "",
-          thumbnail_url: tr.thumbnail_url ?? null,
-          target_url: tr.target_url ?? null,
-          score: tr.score != null ? Number(tr.score) : null,
+        results: normalizeQueryLogResultPreviews(row.results_preview).slice(0, 5).map((preview) => ({
+          rank: Number(preview.rank ?? 0),
+          title: preview.title ?? "",
+          source: preview.source ?? "",
+          thumbnail_url: preview.thumbnail_url ?? null,
+          target_url: preview.url ?? null,
+          score: preview.score != null ? Number(preview.score) : null,
         })),
       })),
       total: Number(total ?? 0),
@@ -1245,6 +1289,142 @@ export function createDashboardRouter(): any {
       : key;
 
     return c.json({ url: publicUrl });
+  });
+
+  /* ── Playground: search ────────────────────────────── */
+
+  router.post("/playground/search", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const config = c.get("config");
+    const rawPayload = ensureJsonObject(await c.req.json(), "Request body must be a JSON object.");
+
+    const query = asString(rawPayload.query);
+    if (!query) {
+      apiError(400, "query is required.");
+    }
+
+    const maxResults = parseInteger(rawPayload.max_results, "max_results", 5);
+    const includeAnswer = parseBoolean(rawPayload.include_answer, "include_answer", false);
+    const includeSummary = parseBoolean(rawPayload.include_summary, "include_summary", false);
+    const requestedApiKeyId = asString(rawPayload.api_key_id);
+    const apiKeyId = await resolvePlaygroundApiKeyId(db, session.userId, requestedApiKeyId);
+
+    const rankingModeRaw = asString(rawPayload.ranking_mode);
+    const rankingMode = rankingModeRaw === "rerank" ? "rerank" as const : "embedding" as const;
+
+    // Parse optional filters
+    const rawFilters = isPlainObject(rawPayload.filters) ? rawPayload.filters : null;
+    const filters: SearchRequest["filters"] = rawFilters ? {
+      speaker: asString(rawFilters.speaker),
+      published_after: rawFilters.published_after != null ? String(rawFilters.published_after) : null,
+      min_duration: rawFilters.min_duration != null ? Number(rawFilters.min_duration) : null,
+      max_duration: rawFilters.max_duration != null ? Number(rawFilters.max_duration) : null,
+      source: asString(rawFilters.source),
+    } : null;
+
+    const requestId = `req_${randomHex(24)}`;
+    const requestStartedAt = Date.now();
+
+    const payload: SearchRequest = {
+      query,
+      image: null,
+      max_results: Math.min(Math.max(maxResults, 1), 20),
+      ranking_mode: rankingMode,
+      include_summary: includeSummary,
+      include_answer: includeAnswer,
+      filters,
+    };
+
+    let creditsUsed = 0;
+    let usageRecorded = false;
+    try {
+      creditsUsed = await consumeSearchCredits(
+        db,
+        session.userId,
+        apiKeyId,
+        requestId,
+        "unified",
+        payload.include_answer
+      );
+      usageRecorded = true;
+
+      const service = new UnifiedSearchService(db, c.env, config);
+      const execution = await service.search({
+        payload,
+        userId: session.userId,
+        requestId,
+        image: null,
+      });
+
+      const latencyMs = Math.max(Date.now() - requestStartedAt, 0);
+
+      // Log the query
+      await db.execute(
+        `INSERT INTO query_logs (request_id, user_id, api_key_id, search_type, search_surface, query_text, filters, max_results, include_answer, result_count, latency_ms, results_preview, answer_text)
+         VALUES ($1, $2, $3::uuid, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13)`,
+        requestId,
+        session.userId,
+        apiKeyId,
+        "unified",
+        "playground",
+        query,
+        JSON.stringify({}),
+        payload.max_results,
+        payload.include_answer,
+        execution.results.length,
+        latencyMs,
+        JSON.stringify(execution.result_previews),
+        execution.answer ?? null
+      );
+
+      const usageSummary = await fetchUserUsageSummary(db, session.userId);
+
+      return c.json({
+        results: execution.results,
+        answer: execution.answer,
+        credits_used: creditsUsed,
+        credits_remaining: calculateCreditsRemaining(usageSummary),
+        request_id: requestId,
+      });
+    } catch (error) {
+      if (usageRecorded) {
+        try { await refundCredits(db, requestId); } catch { /* best-effort */ }
+      }
+      throw error;
+    }
+  });
+
+  /* ── Playground: feedback ──────────────────────────── */
+
+  router.post("/playground/feedback", sessionAuth(), async (c: any) => {
+    const db = c.get("db") as DatabaseClient;
+    const session = c.get("session") as DashboardSession;
+    const rawPayload = ensureJsonObject(await c.req.json(), "Request body must be a JSON object.");
+
+    const requestId = asString(rawPayload.request_id);
+    const resultId = asString(rawPayload.result_id);
+    const rating = Number(rawPayload.rating);
+
+    if (!requestId || !resultId) {
+      apiError(400, "request_id and result_id are required.");
+    }
+    if (rating !== 1 && rating !== -1) {
+      apiError(400, "rating must be 1 (thumbs up) or -1 (thumbs down).");
+    }
+
+    await db.execute(
+      `INSERT INTO playground_feedback (user_id, request_id, result_id, rating)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, request_id, result_id)
+       DO UPDATE SET rating = EXCLUDED.rating`,
+      session.userId,
+      requestId,
+      resultId,
+      rating
+    );
+
+    return c.json({ ok: true });
   });
 
   return router;

@@ -9,8 +9,8 @@ import { hmacSha256Hex, sha256Hex, timingSafeEqual } from "../utils/crypto";
 import { getRateLimiter } from "../utils/rate-limit";
 import { apiError } from "../utils/http";
 
-const API_KEY_PREFIX = "cerul_sk_";
-const API_KEY_PATTERN = /^cerul_sk_[A-Za-z0-9]{32}$/;
+const API_KEY_PREFIX = "cerul_";
+const API_KEY_PATTERN = /^cerul_[A-Za-z0-9]{32,}$/;
 const DEFAULT_DEV_AUTH_SECRET = "cerul-local-better-auth-secret-for-development-only";
 const BETTER_AUTH_COOKIE_NAMES = [
   "better-auth.session_token",

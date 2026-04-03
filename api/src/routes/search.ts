@@ -13,7 +13,7 @@ import {
 } from "../services/billing";
 import { resolveImageToBytes, uploadQueryImageToR2 } from "../services/query-image";
 import { UnifiedSearchService } from "../services/search";
-import type { SearchRequest, UnifiedFilters } from "../types";
+import type { SearchRequest, SearchSurface, UnifiedFilters } from "../types";
 import { randomHex } from "../utils/crypto";
 import { apiError } from "../utils/http";
 import { asString, ensureJsonObject, isPlainObject, parseBoolean, parseDateString, parseInteger } from "../utils/validation";
@@ -164,9 +164,11 @@ async function appendQueryLog(
   db: DatabaseClient,
   requestId: string,
   auth: any,
+  searchSurface: SearchSurface,
   payload: SearchRequest,
   resultsCount: number,
   latencyMs: number,
+  resultPreviews: unknown[],
   answerText?: string | null
 ): Promise<void> {
   await db.execute(
@@ -176,78 +178,32 @@ async function appendQueryLog(
           user_id,
           api_key_id,
           search_type,
+          search_surface,
           query_text,
           filters,
           max_results,
           include_answer,
           result_count,
           latency_ms,
+          results_preview,
           answer_text
       )
-      VALUES ($1, $2, $3::uuid, $4, $5, $6::jsonb, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3::uuid, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13)
     `,
     requestId,
     auth.userId,
     auth.apiKeyId,
     "unified",
+    searchSurface,
     payload.query ?? "",
     JSON.stringify(payload.filters ?? {}),
     payload.max_results,
     payload.include_answer,
     resultsCount,
     latencyMs,
+    JSON.stringify(resultPreviews),
     answerText ?? null
   );
-}
-
-async function appendTrackingLinks(db: DatabaseClient, trackingLinks: any[]): Promise<void> {
-  for (const trackingLink of trackingLinks) {
-    await db.execute(
-      `
-        INSERT INTO tracking_links (
-            short_id,
-            request_id,
-            result_rank,
-            unit_id,
-            video_id,
-            target_url,
-            title,
-            thumbnail_url,
-            source,
-            speaker,
-            unit_type,
-            timestamp_start,
-            timestamp_end,
-            transcript,
-            visual_desc,
-            keyframe_url,
-            score
-        )
-        VALUES (
-            $1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15, $16, $17
-        )
-        ON CONFLICT (short_id) DO NOTHING
-      `,
-      trackingLink.short_id,
-      trackingLink.request_id,
-      trackingLink.result_rank,
-      trackingLink.unit_id,
-      trackingLink.video_id,
-      trackingLink.target_url,
-      trackingLink.title,
-      trackingLink.thumbnail_url,
-      trackingLink.source,
-      trackingLink.speaker,
-      trackingLink.unit_type,
-      trackingLink.timestamp_start,
-      trackingLink.timestamp_end,
-      trackingLink.transcript,
-      trackingLink.visual_desc,
-      trackingLink.keyframe_url,
-      trackingLink.score ?? null
-    );
-  }
 }
 
 export function createSearchRouter(): any {
@@ -299,8 +255,17 @@ export function createSearchRouter(): any {
 
       const latencyMs = Math.max(Date.now() - requestStartedAt, 0);
       const usageSummary = await db.transaction(async (tx) => {
-        await appendQueryLog(tx, requestId, auth, payload, execution.results.length, latencyMs, execution.answer);
-        await appendTrackingLinks(tx, execution.tracking_links);
+        await appendQueryLog(
+          tx,
+          requestId,
+          auth,
+          "api",
+          payload,
+          execution.results.length,
+          latencyMs,
+          execution.result_previews,
+          execution.answer
+        );
         return fetchUsageSummary(tx, auth.userId);
       });
 

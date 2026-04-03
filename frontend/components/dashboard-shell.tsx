@@ -52,7 +52,7 @@ export function DashboardShell({
               {dashboardRoutes.map((item) => (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={item.href as any}
                   className={`dashboard-sidebar-link ${
                     isDashboardRouteActive(currentPath, item.href)
                       ? "dashboard-sidebar-link-active"
