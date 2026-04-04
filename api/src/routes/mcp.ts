@@ -96,7 +96,9 @@ function createMcpServer(input: {
       "You cannot access video content on your own. You have never watched a video, listened to a talk, or read a transcript. " +
       "When users ask about talks, interviews, podcasts, presentations, or what a specific person said — " +
       "ALWAYS call cerul_search first. Never guess what someone said in a video. " +
-      "When presenting results, include the speaker name, a direct quote from the transcript, the timestamp, and the source link."
+      "When presenting results, include the speaker name, a direct quote from the transcript, the timestamp, and the source link. " +
+      "Keep searches fast: use max_results 5, embedding mode, and no include_answer unless the user asks for a summary. " +
+      "Make multiple small searches rather than one large one."
   });
 
   server.registerTool(
@@ -115,15 +117,15 @@ function createMcpServer(input: {
           .min(1)
           .max(400)
           .describe("Natural language search query. Must contain at least one non-whitespace character."),
-        max_results: z.number().int().min(1).max(50).optional().describe("Number of results to return. Defaults to 5 for MCP."),
+        max_results: z.number().int().min(1).max(10).optional().describe("Number of results (1-10, default 5). Keep low for speed."),
         ranking_mode: z
           .enum(["embedding", "rerank"])
           .optional()
-          .describe("embedding for vector similarity, rerank for LLM-based reranking."),
+          .describe("embedding (fast, default) or rerank (slower but more precise). Use embedding unless precision is critical."),
         include_answer: z
           .boolean()
           .optional()
-          .describe("Generate an AI summary grounded in the matched evidence. Costs 2 credits instead of 1."),
+          .describe("AI summary of results. Costs 2 credits and adds latency. Only use when the user explicitly asks for a summary."),
         speaker: z.string().optional().describe("Filter results by speaker name."),
         published_after: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Filter videos published after this date (YYYY-MM-DD)."),
         min_duration: z
