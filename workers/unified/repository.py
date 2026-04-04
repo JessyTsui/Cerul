@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import uuid4
+
+
+def _generate_retrieval_unit_short_id(
+    video_id: str,
+    unit_type: str,
+    unit_index: int,
+) -> str:
+    digest = hashlib.sha256(
+        f"{video_id}:{unit_type}:{unit_index}".encode("utf-8")
+    ).hexdigest()
+    return digest[:12]
 
 
 class UnifiedRepository(Protocol):
@@ -70,6 +82,14 @@ class InMemoryUnifiedRepository:
             payload = dict(unit)
             payload["video_id"] = video_id
             payload.setdefault("id", str(uuid4()))
+            payload.setdefault(
+                "short_id",
+                _generate_retrieval_unit_short_id(
+                    video_id,
+                    str(payload["unit_type"]),
+                    int(payload["unit_index"]),
+                ),
+            )
             stored_units.append(payload)
         self.units_by_video_id[video_id] = stored_units
         return [dict(unit) for unit in stored_units]
@@ -251,6 +271,7 @@ class AsyncpgUnifiedRepository:
                         """
                         INSERT INTO retrieval_units (
                             video_id,
+                            short_id,
                             unit_type,
                             unit_index,
                             timestamp_start,
@@ -274,11 +295,13 @@ class AsyncpgUnifiedRepository:
                             $8,
                             $9,
                             $10,
-                            $11::jsonb,
-                            $12::vector
+                            $11,
+                            $12::jsonb,
+                            $13::vector
                         )
                         ON CONFLICT (video_id, unit_type, unit_index) DO UPDATE
                         SET
+                            short_id = EXCLUDED.short_id,
                             timestamp_start = EXCLUDED.timestamp_start,
                             timestamp_end = EXCLUDED.timestamp_end,
                             content_text = EXCLUDED.content_text,
@@ -292,11 +315,17 @@ class AsyncpgUnifiedRepository:
                         RETURNING
                             id::text AS id,
                             video_id::text AS video_id,
+                            short_id,
                             unit_type,
                             unit_index,
                             keyframe_url
                         """,
                         video_id,
+                        _generate_retrieval_unit_short_id(
+                            video_id,
+                            str(unit["unit_type"]),
+                            int(unit["unit_index"]),
+                        ),
                         unit["unit_type"],
                         unit["unit_index"],
                         unit.get("timestamp_start"),

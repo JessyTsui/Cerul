@@ -147,12 +147,14 @@ export const pricingTiers = [
     price: "$0",
     cadence: "to get started",
     description:
-      "1,000 free requests per month to try the API — no credit card required.",
+      "100 free credits to try the API, plus 10 free searches every day.",
+    checkoutProductCode: null,
     ctaLabel: "Start free",
-    ctaHref: "/signup",
+    ctaHref: "/login?mode=signup",
     accent: "sky",
     features: [
-      "1,000 requests / month",
+      "100 credits on signup",
+      "10 free searches every day",
       "Full public search API access",
       "Community support",
     ],
@@ -160,30 +162,35 @@ export const pricingTiers = [
   {
     name: "Pay as you go",
     price: "$8",
-    cadence: "per 1,000 requests",
+    cadence: "per 1,000 credits",
     description:
-      "Flexible usage-based pricing. Pay only for the requests your agents make.",
-    ctaLabel: "Get started",
-    ctaHref: "/signup",
+      "Buy credits when you need them. No subscription, no commitment.",
+    checkoutProductCode: "topup",
+    ctaLabel: "Buy 1,000 credits",
+    ctaHref: "/login?mode=signup",
     accent: "orange",
     features: [
-      "Unlimited requests",
-      "Usage insights and search logs",
-      "Email support",
+      "No monthly fee",
+      "Min 1,000 credits per purchase",
+      "Auto-recharge available",
+      "10 free searches every day",
     ],
   },
   {
-    name: "Monthly",
-    price: "$30",
+    name: "Pro",
+    price: "$29.90",
     cadence: "per month",
     description:
-      "5,000 requests included with higher rate limits for production workloads.",
+      "5,000 included credits every month. Top up at $8/1K when you need more.",
+    checkoutProductCode: "pro",
     ctaLabel: "Subscribe",
-    ctaHref: "/signup",
+    ctaHref: "/login?mode=signup",
     accent: "blue",
     features: [
-      "5,000 requests / month",
+      "5,000 included credits / month",
+      "Top up at $8/1K for more",
       "Higher rate limits",
+      "10 free searches every day",
       "Priority email support",
     ],
   },
@@ -193,6 +200,7 @@ export const pricingTiers = [
     cadence: "let\u2019s talk",
     description:
       "For production deployments with private indexing, SLA expectations, and compliance review.",
+    checkoutProductCode: null,
     ctaLabel: "Talk to us",
     ctaHref: "mailto:support@cerul.ai",
     accent: "ink",
@@ -207,19 +215,24 @@ export const pricingTiers = [
 
 export const pricingFaqs = [
   {
-    question: "How does per-request pricing work?",
+    question: "How do credits work?",
     answer:
-      "Every search API call counts as one request. Pay-as-you-go costs $8 per 1,000 requests, billed based on actual usage.",
+      "A standard search costs 1 credit. A search with include_answer=true costs 2 credits. Every user gets 10 free searches per day — no credits needed.",
   },
   {
-    question: "What happens if I exceed 5,000 requests on Monthly?",
+    question: "What happens when credits run out?",
     answer:
-      "Additional requests beyond the included 5,000 are billed at the pay-as-you-go rate of $8 per 1,000 requests.",
+      "Requests beyond the 10 daily free searches will be blocked until you buy more credits or enable auto-recharge.",
   },
   {
-    question: "Why choose Monthly over Pay as you go?",
+    question: "What is auto-recharge?",
     answer:
-      "The Monthly plan gives you a lower effective rate ($6 per 1,000 requests) and higher rate limits, which matters for production agent workloads.",
+      "When enabled, we automatically charge your card and add credits when your balance drops below a threshold you set. You stay in control of the recharge amount.",
+  },
+  {
+    question: "Why choose Pro over Pay as you go?",
+    answer:
+      "Pro gives you 5,000 credits per month at an effective rate of $5.98/1K — versus $8/1K for pay-as-you-go top-ups. You also get higher rate limits and priority support.",
   },
   {
     question: "When does enterprise make sense?",
@@ -248,16 +261,19 @@ export const authValueProps = [
 
 export const dashboardRoutes = [
   { label: "Overview", href: "/dashboard", meta: "01" },
-  { label: "Usage", href: "/dashboard/usage", meta: "02" },
-  { label: "Settings", href: "/dashboard/settings", meta: "03" },
+  { label: "API Playground", href: "/dashboard/playground", meta: "02" },
+  { label: "Usage", href: "/dashboard/usage", meta: "03" },
+  { label: "Billing", href: "/dashboard/billing", meta: "04" },
+  { label: "Settings", href: "/dashboard/settings", meta: "05" },
 ] as const;
 
 export const adminRoutes = [
   { label: "Overview", href: "/admin", meta: "A1" },
-  { label: "Requests", href: "/admin/requests", meta: "A2" },
-  { label: "Workers", href: "/admin/workers", meta: "A3" },
-  { label: "Sources", href: "/admin/sources", meta: "A4" },
-  { label: "Content", href: "/admin/content", meta: "A5" },
+  { label: "Analytics", href: "/admin/analytics", meta: "A2" },
+  { label: "Requests", href: "/admin/requests", meta: "A3" },
+  { label: "Workers", href: "/admin/workers", meta: "A4" },
+  { label: "Sources", href: "/admin/sources", meta: "A5" },
+  { label: "Content", href: "/admin/content", meta: "A6" },
 ] as const;
 
 export function isPrimaryRoute(path: string): boolean {

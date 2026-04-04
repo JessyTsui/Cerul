@@ -6,6 +6,8 @@ import {
   fetchWithAuth,
   getApiErrorMessage,
   jobs,
+  playground,
+  queryLogs,
   usage,
 } from "./api";
 
@@ -128,7 +130,7 @@ describe("dashboard API client", () => {
             {
               id: "key_1",
               name: "Primary key",
-              prefix: "cerul_sk_abcd",
+              prefix: "cerul_abcd1234",
               created_at: "2026-03-01T10:00:00Z",
               last_used_at: null,
               is_active: true,
@@ -148,7 +150,7 @@ describe("dashboard API client", () => {
       {
         id: "key_1",
         name: "Primary key",
-        prefix: "cerul_sk_abcd",
+        prefix: "cerul_abcd1234",
         createdAt: "2026-03-01T10:00:00Z",
         lastUsedAt: null,
         isActive: true,
@@ -171,6 +173,8 @@ describe("dashboard API client", () => {
             api_keys_active: 3,
             rate_limit_per_sec: 12,
             has_stripe_customer: true,
+            daily_free_remaining: 7,
+            daily_free_limit: 10,
             daily_breakdown: [
               {
                 date: "2026-03-01",
@@ -191,15 +195,26 @@ describe("dashboard API client", () => {
 
     await expect(usage.getMonthly()).resolves.toEqual({
       tier: "pro",
+      planCode: "pro",
       periodStart: "2026-03-01",
       periodEnd: "2026-03-07",
       creditsLimit: 10000,
       creditsUsed: 2450,
       creditsRemaining: 7550,
+      walletBalance: 7550,
+      creditBreakdown: {
+        includedRemaining: 0,
+        bonusRemaining: 0,
+        paidRemaining: 0,
+      },
+      expiringCredits: [],
       requestCount: 812,
       apiKeysActive: 3,
       rateLimitPerSec: 12,
       hasStripeCustomer: true,
+      billingHold: false,
+      dailyFreeRemaining: 7,
+      dailyFreeLimit: 10,
       dailyBreakdown: [
         {
           date: "2026-03-01",
@@ -246,6 +261,9 @@ describe("dashboard API client", () => {
     await expect(usage.getMonthly()).resolves.toEqual(
       expect.objectContaining({
         hasStripeCustomer: false,
+        walletBalance: 880,
+        dailyFreeRemaining: 0,
+        dailyFreeLimit: 0,
         dailyBreakdown: [
           {
             date: "2026-03-01",
@@ -277,6 +295,135 @@ describe("dashboard API client", () => {
     });
   });
 
+  it("creates a top-up checkout session with quantity", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          checkout_url: "https://billing.example/checkout",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(billing.createTopup(2500)).resolves.toEqual({
+      url: "https://billing.example/checkout",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/dashboard/billing/topup",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ quantity: 2500 }),
+      }),
+    );
+  });
+
+  it("reconciles a completed checkout session", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: "ok",
+          mode: "payment",
+          credits_granted: 1000,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(billing.reconcileCheckout("cs_test_123")).resolves.toEqual({
+      status: "ok",
+      mode: "payment",
+      tier: null,
+      creditsGranted: 1000,
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/dashboard/billing/reconcile-checkout",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ session_id: "cs_test_123" }),
+      }),
+    );
+  });
+
+  it("normalizes billing catalog payloads", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          plan_code: "pro",
+          wallet_balance: 5300,
+          credit_breakdown: {
+            included_remaining: 300,
+            bonus_remaining: 0,
+          },
+          referral: {
+            code: "CRL1A2B3C",
+            bonus_credits: 100,
+            reward_delay_days: 0,
+            redeemed_code: null,
+            status: null,
+            max_referrals: 100,
+            total_referred: 2,
+            total_credits_earned: 200,
+            referrals: [
+              {
+                referee_email: "te***@example.com",
+                status: "awarded",
+                created_at: "2026-04-01T00:00:00.000Z",
+                credits_earned: 100,
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(billing.getCatalog()).resolves.toEqual({
+      planCode: "pro",
+      walletBalance: 5300,
+      creditBreakdown: {
+        includedRemaining: 300,
+        bonusRemaining: 0,
+        paidRemaining: 0,
+      },
+      expiringCredits: [],
+      referral: {
+        code: "CRL1A2B3C",
+        bonusCredits: 100,
+        rewardDelayDays: 0,
+        redeemedCode: null,
+        status: null,
+        maxReferrals: 100,
+        totalReferred: 2,
+        totalCreditsEarned: 200,
+        referrals: [
+          {
+            refereeEmail: "te***@example.com",
+            status: "awarded",
+            createdAt: "2026-04-01T00:00:00.000Z",
+            creditsEarned: 100,
+          },
+        ],
+      },
+    });
+  });
+
   it("normalizes portal redirect urls", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
@@ -294,6 +441,187 @@ describe("dashboard API client", () => {
 
     await expect(billing.createPortal()).resolves.toEqual({
       url: "https://billing.example/portal",
+    });
+  });
+
+  it("normalizes auto-recharge settings payloads", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            enabled: true,
+            threshold: 120,
+            quantity: 1500,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            enabled: false,
+            threshold: 80,
+            quantity: 1000,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      );
+
+    await expect(billing.getAutoRecharge()).resolves.toEqual({
+      enabled: true,
+      threshold: 120,
+      quantity: 1500,
+    });
+
+    await expect(
+      billing.updateAutoRecharge({
+        enabled: false,
+        threshold: 80,
+        quantity: 1000,
+      }),
+    ).resolves.toEqual({
+      enabled: false,
+      threshold: 80,
+      quantity: 1000,
+    });
+  });
+
+  it("sends the selected API key when running playground searches", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          results: [],
+          answer: null,
+          credits_used: 1,
+          credits_remaining: 19,
+          request_id: "req_playground_123",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(
+      playground.search("find attention explanation", {
+        maxResults: 7,
+        includeAnswer: true,
+        apiKeyId: "key_selected_123",
+      }),
+    ).resolves.toEqual({
+      results: [],
+      answer: null,
+      creditsUsed: 1,
+      creditsRemaining: 19,
+      requestId: "req_playground_123",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/dashboard/playground/search",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          query: "find attention explanation",
+          max_results: 7,
+          include_answer: true,
+          include_summary: false,
+          ranking_mode: "embedding",
+          api_key_id: "key_selected_123",
+        }),
+      }),
+    );
+  });
+
+  it("normalizes query log search surfaces", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              request_id: "req_api_1",
+              search_type: "unified",
+              search_surface: "api",
+              query_text: "attention is all you need",
+              include_answer: true,
+              result_count: 5,
+              latency_ms: 182,
+              credits_used: 2,
+              created_at: "2026-04-02T08:00:00Z",
+              answer_text: "summary",
+              results: [],
+            },
+            {
+              request_id: "req_legacy_1",
+              search_type: "unified",
+              search_surface: null,
+              query_text: "legacy row",
+              include_answer: false,
+              result_count: 0,
+              latency_ms: null,
+              credits_used: 1,
+              created_at: "2026-04-01T08:00:00Z",
+              answer_text: null,
+              results: [],
+            },
+          ],
+          total: 2,
+          limit: 50,
+          offset: 0,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(queryLogs.list()).resolves.toEqual({
+      items: [
+        {
+          requestId: "req_api_1",
+          searchType: "unified",
+          searchSurface: "api",
+          queryText: "attention is all you need",
+          includeAnswer: true,
+          resultCount: 5,
+          latencyMs: 182,
+          creditsUsed: 2,
+          createdAt: "2026-04-02T08:00:00Z",
+          answerText: "summary",
+          results: [],
+        },
+        {
+          requestId: "req_legacy_1",
+          searchType: "unified",
+          searchSurface: null,
+          queryText: "legacy row",
+          includeAnswer: false,
+          resultCount: 0,
+          latencyMs: null,
+          creditsUsed: 1,
+          createdAt: "2026-04-01T08:00:00Z",
+          answerText: null,
+          results: [],
+        },
+      ],
+      total: 2,
+      limit: 50,
+      offset: 0,
     });
   });
 

@@ -63,10 +63,6 @@ export function AuthShell({
                 {children}
               </div>
             </div>
-
-            <p className="mt-8 px-4 text-center text-xs leading-6 text-[var(--foreground-tertiary)]">
-              By signing in you agree to the Cerul Terms of Service and Privacy Policy.
-            </p>
           </div>
         </section>
       </div>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { Route } from "next";
 import Link from "next/link";
 import { AIToolbar } from "@/components/ai-toolbar";
+import { DailyFreeSearchNote } from "@/components/daily-free-search-note";
 import { CodeBlock } from "@/components/code-block";
 import { DocsHeader } from "@/components/docs-header";
 import { DocsSidebar } from "@/components/docs-sidebar";
@@ -95,7 +96,7 @@ export default function DocsPage() {
                     The free tier gives you 1,000 credits per month — no credit card required.
                   </p>
                   <div className="mt-6 flex flex-wrap gap-3">
-                    <Link href="/signup" className="button-primary">
+                    <Link href="/login?mode=signup" className="button-primary">
                       Get free API key
                     </Link>
                     <Link href="/pricing" className="button-secondary">
@@ -179,6 +180,8 @@ export default function DocsPage() {
                           { name: "score", desc: "Relevance from 0.0 to 1.0" },
                           { name: "url", desc: "Tracking link → redirects to source video" },
                           { name: "keyframe_url", desc: "Preview frame when available" },
+                          { name: "transcript", desc: "Full ASR text for speech-backed segments" },
+                          { name: "keyframe_url", desc: "Preview frame when available" },
                           { name: "answer", desc: "AI summary (when include_answer is true)" },
                         ].map((field) => (
                           <div
@@ -194,8 +197,9 @@ export default function DocsPage() {
                   </FadeIn>
 
                   <FadeIn delay={100}>
-                    <CodeBlock
-                      code={`{
+                    <div className="space-y-4">
+                      <CodeBlock
+                        code={`{
   "results": [
     {
       "id": "unit_hmtuvNfytjM_1223",
@@ -203,8 +207,10 @@ export default function DocsPage() {
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AGI Timeline",
       "snippet": "AGI is coming sooner than most people expect.",
+      "transcript": "AGI is coming sooner than most people expect, and the roadmap gets clearer once model capability and product reliability converge.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
       "keyframe_url": "https://cdn.cerul.ai/frames/hmtuvNfytjM/f0123.jpg",
+      "duration": 7200,
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1223.0,
@@ -216,9 +222,11 @@ export default function DocsPage() {
   "credits_remaining": 998,
   "request_id": "req_9f8c1d5b2a9f7d1a8c4e6b02"
 }`}
-                      filename="response.json"
-                      language="json"
-                    />
+                        filename="response.json"
+                        language="json"
+                      />
+                      <DailyFreeSearchNote />
+                    </div>
                   </FadeIn>
                 </div>
               </section>
@@ -235,7 +243,7 @@ export default function DocsPage() {
                         Check your usage
                       </h2>
                       <p className="mt-4 max-w-3xl text-[15px] leading-8 text-[var(--foreground-secondary)]">
-                        Monitor your credit balance, billing window, and rate limits before scaling traffic.
+                        Monitor your credit balance, daily free allowance, wallet breakdown, and rate limits before scaling traffic.
                       </p>
                       <p className="mt-4 text-sm text-[var(--foreground-secondary)]">
                         <Link href="/docs/usage-api" className="font-medium text-[var(--brand-bright)] transition hover:text-[var(--foreground)]">
@@ -255,6 +263,9 @@ export default function DocsPage() {
 #   "tier": "free",
 #   "credits_used": 128,
 #   "credits_remaining": 872,
+#   "wallet_balance": 872,
+#   "daily_free_remaining": 7,
+#   "daily_free_limit": 10,
 #   "rate_limit_per_sec": 1,
 #   "api_keys_active": 1
 # }`}
@@ -301,7 +312,7 @@ export default function DocsPage() {
           <DocsToc
             items={tocItems}
             actions={[
-              { label: "Get API key", href: "/signup" },
+              { label: "Get API key", href: "/login?mode=signup" },
               { label: "API reference", href: "/docs/api-reference" },
             ]}
           />

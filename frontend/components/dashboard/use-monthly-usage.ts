@@ -8,6 +8,7 @@ type UseMonthlyUsageResult = {
   isLoading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  lastUpdatedAt: Date | null;
 };
 
 export function useMonthlyUsage(): UseMonthlyUsageResult {

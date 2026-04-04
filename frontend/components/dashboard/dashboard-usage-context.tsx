@@ -12,6 +12,7 @@ type DashboardUsageContextValue = {
   isLoading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  lastUpdatedAt: Date | null;
 };
 
 const DashboardUsageContext = createContext<DashboardUsageContextValue | null>(null);
@@ -26,6 +27,7 @@ export function DashboardUsageProvider({
   const [data, setData] = useState<DashboardMonthlyUsage | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   async function loadUsage(options?: { preserveData?: boolean }) {
     if (!options?.preserveData) {
@@ -37,6 +39,8 @@ export function DashboardUsageProvider({
     try {
       const nextUsage = await usage.getMonthly();
       setData(nextUsage);
+      setLastUpdatedAt(new Date());
+      console.log("[DashboardUsage] Data refreshed at", new Date().toISOString(), "walletBalance:", nextUsage.walletBalance);
     } catch (nextError) {
       setError(getApiErrorMessage(nextError, "Failed to load monthly usage."));
     } finally {
@@ -48,12 +52,36 @@ export function DashboardUsageProvider({
     void loadUsage();
   }, []);
 
+  // Auto-refresh every 30 seconds when window is visible
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        void loadUsage({ preserveData: true });
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Refresh every 30 seconds
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadUsage({ preserveData: true });
+      }
+    }, 30000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(interval);
+    };
+  }, []);
+
   return (
     <DashboardUsageContext.Provider
       value={{
         data,
         isLoading,
         error,
+        lastUpdatedAt,
         refresh: async () => {
           await loadUsage({ preserveData: data !== null });
         },

@@ -37,7 +37,7 @@ describe("tracking proxy route", () => {
       ),
     );
 
-    const request = new NextRequest("http://127.0.0.1:3001/v/abc123xy");
+    const request = new NextRequest("http://127.0.0.1:3001/v/abc123xy?req=req_123&rank=2");
     const response = await GET(request, {
       params: Promise.resolve({
         shortId: "abc123xy",
@@ -51,7 +51,7 @@ describe("tracking proxy route", () => {
 
     const [target, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];
     expect(target).toBeInstanceOf(URL);
-    expect(String(target)).toBe("http://127.0.0.1:8787/v/abc123xy");
+    expect(String(target)).toBe("http://127.0.0.1:8787/v/abc123xy?req=req_123&rank=2");
     expect(init).toEqual(
       expect.objectContaining({
         method: "GET",

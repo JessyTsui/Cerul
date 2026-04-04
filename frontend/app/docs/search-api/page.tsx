@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AIToolbar } from "@/components/ai-toolbar";
+import { DailyFreeSearchNote } from "@/components/daily-free-search-note";
 import { CodeBlock } from "@/components/code-block";
 import { DocsHeader } from "@/components/docs-header";
 import { DocsSidebar } from "@/components/docs-sidebar";
@@ -75,6 +76,7 @@ const responseFields = [
   { name: "results[].url", type: "string", description: "Cerul tracking URL — redirects to the source video." },
   { name: "results[].title", type: "string", description: "Video title." },
   { name: "results[].snippet", type: "string", description: "Matched transcript or visual description." },
+  { name: "results[].transcript", type: "string | null", description: "Full ASR transcript text for the matched segment. Null for visual-only units." },
   { name: "results[].thumbnail_url", type: "string | null", description: "Preview image URL." },
   { name: "results[].keyframe_url", type: "string | null", description: "Representative keyframe image when available." },
   { name: "results[].duration", type: "integer", description: "Video duration in seconds." },
@@ -84,16 +86,15 @@ const responseFields = [
   { name: "results[].timestamp_end", type: "number | null", description: "End time in seconds." },
   { name: "answer", type: "string | null", description: "AI-generated summary. Only present when include_answer is true." },
   { name: "credits_used", type: "integer", description: "Credits consumed by this request." },
-  { name: "credits_remaining", type: "integer", description: "Remaining credits in current billing period." },
+  { name: "credits_remaining", type: "integer", description: "Remaining spendable credits after this request." },
   { name: "request_id", type: "string", description: "Unique request identifier in the form req_<24-hex-chars>." },
 ];
 
 const errors = [
   { status: "400", code: "invalid_request", description: "Invalid JSON body or request validation error." },
   { status: "401", code: "unauthorized", description: "Missing or invalid API key." },
-  { status: "403", code: "forbidden", description: "Inactive API key or insufficient credits." },
+  { status: "403", code: "forbidden", description: "Inactive API key, billing hold, or insufficient credits." },
   { status: "404", code: "not_found", description: "Route or resource not found." },
-  { status: "422", code: "invalid_request", description: "Payload is syntactically valid but semantically invalid." },
   { status: "429", code: "rate_limited", description: "Rate limit exceeded. Retry after the limit resets." },
   { status: "500+", code: "api_error", description: "Internal server error." },
 ];
@@ -234,6 +235,7 @@ type SearchResult = {
   url: string;
   title: string;
   snippet: string;
+  transcript?: string | null;
   thumbnail_url?: string | null;
   keyframe_url?: string | null;
   duration: number;
@@ -428,6 +430,7 @@ console.log(data);`}
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AI video generation",
       "snippet": "Current AI video generation tools are improving quickly but still constrained by controllability.",
+      "transcript": "Current AI video generation tools are improving quickly but still constrained by controllability, production reliability, and the ability to steer outputs precisely.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
       "keyframe_url": "https://cdn.cerul.ai/frames/hmtuvNfytjM/f0123.jpg",
       "duration": 7200,
@@ -445,6 +448,7 @@ console.log(data);`}
                       language="json"
                       filename="response.json"
                     />
+                    <DailyFreeSearchNote />
                   </div>
                 </div>
               </section>
@@ -502,7 +506,7 @@ console.log(data);`}
           <DocsToc
             items={tocItems}
             actions={[
-              { label: "Get API key", href: "/signup" },
+              { label: "Get API key", href: "/login?mode=signup" },
               { label: "All endpoints", href: "/docs/api-reference" },
             ]}
           />

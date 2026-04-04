@@ -23,7 +23,7 @@ tags:
   - name: Search
     description: Search indexed videos through the public Cerul API.
   - name: Usage
-    description: Inspect account-level credits, billing period, and rate limits.
+    description: Inspect account-level credits, wallet balance, daily free allowance, and rate limits.
 
 paths:
   /v1/search:
@@ -82,6 +82,10 @@ paths:
                         snippet: >-
                           Current AI video generation tools are improving quickly
                           but still constrained by controllability.
+                        transcript: >-
+                          Current AI video generation tools are improving quickly
+                          but still constrained by controllability, production
+                          reliability, and the ability to steer outputs precisely.
                         thumbnail_url: https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg
                         keyframe_url: https://cdn.cerul.ai/frames/hmtuvNfytjM/f0123.jpg
                         duration: 7200
@@ -104,6 +108,10 @@ paths:
                         snippet: >-
                           Current AI video generation tools are improving quickly
                           but still constrained by controllability.
+                        transcript: >-
+                          Current AI video generation tools are improving quickly
+                          but still constrained by controllability, production
+                          reliability, and the ability to steer outputs precisely.
                         thumbnail_url: https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg
                         keyframe_url: https://cdn.cerul.ai/frames/hmtuvNfytjM/f0123.jpg
                         duration: 7200
@@ -136,8 +144,8 @@ paths:
         - Usage
       summary: Check usage and quota
       description: |
-        Returns the current plan tier, billing period, credit totals,
-        and rate limit for the authenticated account.
+        Returns the current plan tier, billing period, spendable wallet,
+        daily free allowance, and rate limit for the authenticated account.
       responses:
         "200":
           description: Usage information
@@ -147,11 +155,21 @@ paths:
                 $ref: "#/components/schemas/UsageResponse"
               example:
                 tier: free
+                plan_code: free
                 period_start: "2026-03-01"
                 period_end: "2026-03-31"
-                credits_limit: 1000
-                credits_used: 128
-                credits_remaining: 872
+                credits_limit: 0
+                credits_used: 18
+                credits_remaining: 82
+                wallet_balance: 82
+                credit_breakdown:
+                  included_remaining: 0
+                  bonus_remaining: 82
+                  paid_remaining: 0
+                expiring_credits: []
+                billing_hold: false
+                daily_free_remaining: 7
+                daily_free_limit: 10
                 rate_limit_per_sec: 1
                 api_keys_active: 1
         "401":
@@ -256,7 +274,7 @@ components:
           description: Credits consumed by this request.
         credits_remaining:
           type: integer
-          description: Remaining credits in the current billing period.
+          description: Remaining spendable credits after this request.
         request_id:
           type: string
           pattern: ^req_[0-9a-f]{24}$
@@ -301,6 +319,11 @@ components:
         snippet:
           type: string
           description: Matched transcript or visual description.
+        transcript:
+          type:
+            - string
+            - "null"
+          description: Full ASR transcript text for the matched segment. Null for visual-only units.
         thumbnail_url:
           type:
             - string
@@ -342,22 +365,31 @@ components:
       additionalProperties: false
       required:
         - tier
+        - plan_code
         - period_start
         - period_end
         - credits_limit
         - credits_used
         - credits_remaining
+        - wallet_balance
+        - credit_breakdown
+        - expiring_credits
         - rate_limit_per_sec
         - api_keys_active
+        - billing_hold
+        - daily_free_remaining
+        - daily_free_limit
       properties:
         tier:
+          type: string
+          description: Current subscription tier, typically `free`, `pro`, or `enterprise`.
+        plan_code:
           type: string
           enum:
             - free
             - pro
-            - monthly
             - enterprise
-          description: Current subscription tier.
+          description: Normalized billing plan code.
         period_start:
           type: string
           format: date
@@ -368,19 +400,66 @@ components:
           description: Billing period end date (YYYY-MM-DD).
         credits_limit:
           type: integer
-          description: Monthly credit limit.
+          description: Included monthly credits for the current tier.
         credits_used:
           type: integer
           description: Credits used in the current billing period.
         credits_remaining:
           type: integer
-          description: Credits remaining in the current billing period.
+          description: Remaining spendable credits in the account wallet.
+        wallet_balance:
+          type: integer
+          description: Total spendable credits currently available.
+        credit_breakdown:
+          type: object
+          additionalProperties: false
+          required:
+            - included_remaining
+            - bonus_remaining
+            - paid_remaining
+          properties:
+            included_remaining:
+              type: integer
+              description: Remaining included subscription credits.
+            bonus_remaining:
+              type: integer
+              description: Remaining bonus credits such as signup or referral credits.
+            paid_remaining:
+              type: integer
+              description: Remaining purchased top-up credits.
+        expiring_credits:
+          type: array
+          description: Credits that will expire soon, ordered by earliest expiry first.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - grant_type
+              - credits
+              - expires_at
+            properties:
+              grant_type:
+                type: string
+              credits:
+                type: integer
+              expires_at:
+                type: string
+                format: date-time
         rate_limit_per_sec:
           type: integer
           description: Maximum requests per second for this tier.
         api_keys_active:
           type: integer
           description: Number of active API keys.
+        billing_hold:
+          type: boolean
+          description: Whether the billing account is currently blocked pending review.
+        daily_free_remaining:
+          type: integer
+          description: Remaining free searches for the current UTC day.
+        daily_free_limit:
+          type: integer
+          description: Total free searches available per UTC day.
 
     ErrorResponse:
       type: object
@@ -459,19 +538,19 @@ components:
               value:
                 error:
                   code: unauthorized
-                  message: Missing Authorization header
+                  message: Missing Authorization header.
             invalidBearerScheme:
               summary: Authorization header must use Bearer
               value:
                 error:
                   code: unauthorized
-                  message: Authorization header must use the Bearer scheme
+                  message: Authorization header must use the Bearer scheme.
             malformedApiKey:
               summary: API key format is invalid
               value:
                 error:
                   code: unauthorized
-                  message: Malformed API key
+                  message: Malformed API key.
             invalidApiKey:
               summary: API key not recognized
               value:
@@ -492,12 +571,12 @@ components:
                 error:
                   code: forbidden
                   message: API key is inactive
-            monthlyCreditsExhausted:
-              summary: Monthly credit limit exhausted
+            billingHold:
+              summary: Billing account requires review
               value:
                 error:
                   code: forbidden
-                  message: Monthly credit limit exhausted
+                  message: Billing account requires review before more requests can be served.
             requestCreditsInsufficient:
               summary: Insufficient credits for this request
               value:

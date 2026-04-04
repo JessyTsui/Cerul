@@ -85,6 +85,7 @@ curl "https://api.cerul.ai/v1/search" \
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AGI Timeline - Lex Fridman Podcast",
       "snippet": "I think AGI is coming sooner than most people expect, probably within the next few years...",
+      "transcript": "I think AGI is coming sooner than most people expect, probably within the next few years, and the roadmap starts to look more concrete once the tooling matures.",
       "thumbnail_url": "https://i.ytimg.com/vi/abc/hqdefault.jpg",
       "keyframe_url": "https://cdn.cerul.ai/frames/vid_abc/f023.jpg",
       "duration": 7200,
@@ -112,6 +113,8 @@ curl "https://api.cerul.ai/v1/search" \
 | `results[].title` | string | Video title |
 | `results[].snippet` | string | Snippet derived from transcript or visual evidence |
 | `results[].thumbnail_url` | string or null | Video thumbnail |
+| `results[].transcript` | string or null | Full ASR transcript text for the matched segment. May be null for visual-only segments. |
+| `results[].thumbnail_url` | string or null | Video thumbnail |
 | `results[].keyframe_url` | string or null | Keyframe image when available. Direct HTTPS URL to a JPEG — agents running in a terminal can render this inline (see [Rendering keyframes in the terminal](#rendering-keyframes-in-the-terminal)) |
 | `results[].duration` | integer | Video duration in seconds |
 | `results[].source` | string | Source platform (`youtube`, `pexels`, `pixabay`, `upload`) |
@@ -120,7 +123,7 @@ curl "https://api.cerul.ai/v1/search" \
 | `results[].timestamp_end` | float or null | End timestamp in seconds |
 | `answer` | string or null | Optional synthesized answer when `include_answer=true` |
 | `credits_used` | integer | Credits consumed by this request |
-| `credits_remaining` | integer | Remaining credits in the current billing period |
+| `credits_remaining` | integer | Remaining spendable credits after this request |
 | `request_id` | string | Request identifier in the form `req_<24-hex-chars>` |
 
 ---
@@ -197,7 +200,7 @@ Tracking endpoints are public and do not require API keys.
 
 ### GET /v1/usage
 
-Check your current credit balance and usage statistics.
+Check your current credit balance, wallet breakdown, daily free allowance, and usage statistics.
 
 ```bash
 curl "https://api.cerul.ai/v1/usage" \
@@ -207,13 +210,24 @@ curl "https://api.cerul.ai/v1/usage" \
 ```json
 {
   "tier": "free",
+  "plan_code": "free",
   "period_start": "2026-03-01",
   "period_end": "2026-03-31",
-  "credits_limit": 1000,
-  "credits_used": 128,
-  "credits_remaining": 872,
+  "credits_limit": 0,
+  "credits_used": 18,
+  "credits_remaining": 82,
+  "wallet_balance": 82,
+  "credit_breakdown": {
+    "included_remaining": 0,
+    "bonus_remaining": 82,
+    "paid_remaining": 0
+  },
+  "expiring_credits": [],
   "rate_limit_per_sec": 1,
-  "api_keys_active": 1
+  "api_keys_active": 1,
+  "billing_hold": false,
+  "daily_free_remaining": 7,
+  "daily_free_limit": 10
 }
 ```
 
@@ -226,6 +240,8 @@ curl "https://api.cerul.ai/v1/usage" \
 | `GET /v1/usage` | Free |
 | `POST /v1/search` | 1 |
 | `POST /v1/search` + `include_answer=true` | 2 |
+
+All users also receive 10 free searches per UTC day. When a request uses the daily free allowance, `credits_used` is `0`.
 
 ---
 

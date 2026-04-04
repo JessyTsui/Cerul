@@ -113,6 +113,10 @@ export function getConfig(env: Bindings): AppConfig {
       webhookSecret: firstNonEmpty(env.STRIPE_WEBHOOK_SECRET),
       proPriceId: firstNonEmpty(env.STRIPE_PRO_PRICE_ID)
     },
+    email: {
+      resendApiKey: firstNonEmpty(env.RESEND_API_KEY),
+      from: firstNonEmpty(env.EMAIL_FROM, "Cerul <noreply@cerul.ai>") ?? "Cerul <noreply@cerul.ai>"
+    },
     r2: {
       bucketName: firstNonEmpty(env.R2_BUCKET_NAME, "cerul-cdn") ?? "cerul-cdn",
       publicUrl: (firstNonEmpty(env.R2_PUBLIC_URL) ?? "").replace(/\/+$/, "")

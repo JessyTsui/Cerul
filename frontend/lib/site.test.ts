@@ -54,7 +54,8 @@ describe("isDashboardRouteActive", () => {
 });
 
 describe("adminRoutes", () => {
-  it("includes the workers and content console entries", () => {
+  it("includes the analytics, workers, and content console entries", () => {
+    expect(adminRoutes.some((item) => item.href === "/admin/analytics")).toBe(true);
     expect(adminRoutes.some((item) => item.href === "/admin/workers")).toBe(true);
     expect(adminRoutes.some((item) => item.href === "/admin/content")).toBe(true);
   });
@@ -64,5 +65,6 @@ describe("isAdminRouteActive", () => {
   it("matches nested admin routes", () => {
     expect(isAdminRouteActive("/admin/requests", "/admin/requests")).toBe(true);
     expect(isAdminRouteActive("/admin/requests/detail", "/admin/requests")).toBe(true);
+    expect(isAdminRouteActive("/admin/analytics/details", "/admin/analytics")).toBe(true);
   });
 });

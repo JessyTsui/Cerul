@@ -103,14 +103,13 @@ export function DashboardKeysScreen() {
         <section className="surface-elevated overflow-hidden rounded-[24px]">
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-[var(--border)] bg-[rgba(255,255,255,0.03)] text-[var(--foreground-secondary)]">
+              <thead className="border-b border-[var(--border)] bg-[rgba(255,255,255,0.03)] text-xs font-semibold uppercase tracking-[0.08em] text-[var(--foreground-tertiary)]">
                 <tr>
-                  <th className="px-5 py-4 font-medium">Name</th>
-                  <th className="px-5 py-4 font-medium">Key</th>
-                  <th className="px-5 py-4 font-medium">Created</th>
-                  <th className="px-5 py-4 font-medium">Last used</th>
-                  <th className="px-5 py-4 font-medium">Status</th>
-                  <th className="px-5 py-4 text-right font-medium">Actions</th>
+                  <th className="px-5 py-4">Name</th>
+                  <th className="px-5 py-4">Key</th>
+                  <th className="px-5 py-4">Created</th>
+                  <th className="px-5 py-4">Last used</th>
+                  <th className="px-5 py-4 text-right">Options</th>
                 </tr>
               </thead>
               <tbody>
@@ -120,6 +119,7 @@ export function DashboardKeysScreen() {
                     apiKey={apiKey}
                     isPending={pendingKeyId === apiKey.id}
                     onRevoke={handleRevoke}
+                    isLastKey={keys.filter((k) => k.isActive).length <= 1}
                   />
                 ))}
               </tbody>

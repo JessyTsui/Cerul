@@ -4,6 +4,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { FadeIn, BlurFade } from "@/components/animations";
 import { pricingFaqs, pricingTiers } from "@/lib/site";
+import { BillingCheckoutButton } from "@/components/billing-checkout-button";
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -14,14 +15,16 @@ export const metadata: Metadata = {
 };
 
 const featuresComparison = [
-  { name: "Search requests", free: "1K / month", payg: "Unlimited", monthly: "5K / month", enterprise: "Custom" },
-  { name: "Rate limits", free: "Standard", payg: "Standard", monthly: "Higher", enterprise: "Custom" },
-  { name: "Search API access", free: true, payg: true, monthly: true, enterprise: true },
-  { name: "Usage insights", free: "Basic", payg: "Basic", monthly: "Advanced", enterprise: "Full" },
-  { name: "Search logs", free: false, payg: true, monthly: true, enterprise: true },
-  { name: "Priority support", free: false, payg: false, monthly: "Email", enterprise: "Dedicated" },
-  { name: "Private indexing", free: false, payg: false, monthly: false, enterprise: true },
-  { name: "SLA guarantee", free: false, payg: false, monthly: false, enterprise: true },
+  { name: "Initial free credits", free: "100", payg: "100", pro: "100", enterprise: "Custom" },
+  { name: "Free searches / day", free: "10", payg: "10", pro: "10", enterprise: "Custom" },
+  { name: "Included credits / month", free: "None", payg: "None", pro: "5,000", enterprise: "Custom" },
+  { name: "Credit top-up rate", free: "$8 / 1K", payg: "$8 / 1K", pro: "$8 / 1K", enterprise: "Custom" },
+  { name: "Auto-recharge", free: true, payg: true, pro: true, enterprise: true },
+  { name: "Rate limits", free: "Standard", payg: "Standard", pro: "Higher", enterprise: "Custom" },
+  { name: "Search API access", free: true, payg: true, pro: true, enterprise: true },
+  { name: "Priority support", free: false, payg: false, pro: true, enterprise: true },
+  { name: "Private indexing", free: false, payg: false, pro: false, enterprise: true },
+  { name: "SLA guarantee", free: false, payg: false, pro: false, enterprise: true },
 ];
 
 export default function PricingPage() {
@@ -45,8 +48,8 @@ export default function PricingPage() {
             </BlurFade>
             <BlurFade delay={200}>
               <p className="mx-auto mt-6 max-w-2xl text-lg text-[var(--foreground-secondary)]">
-                1,000 free requests per month. Scale with pay-as-you-go at $8/1K requests,
-                or subscribe monthly for higher rate limits.
+                100 free credits on signup, 10 free searches every day. Scale with
+                pay-as-you-go at $8/1K, or subscribe to Pro for 5,000 included credits.
               </p>
             </BlurFade>
           </section>
@@ -109,7 +112,16 @@ export default function PricingPage() {
                     ))}
                   </ul>
 
-                  {tier.ctaHref.startsWith("mailto:") ? (
+                  {tier.checkoutProductCode ? (
+                    <BillingCheckoutButton
+                      className={`w-full text-center ${
+                        index === 2 ? "button-gradient" : "button-secondary"
+                      }`}
+                      idleLabel={tier.ctaLabel}
+                      pendingLabel="Redirecting..."
+                      productCode={tier.checkoutProductCode}
+                    />
+                  ) : tier.ctaHref.startsWith("mailto:") ? (
                     <a
                       href={tier.ctaHref}
                       className={`w-full text-center ${
@@ -161,7 +173,7 @@ export default function PricingPage() {
                           Pay as you go
                         </th>
                         <th className="px-6 py-4 text-center text-sm font-semibold text-[var(--brand-bright)]">
-                          Monthly
+                          Pro
                         </th>
                         <th className="px-6 py-4 text-center text-sm font-semibold text-[var(--foreground)]">
                           Enterprise
@@ -194,7 +206,7 @@ export default function PricingPage() {
                             <td className="px-6 py-4 text-sm text-[var(--foreground)]">{feature.name}</td>
                             <td className="px-6 py-4 text-center">{renderCell(feature.free)}</td>
                             <td className="px-6 py-4 text-center">{renderCell(feature.payg)}</td>
-                            <td className="px-6 py-4 text-center bg-[var(--brand-subtle)]/30">{renderCell(feature.monthly, true)}</td>
+                            <td className="px-6 py-4 text-center bg-[var(--brand-subtle)]/30">{renderCell(feature.pro, true)}</td>
                             <td className="px-6 py-4 text-center">{renderCell(feature.enterprise)}</td>
                           </tr>
                         );
@@ -221,7 +233,7 @@ export default function PricingPage() {
                     hosted API to skip infrastructure and start searching immediately.
                   </p>
                   <a
-                    href="https://github.com/JessyTsui/cerul"
+                    href="https://github.com/cerul-ai/cerul"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="button-secondary mt-6 inline-flex items-center gap-2"

@@ -13,13 +13,23 @@ describe("normalizeAuthDatabaseUrl", () => {
     );
   });
 
-  it("preserves an existing connect timeout", () => {
+  it("upgrades require-like sslmode values to verify-full while preserving connect timeout", () => {
     expect(
       normalizeAuthDatabaseUrl(
         "postgresql://user:pass@db.example.com:5432/cerul?sslmode=require&connect_timeout=10",
       ),
     ).toBe(
-      "postgresql://user:pass@db.example.com:5432/cerul?sslmode=require&connect_timeout=10",
+      "postgresql://user:pass@db.example.com:5432/cerul?sslmode=verify-full&connect_timeout=10",
+    );
+  });
+
+  it("preserves libpq-compatible sslmode when uselibpqcompat is enabled", () => {
+    expect(
+      normalizeAuthDatabaseUrl(
+        "postgresql://user:pass@db.example.com:5432/cerul?sslmode=require&uselibpqcompat=true",
+      ),
+    ).toBe(
+      "postgresql://user:pass@db.example.com:5432/cerul?sslmode=require&uselibpqcompat=true&connect_timeout=30",
     );
   });
 });

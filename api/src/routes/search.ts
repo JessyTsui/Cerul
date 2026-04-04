@@ -2,10 +2,18 @@ import { Hono } from "hono";
 
 import type { DatabaseClient } from "../db/client";
 import { apiKeyAuth } from "../middleware/auth";
-import { calculateCreditsRemaining, deductCredits, fetchUsageSummary, InsufficientCreditsError, refundCredits } from "../services/billing";
+import {
+  BillingHoldError,
+  calculateCreditsRemaining,
+  consumeSearchCredits,
+  fetchUsageSummary,
+  InsufficientCreditsError,
+  maybeAutoRecharge,
+  refundCredits
+} from "../services/billing";
 import { resolveImageToBytes, uploadQueryImageToR2 } from "../services/query-image";
 import { UnifiedSearchService } from "../services/search";
-import type { SearchRequest, SearchResponse, UnifiedFilters } from "../types";
+import type { SearchRequest, SearchResponse, SearchSurface, UnifiedFilters } from "../types";
 import { randomHex } from "../utils/crypto";
 import { apiError } from "../utils/http";
 import { asString, ensureJsonObject, isPlainObject, parseBoolean, parseDateString, parseInteger } from "../utils/validation";
@@ -159,9 +167,12 @@ async function appendQueryLog(
   db: DatabaseClient,
   requestId: string,
   auth: any,
+  searchSurface: SearchSurface,
   payload: SearchRequest,
   resultsCount: number,
-  latencyMs: number
+  latencyMs: number,
+  resultPreviews: unknown[],
+  answerText?: string | null
 ): Promise<void> {
   await db.execute(
     `
@@ -170,88 +181,32 @@ async function appendQueryLog(
           user_id,
           api_key_id,
           search_type,
+          search_surface,
           query_text,
           filters,
           max_results,
           include_answer,
           result_count,
-          latency_ms
+          latency_ms,
+          results_preview,
+          answer_text
       )
-      VALUES ($1, $2, $3::uuid, $4, $5, $6::jsonb, $7, $8, $9, $10)
+      VALUES ($1, $2, $3::uuid, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13)
     `,
     requestId,
     auth.userId,
     auth.apiKeyId,
     "unified",
+    searchSurface,
     payload.query ?? "",
     JSON.stringify(payload.filters ?? {}),
     payload.max_results,
     payload.include_answer,
     resultsCount,
-    latencyMs
+    latencyMs,
+    JSON.stringify(resultPreviews),
+    answerText ?? null
   );
-}
-
-async function appendTrackingLinks(db: DatabaseClient, trackingLinks: any[]): Promise<void> {
-  for (const trackingLink of trackingLinks) {
-    await db.execute(
-      `
-        INSERT INTO tracking_links (
-            short_id,
-            request_id,
-            result_rank,
-            unit_id,
-            video_id,
-            target_url,
-            title,
-            thumbnail_url,
-            source,
-            speaker,
-            unit_type,
-            timestamp_start,
-            timestamp_end,
-            transcript,
-            visual_desc,
-            keyframe_url
-        )
-        VALUES (
-            $1,
-            $2,
-            $3,
-            $4::uuid,
-            $5::uuid,
-            $6,
-            $7,
-            $8,
-            $9,
-            $10,
-            $11,
-            $12,
-            $13,
-            $14,
-            $15,
-            $16
-        )
-        ON CONFLICT (short_id) DO NOTHING
-      `,
-      trackingLink.short_id,
-      trackingLink.request_id,
-      trackingLink.result_rank,
-      trackingLink.unit_id,
-      trackingLink.video_id,
-      trackingLink.target_url,
-      trackingLink.title,
-      trackingLink.thumbnail_url,
-      trackingLink.source,
-      trackingLink.speaker,
-      trackingLink.unit_type,
-      trackingLink.timestamp_start,
-      trackingLink.timestamp_end,
-      trackingLink.transcript,
-      trackingLink.visual_desc,
-      trackingLink.keyframe_url
-    );
-  }
 }
 
 export function createSearchRouter(): any {
@@ -267,8 +222,9 @@ export function createSearchRouter(): any {
     const service = new UnifiedSearchService(db, c.env, config);
 
     let creditsUsed = 0;
+    let usageRecorded = false;
     try {
-      creditsUsed = await deductCredits(
+      const chargeRequest = async () => consumeSearchCredits(
         db,
         auth.userId,
         auth.apiKeyId,
@@ -276,6 +232,23 @@ export function createSearchRouter(): any {
         "unified",
         payload.include_answer
       );
+
+      try {
+        creditsUsed = await chargeRequest();
+      } catch (error) {
+        if (!(error instanceof InsufficientCreditsError)) {
+          throw error;
+        }
+
+        const recharge = await maybeAutoRecharge(db, config, auth.userId);
+        if (!recharge.triggered) {
+          throw error;
+        }
+
+        creditsUsed = await chargeRequest();
+      }
+      usageRecorded = true;
+
       const execution = await service.search({
         payload,
         userId: auth.userId,
@@ -285,13 +258,28 @@ export function createSearchRouter(): any {
 
       const latencyMs = Math.max(Date.now() - requestStartedAt, 0);
       const usageSummary = await db.transaction(async (tx) => {
-        await appendQueryLog(tx, requestId, auth, payload, execution.results.length, latencyMs);
-        await appendTrackingLinks(tx, execution.tracking_links);
+        await appendQueryLog(
+          tx,
+          requestId,
+          auth,
+          "api",
+          payload,
+          execution.results.length,
+          latencyMs,
+          execution.result_previews,
+          execution.answer
+        );
         return fetchUsageSummary(tx, auth.userId);
       });
 
       if (image) {
         c.executionCtx?.waitUntil(uploadQueryImageToR2(c.env, config, image, requestId));
+      }
+
+      if (creditsUsed > 0) {
+        void maybeAutoRecharge(db, config, auth.userId).catch((error) =>
+          console.error("[billing] auto-recharge error:", error)
+        );
       }
 
       const response: SearchResponse = {
@@ -306,10 +294,13 @@ export function createSearchRouter(): any {
 
       return c.json(response);
     } catch (error) {
+      if (error instanceof BillingHoldError) {
+        apiError(403, "Billing account requires review before more requests can be served.");
+      }
       if (error instanceof InsufficientCreditsError) {
         apiError(403, "Insufficient credits for this request.");
       }
-      if (creditsUsed > 0) {
+      if (usageRecorded) {
         try {
           await refundCredits(db, requestId);
         } catch {
