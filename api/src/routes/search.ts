@@ -13,7 +13,7 @@ import {
 } from "../services/billing";
 import { resolveImageToBytes, uploadQueryImageToR2 } from "../services/query-image";
 import { UnifiedSearchService } from "../services/search";
-import type { SearchRequest, SearchSurface, UnifiedFilters } from "../types";
+import type { SearchRequest, SearchResponse, SearchSurface, UnifiedFilters } from "../types";
 import { randomHex } from "../utils/crypto";
 import { apiError } from "../utils/http";
 import { asString, ensureJsonObject, isPlainObject, parseBoolean, parseDateString, parseInteger } from "../utils/validation";
@@ -54,6 +54,9 @@ function normalizeFilters(filters: unknown): UnifiedFilters | null {
 
 function validateSearchRequest(payload: Record<string, unknown>): SearchRequest {
   const query = asString(payload.query);
+  if (query && query.length > 400) {
+    apiError(400, "query must be 400 characters or fewer.");
+  }
   const imageValue = payload.image;
   let image: SearchRequest["image"] = null;
 
@@ -279,13 +282,17 @@ export function createSearchRouter(): any {
         );
       }
 
-      return c.json({
+      const response: SearchResponse = {
         results: execution.results,
-        answer: execution.answer,
         credits_used: creditsUsed,
         credits_remaining: calculateCreditsRemaining(usageSummary),
         request_id: requestId
-      });
+      };
+      if (payload.include_answer) {
+        response.answer = execution.answer;
+      }
+
+      return c.json(response);
     } catch (error) {
       if (error instanceof BillingHoldError) {
         apiError(403, "Billing account requires review before more requests can be served.");

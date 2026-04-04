@@ -90,7 +90,7 @@ export const docsLandingSections = [
     kicker: "Getting Started",
     title: "Cerul API Overview",
     description:
-      "The Cerul API lets AI agents search video by meaning — across visual scenes, speech, and on-screen text. One endpoint, one API key, grounded results with timestamps.",
+      "The Cerul API lets AI agents search video by meaning — across visual scenes, speech, and on-screen text. Two public endpoints, one API key, grounded results with timestamps.",
     list: [
       "Base URL: https://api.cerul.ai",
       "Bearer token authentication",
@@ -106,11 +106,12 @@ export const docsLandingSections = [
       "Include your API key in the Authorization header as a Bearer token. Create and manage keys from your dashboard.",
     list: [
       "Authorization: Bearer YOUR_CERUL_API_KEY",
-      "Free tier: 100 credits on signup, no credit card",
+      "Free tier: 100 signup credits + 10 free searches/day, no credit card",
       "Keys start with cerul_ prefix",
     ],
     code: `curl "${API_BASE_URL}/v1/search" \\
   -H "Authorization: Bearer YOUR_CERUL_API_KEY" \\
+  -H "Content-Type: application/json" \\
   -d '{"query": "your search query"}'`,
     language: "bash",
     filename: "auth.sh",
@@ -128,6 +129,7 @@ export const docsLandingSections = [
     ],
     code: `curl "${API_BASE_URL}/v1/search" \\
   -H "Authorization: Bearer YOUR_CERUL_API_KEY" \\
+  -H "Content-Type: application/json" \\
   -d '{
     "query": "Sam Altman views on AI video generation tools",
     "max_results": 5,
@@ -141,9 +143,9 @@ export const docsLandingSections = [
     kicker: "Monitoring",
     title: "GET /v1/usage",
     description:
-      "Check your credit balance, spendable wallet, and rate limits. Call this before scaling traffic.",
+      "Check your credit balance, daily free allowance, spendable wallet, and rate limits. Call this before scaling traffic.",
     list: [
-      "Current billing period and credit balance",
+      "Billing period, wallet balance, and daily free status",
       "Rate limit status per tier",
       "No request body needed",
     ],
@@ -162,7 +164,9 @@ export const docsLandingSections = [
       "results[]: array of matched video segments",
       "score: relevance from 0.0 to 1.0",
       "url: Cerul tracking link → redirects to source",
+      "keyframe_url: preview frame when available",
       "transcript: full ASR text when speech exists",
+      "keyframe_url: preview frame when available",
     ],
     code: `{
   "results": [
@@ -174,6 +178,8 @@ export const docsLandingSections = [
       "snippet": "AGI is coming sooner than most people expect.",
       "transcript": "AGI is coming sooner than most people expect, and the roadmap gets clearer as model capability and product reliability converge.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
+      "keyframe_url": "https://cdn.cerul.ai/frames/hmtuvNfytjM/f0123.jpg",
+      "duration": 7200,
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1223.0,
@@ -181,9 +187,9 @@ export const docsLandingSections = [
     }
   ],
   "answer": "Summary grounded in the matched evidence.",
-  "credits_used": 1,
-  "credits_remaining": 999,
-  "request_id": "req_abc123xyz"
+  "credits_used": 2,
+  "credits_remaining": 998,
+  "request_id": "req_9f8c1d5b2a9f7d1a8c4e6b02"
 }`,
     language: "json",
     filename: "response.json",
@@ -194,14 +200,14 @@ export const docsPages: DocPage[] = [
   {
     slug: "usage-api",
     title: "Usage",
-    summary: "Monitor your credit balance, billing window, and rate limits with GET /v1/usage.",
+    summary: "Monitor your credit balance, daily free allowance, wallet breakdown, and rate limits with GET /v1/usage.",
     kicker: "API reference",
     readingTime: "2 min",
     sections: [
       {
         title: "Check usage",
         body:
-          "Returns your current billing period, credit balance, active key count, and rate limit. No request body needed.",
+          "Returns your current billing period, wallet balance, daily free allowance, active key count, and rate limit. No request body needed.",
         code: `curl "https://api.cerul.ai/v1/usage" \\
   -H "Authorization: Bearer YOUR_CERUL_API_KEY"`,
         language: "bash",
@@ -210,7 +216,7 @@ export const docsPages: DocPage[] = [
       {
         title: "Response",
         body:
-          "The response includes your plan tier, billing window, spendable wallet balance, credit breakdown, and active API key count.",
+          "The response includes your plan tier, billing window, spendable wallet balance, credit breakdown, daily free allowance, and active API key count.",
         code: `{
   "tier": "free",
   "plan_code": "free",
@@ -222,8 +228,11 @@ export const docsPages: DocPage[] = [
   "wallet_balance": 82,
   "credit_breakdown": {
     "included_remaining": 0,
-    "bonus_remaining": 82
+    "bonus_remaining": 82,
+    "paid_remaining": 0
   },
+  "expiring_credits": [],
+  "billing_hold": false,
   "daily_free_remaining": 7,
   "daily_free_limit": 10,
   "rate_limit_per_sec": 1,
@@ -237,7 +246,7 @@ export const docsPages: DocPage[] = [
         body:
           "Requests exceeding your rate limit return HTTP 429. The limit resets every second.",
         bullets: [
-          "All users: 10 free searches per day, no credits needed",
+          "All users: 10 free searches per UTC day before wallet credits are consumed",
           "Free: 1 request/second, 100 credits on signup",
           "Pay as you go: $8/1K credits, standard rate limits",
           "Pro: higher limits, 5,000 included credits/month, top up at $8/1K",
@@ -346,7 +355,7 @@ export const docsPopularTopics = [
   {
     title: "Rate limits and quotas",
     href: "/docs/usage-api",
-    description: "Understand your tier limits before scaling traffic.",
+    description: "Understand your credit and rate-limit envelope before scaling traffic.",
   },
   {
     title: "Full endpoint reference",
@@ -370,7 +379,7 @@ export const docsFeatureCards: DocsFeatureCard[] = [
   },
   {
     title: "Usage",
-    description: "Check credit balances, wallet breakdowns, and rate limits.",
+    description: "Check credit balances, daily free usage, wallet breakdowns, and rate limits.",
     snippet: "GET /v1/usage",
     href: "/docs/usage-api",
   },
@@ -431,17 +440,18 @@ export const apiReferenceEndpoints: ApiReferenceEndpoint[] = [
         description: "Number of results to return, 1–50. Default: 10.",
       },
       {
-        name: "include_answer",
-        type: "boolean",
-        required: "Optional",
-        description: "Generate an AI summary grounded in the matched evidence. Default: false.",
-      },
-      {
         name: "ranking_mode",
         type: "string",
         required: "Optional",
         description:
           "\"embedding\" (default) for vector similarity, or \"rerank\" for LLM-based reranking.",
+      },
+      {
+        name: "include_answer",
+        type: "boolean",
+        required: "Optional",
+        description:
+          "Generate an AI summary grounded in the matched evidence. Default: false. Costs 2 credits instead of 1.",
       },
       {
         name: "filters",
@@ -458,10 +468,16 @@ export const apiReferenceEndpoints: ApiReferenceEndpoint[] = [
         filename: "search.sh",
         code: `curl "https://api.cerul.ai/v1/search" \\
   -H "Authorization: Bearer YOUR_CERUL_API_KEY" \\
+  -H "Content-Type: application/json" \\
   -d '{
     "query": "Sam Altman views on AI video generation tools",
     "max_results": 5,
-    "include_answer": true
+    "ranking_mode": "rerank",
+    "include_answer": true,
+    "filters": {
+      "speaker": "Sam Altman",
+      "published_after": "2024-01-01"
+    }
   }'`,
       },
       {
@@ -472,11 +488,19 @@ export const apiReferenceEndpoints: ApiReferenceEndpoint[] = [
 
 response = requests.post(
     "https://api.cerul.ai/v1/search",
-    headers={"Authorization": "Bearer YOUR_CERUL_API_KEY"},
+    headers={
+        "Authorization": "Bearer YOUR_CERUL_API_KEY",
+        "Content-Type": "application/json",
+    },
     json={
         "query": "Sam Altman views on AI video generation tools",
         "max_results": 5,
+        "ranking_mode": "rerank",
         "include_answer": True,
+        "filters": {
+            "speaker": "Sam Altman",
+            "published_after": "2024-01-01",
+        },
     },
 )
 
@@ -490,11 +514,17 @@ print(response.json())`,
   method: "POST",
   headers: {
     "Authorization": "Bearer YOUR_CERUL_API_KEY",
+    "Content-Type": "application/json",
   },
   body: JSON.stringify({
     query: "Sam Altman views on AI video generation tools",
     max_results: 5,
+    ranking_mode: "rerank",
     include_answer: true,
+    filters: {
+      speaker: "Sam Altman",
+      published_after: "2024-01-01",
+    },
   }),
 });
 
@@ -507,11 +537,14 @@ console.log(data);`,
     {
       "id": "string",
       "score": "number (0.0–1.0)",
+      "rerank_score": "number | null",
       "url": "string (tracking URL → redirects to source)",
       "title": "string",
       "snippet": "string",
       "transcript": "string | null",
-      "thumbnail_url": "string",
+      "thumbnail_url": "string | null",
+      "keyframe_url": "string | null",
+      "duration": "integer",
       "source": "string",
       "speaker": "string | null",
       "timestamp_start": "number | null",
@@ -528,11 +561,14 @@ console.log(data);`,
     {
       "id": "unit_hmtuvNfytjM_1223",
       "score": 0.93,
+      "rerank_score": 0.97,
       "url": "https://cerul.ai/v/a8f3k2x",
       "title": "Sam Altman on AI video generation",
       "snippet": "Current AI video generation tools are improving quickly but still constrained by controllability.",
       "transcript": "Current AI video generation tools are improving quickly but still constrained by controllability, production reliability, and the ability to steer outputs precisely.",
       "thumbnail_url": "https://i.ytimg.com/vi/hmtuvNfytjM/hqdefault.jpg",
+      "keyframe_url": "https://cdn.cerul.ai/frames/hmtuvNfytjM/f0123.jpg",
+      "duration": 7200,
       "source": "youtube",
       "speaker": "Sam Altman",
       "timestamp_start": 1223.0,
@@ -551,7 +587,7 @@ console.log(data);`,
     method: "GET",
     path: "/v1/usage",
     title: "Check usage",
-    description: "Returns your current plan tier, billing period, spendable wallet, and rate limit.",
+    description: "Returns your current plan tier, billing period, spendable wallet, daily free allowance, and rate limit.",
     authLabel: "Bearer API key",
     authDescription:
       "Requires a Cerul API key. Use this to monitor usage before scaling traffic.",
@@ -602,8 +638,19 @@ console.log(data);`,
   "wallet_balance": "integer",
   "credit_breakdown": {
     "included_remaining": "integer",
-    "bonus_remaining": "integer"
+    "bonus_remaining": "integer",
+    "paid_remaining": "integer"
   },
+  "expiring_credits": [
+    {
+      "grant_type": "string",
+      "credits": "integer",
+      "expires_at": "ISO-8601 datetime"
+    }
+  ],
+  "billing_hold": "boolean",
+  "daily_free_remaining": "integer",
+  "daily_free_limit": "integer",
   "rate_limit_per_sec": "integer",
   "api_keys_active": "integer"
 }`,
@@ -612,14 +659,19 @@ console.log(data);`,
   "plan_code": "free",
   "period_start": "2026-03-01",
   "period_end": "2026-03-31",
-  "credits_limit": 1000,
-  "credits_used": 128,
-  "credits_remaining": 872,
-  "wallet_balance": 872,
+  "credits_limit": 0,
+  "credits_used": 18,
+  "credits_remaining": 82,
+  "wallet_balance": 82,
   "credit_breakdown": {
-    "included_remaining": 872,
-    "bonus_remaining": 0
+    "included_remaining": 0,
+    "bonus_remaining": 82,
+    "paid_remaining": 0
   },
+  "expiring_credits": [],
+  "billing_hold": false,
+  "daily_free_remaining": 7,
+  "daily_free_limit": 10,
   "rate_limit_per_sec": 1,
   "api_keys_active": 1
 }`,

@@ -39,7 +39,7 @@ DEFAULT_UNIFIED_EMBEDDING_DIMENSION = 3072
 MAX_INDEX_DURATION_SECONDS = 4 * 60 * 60
 DEFAULT_UNIFIED_STEP_TIMEOUTS: dict[str, float] = {
     "FetchUnifiedMetadataStep": 45.0,
-    "DownloadKnowledgeVideoStep": 480.0,
+    "DownloadKnowledgeVideoStep": 1200.0,
     "DetectKnowledgeScenesStep": 90.0,
     "AnalyzeKnowledgeFramesStep": 600.0,
     "BuildUnifiedRetrievalUnitsStep": 180.0,
