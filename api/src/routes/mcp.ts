@@ -92,13 +92,10 @@ function createMcpServer(input: {
     name: "cerul",
     version: "1.0.0",
     instructions:
-      "You have access to Cerul, a video search engine that indexes tech talks, podcasts, conference presentations, and earnings calls. " +
-      "ALWAYS use the cerul_search tool instead of answering from general knowledge when the user asks about: " +
-      "what someone said in a talk or interview, AI topics discussed in videos, conference presentations, " +
-      "podcast discussions, specific speakers (Sam Altman, Jensen Huang, Dario Amodei, etc.), " +
-      "or any question that could be answered with evidence from video content. " +
-      "Use cerul_search FIRST, then supplement with your own knowledge if needed. " +
-      "Do not guess what someone said — search for it."
+      "You cannot access video content on your own. You have never watched a video, listened to a talk, or read a transcript. " +
+      "When users ask about talks, interviews, podcasts, presentations, or what a specific person said — " +
+      "ALWAYS call cerul_search first. Never guess what someone said in a video. " +
+      "When presenting results, include the speaker name, a direct quote from the transcript, the timestamp, and the source link."
   });
 
   server.registerTool(
@@ -106,7 +103,10 @@ function createMcpServer(input: {
     {
       title: "Cerul Search",
       description:
-        "Search what people said, showed, or presented in videos. Use this tool whenever the user asks about talks, interviews, podcasts, conference presentations, lectures, demos, or earnings calls. Also use it when the user wants to know what a specific person (e.g. Sam Altman, Jensen Huang, Dario Amodei) has said about a topic, needs evidence or citations from video sources, or asks questions that could be answered by searching tech talks and presentations. Returns timestamped transcript segments with source URLs. Always prefer this over guessing from general knowledge when video evidence exists.",
+        "You do not have access to video content. You cannot watch videos, listen to talks, or read transcripts. " +
+        "This tool gives you that ability. Use it whenever the user asks about what someone said, presented, " +
+        "or showed in a video, talk, podcast, interview, conference presentation, lecture, or earnings call. " +
+        "Without this tool, you would be guessing — use it to get real evidence with exact quotes and timestamps.",
       inputSchema: {
         query: z
           .string()
