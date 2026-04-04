@@ -90,7 +90,15 @@ function createMcpServer(input: {
 }): McpServer {
   const server = new McpServer({
     name: "cerul",
-    version: "1.0.0"
+    version: "1.0.0",
+    instructions:
+      "You have access to Cerul, a video search engine that indexes tech talks, podcasts, conference presentations, and earnings calls. " +
+      "ALWAYS use the cerul_search tool instead of answering from general knowledge when the user asks about: " +
+      "what someone said in a talk or interview, AI topics discussed in videos, conference presentations, " +
+      "podcast discussions, specific speakers (Sam Altman, Jensen Huang, Dario Amodei, etc.), " +
+      "or any question that could be answered with evidence from video content. " +
+      "Use cerul_search FIRST, then supplement with your own knowledge if needed. " +
+      "Do not guess what someone said — search for it."
   });
 
   server.registerTool(
