@@ -4,8 +4,8 @@
     <img src="./assets/logo.png" alt="Cerul" width="80" />
   </a>
   <h1>Cerul</h1>
-  <p><strong>Video search API for AI agents.</strong></p>
-  <p>Search what is shown in videos, not just what is said.</p>
+  <p><strong>The video search layer for AI agents.</strong></p>
+  <p>Teach your AI agents to see — search by meaning across visual scenes, speech, and on-screen content.</p>
 
   <p>
     <a href="https://cerul.ai/docs"><strong>Docs</strong></a> &middot;
@@ -30,7 +30,7 @@
 <br />
 
 <div align="center">
-  <video src="https://github.com/user-attachments/assets/e0982048-3b40-42b9-80b6-a79b401d2355" width="720" controls></video>
+  <video src="https://github.com/user-attachments/assets/e0982048-3b40-42b9-80b6-a79b401d2355" width="720" autoplay loop muted playsinline></video>
 </div>
 
 <br />
