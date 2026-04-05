@@ -35,34 +35,33 @@ function buildCodeSnippet(lang: CodeLang, query: string, authToken: string): str
   const q = query || "your search query here";
 
   if (lang === "python") {
-    return `# To install: pip install requests
-import requests
+    return `# To install: pip install cerul
+from cerul import Cerul
 
-response = requests.post(
-    "https://api.cerul.ai/v1/search",
-    headers={"Authorization": "Bearer ${authToken}"},
-    json={
-        "query": ${JSON.stringify(q)},
-        "max_results": 5,
-    },
+client = Cerul(api_key="${authToken}")
+
+result = client.search(
+    query=${JSON.stringify(q)},
+    max_results=5,
 )
-print(response.json())`;
+
+for r in result:
+    print(r.title, r.url)`;
   }
 
   if (lang === "javascript") {
-    return `const response = await fetch("https://api.cerul.ai/v1/search", {
-  method: "POST",
-  headers: {
-    "Authorization": "Bearer ${authToken}",
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    query: ${JSON.stringify(q)},
-    max_results: 5,
-  }),
+    return `import { cerul } from "cerul";
+
+const client = cerul({ apiKey: "${authToken}" });
+
+const result = await client.search({
+  query: ${JSON.stringify(q)},
+  max_results: 5,
 });
-const data = await response.json();
-console.log(data);`;
+
+for (const r of result.results) {
+  console.log(r.title, r.url);
+}`;
   }
 
   if (lang === "go") {
@@ -72,8 +71,8 @@ import (
     "bytes"
     "encoding/json"
     "fmt"
-    "net/http"
     "io"
+    "net/http"
 )
 
 func main() {
@@ -81,9 +80,11 @@ func main() {
         "query":       ${JSON.stringify(q)},
         "max_results": 5,
     })
-    req, _ := http.NewRequest("POST",
+    req, _ := http.NewRequest(
+        "POST",
         "https://api.cerul.ai/v1/search",
-        bytes.NewBuffer(body))
+        bytes.NewBuffer(body),
+    )
     req.Header.Set("Authorization", "Bearer ${authToken}")
     req.Header.Set("Content-Type", "application/json")
 
@@ -735,10 +736,10 @@ export function PlaygroundScreen() {
               {isLoading ? (
                 <span className="flex items-center justify-center gap-2">
                   <IconSpinner className="h-5 w-5" />
-                  Processing...
+                  Sending...
                 </span>
               ) : (
-                "Send Request"
+                "Send"
               )}
             </button>
 
