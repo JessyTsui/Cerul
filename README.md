@@ -11,7 +11,7 @@
     <a href="https://cerul.ai/docs"><strong>Docs</strong></a> &middot;
     <a href="https://cerul.ai/docs/search-api"><strong>API Reference</strong></a> &middot;
     <a href="https://cerul.ai/pricing"><strong>Pricing</strong></a> &middot;
-    <a href="https://x.com/cerul_hq"><strong>Twitter</strong></a>
+    <a href="https://x.com/cerul_hq"><img src="https://img.shields.io/badge/follow-%40cerul__hq-000?style=flat-square&logo=x" alt="Follow on X" /></a>
   </p>
 
   <p>
