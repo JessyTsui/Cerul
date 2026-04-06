@@ -467,10 +467,7 @@ export function AdminWorkersScreen() {
                           onClick={() => setExpandedJob(isExpanded ? null : job.jobId)}
                         >
                           <td>
-                            <div>
-                              <p className="admin-table-primary">{formatSourceLabel(job)}</p>
-                              <p className="mt-0.5 text-[10px] text-[var(--foreground-tertiary)]">{job.track}</p>
-                            </div>
+                            <p className="admin-table-primary">{formatSourceLabel(job)}</p>
                           </td>
                           <td>
                             {videoUrl ? (

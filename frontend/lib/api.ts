@@ -131,12 +131,10 @@ type AutoRechargeSettingsWire = {
 };
 
 type JobStatusWire = "pending" | "running" | "retrying" | "completed" | "failed";
-type JobTrackWire = "broll" | "knowledge" | "unified";
 type JobStepStatusWire = "pending" | "running" | "completed" | "failed" | "skipped";
 
 type JobSummaryWire = {
   id: string;
-  track: JobTrackWire;
   job_type: string;
   status: JobStatusWire;
   attempts: number;
@@ -183,12 +181,6 @@ type JobDetailWire = JobSummaryWire & {
   steps?: JobStepDetailWire[];
 };
 
-type JobStatsTrackWire = {
-  broll?: number;
-  knowledge?: number;
-  unified?: number;
-};
-
 type JobStatsWire = {
   total: number;
   pending: number;
@@ -196,7 +188,6 @@ type JobStatsWire = {
   retrying: number;
   completed: number;
   failed: number;
-  tracks?: JobStatsTrackWire;
 };
 
 export type DashboardApiKey = {
@@ -276,7 +267,6 @@ export type QueryLogResult = {
 
 export type QueryLogEntry = {
   requestId: string;
-  searchType: string;
   searchSurface: string | null;
   queryText: string;
   includeAnswer: boolean;
@@ -346,19 +336,16 @@ export type BillingCatalog = {
 };
 
 export type JobStatus = JobStatusWire;
-export type JobTrack = JobTrackWire;
 export type JobStepStatus = JobStepStatusWire;
 
 export type JobListParams = {
   status?: JobStatus;
-  track?: JobTrack;
   limit?: number;
   offset?: number;
 };
 
 export type DashboardJobSummary = {
   id: string;
-  track: JobTrack;
   jobType: string;
   status: JobStatus;
   attempts: number;
@@ -410,11 +397,6 @@ export type DashboardJobStats = {
   retrying: number;
   completed: number;
   failed: number;
-  tracks: {
-    broll: number;
-    knowledge: number;
-    unified: number;
-  };
 };
 
 export class ApiClientError extends Error {
@@ -571,10 +553,6 @@ function isJobStatus(value: unknown): value is JobStatus {
   );
 }
 
-function isJobTrack(value: unknown): value is JobTrack {
-  return value === "broll" || value === "knowledge" || value === "unified";
-}
-
 function isJobStepStatus(value: unknown): value is JobStepStatus {
   return (
     value === "pending" ||
@@ -589,7 +567,6 @@ function isJobSummaryWire(value: unknown): value is JobSummaryWire {
   return (
     isPlainObject(value) &&
     typeof value.id === "string" &&
-    isJobTrack(value.track) &&
     typeof value.job_type === "string" &&
     isJobStatus(value.status) &&
     isFiniteNumber(value.attempts) &&
@@ -911,7 +888,6 @@ function normalizeAutoRechargeSettings(payload: unknown): AutoRechargeSettings {
 function normalizeJobSummary(input: JobSummaryWire): DashboardJobSummary {
   return {
     id: input.id,
-    track: input.track,
     jobType: input.job_type,
     status: input.status,
     attempts: input.attempts,
@@ -1040,8 +1016,7 @@ function normalizeJobStats(payload: unknown): DashboardJobStats {
     !isFiniteNumber(payload.running) ||
     !isFiniteNumber(payload.retrying) ||
     !isFiniteNumber(payload.completed) ||
-    !isFiniteNumber(payload.failed) ||
-    !isPlainObject(payload.tracks)
+    !isFiniteNumber(payload.failed)
   ) {
     throw new ApiClientError("Invalid job stats response.", {
       status: 500,
@@ -1057,15 +1032,6 @@ function normalizeJobStats(payload: unknown): DashboardJobStats {
     retrying: payload.retrying,
     completed: payload.completed,
     failed: payload.failed,
-    tracks: {
-      broll: isFiniteNumber(payload.tracks.broll) ? payload.tracks.broll : 0,
-      knowledge: isFiniteNumber(payload.tracks.knowledge)
-        ? payload.tracks.knowledge
-        : 0,
-      unified: isFiniteNumber(payload.tracks.unified)
-        ? payload.tracks.unified
-        : 0,
-    },
   };
 }
 
@@ -1218,7 +1184,6 @@ export const jobs = {
   async list(params: JobListParams = {}): Promise<DashboardJobList> {
     const queryString = buildQueryString({
       status: params.status,
-      track: params.track,
       limit: params.limit,
       offset: params.offset,
     });
@@ -1533,7 +1498,6 @@ export const queryLogs = {
     return {
       items: items.map((item: Record<string, unknown>) => ({
         requestId: String(item.request_id ?? ""),
-        searchType: String(item.search_type ?? ""),
         searchSurface: typeof item.search_surface === "string" ? item.search_surface : null,
         queryText: String(item.query_text ?? ""),
         includeAnswer: item.include_answer === true,

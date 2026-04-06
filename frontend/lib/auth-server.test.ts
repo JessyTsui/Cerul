@@ -161,7 +161,12 @@ describe("getAuthRouteHandlers", () => {
     const createHook = state.lastAuthConfig?.databaseHooks as {
       user?: {
         create?: {
-          after?: (user: { id: string; email: string; name: string }) => Promise<void>;
+          after?: (user: {
+            id: string;
+            email: string;
+            name: string;
+            emailVerified: boolean;
+          }) => Promise<void>;
         };
       };
     };

@@ -26,7 +26,6 @@ type UseJobListResult = {
 function getParamsKey(params: JobListParams): string {
   return JSON.stringify({
     status: params.status ?? null,
-    track: params.track ?? null,
     limit: params.limit ?? null,
     offset: params.offset ?? null,
   });
@@ -75,11 +74,10 @@ export function useJobList(params: JobListParams = {}): UseJobListResult {
   const normalizedParams = useMemo(
     () => ({
       status: params.status,
-      track: params.track,
       limit: params.limit,
       offset: params.offset,
     }),
-    [params.limit, params.offset, params.status, params.track],
+    [params.limit, params.offset, params.status],
   );
   const paramsKey = useMemo(() => getParamsKey(normalizedParams), [normalizedParams]);
 

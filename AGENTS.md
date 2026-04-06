@@ -24,7 +24,7 @@ Treat these as baseline project rules:
 5. Keep the API layer thin and push heavy processing into workers.
 
 ## Product & Architecture Guardrails
-Cerul has two tracks, `broll` and `knowledge`, but they should share one platform backbone.
+Cerul exposes one unified product surface and routes internally by source and processing strategy.
 
 This repository is the `cerul` web app after the backend split. Private backend code now lives in sibling repositories:
 
@@ -148,7 +148,7 @@ Recommended branch patterns:
 - `codex/fix-api-key-auth`
 - `codex/docs-readme-refresh`
 - `codex/chore-repo-bootstrap`
-- `codex/refactor-broll-pipeline`
+- `codex/refactor-job-ledger`
 
 Keep branch names:
 
@@ -187,7 +187,7 @@ PR title rules:
 Recommended PR title patterns:
 
 - `Add API key management skeleton`
-- `Implement initial broll indexing flow`
+- `Implement unified indexing flow`
 - `Rewrite README for public repo`
 - `Scaffold public repo structure`
 
@@ -227,7 +227,7 @@ An issue is not required for every tiny cleanup.
 
 Recommended issue title patterns:
 
-- `[Feature] Add broll search API`
+- `[Feature] Add unified search API`
 - `[Bug] Usage endpoint returns wrong remaining credits`
 - `[Docs] Clarify open-source scope`
 - `[Infra] Add Neon migration workflow`

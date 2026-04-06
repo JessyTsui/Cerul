@@ -6,13 +6,13 @@ import {
 } from "./demo-api";
 
 describe("simulateDemoSearch", () => {
-  it("returns deterministic knowledge search structure", () => {
+  it("returns deterministic search demo structure", () => {
     const response = simulateDemoSearch({
-      mode: "knowledge",
+      mode: "search",
       query: "Show me the slide about AGI timelines",
     });
 
-    expect(response.mode).toBe("knowledge");
+    expect(response.mode).toBe("search");
     expect(response.results.length).toBeGreaterThan(0);
     expect(response.requestId.startsWith("req_")).toBe(true);
   });
@@ -20,10 +20,10 @@ describe("simulateDemoSearch", () => {
 
 describe("validateDemoSearchRequestBody", () => {
   it("accepts valid payloads and fills defaults", () => {
-    expect(validateDemoSearchRequestBody({ mode: "broll" })).toEqual({
+    expect(validateDemoSearchRequestBody({ mode: "visual" })).toEqual({
       ok: true,
       value: {
-        mode: "broll",
+        mode: "visual",
         query: "",
       },
     });

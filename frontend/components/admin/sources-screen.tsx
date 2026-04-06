@@ -343,7 +343,6 @@ export function AdminSourcesScreen() {
       } else {
         const input: CreateSourceInput = {
           slug: form.slug.trim(),
-          track: "unified",
           sourceType: "youtube",
           displayName: form.displayName.trim(),
           isActive: form.isActive,

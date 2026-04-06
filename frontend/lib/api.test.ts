@@ -558,7 +558,6 @@ describe("dashboard API client", () => {
           items: [
             {
               request_id: "req_api_1",
-              search_type: "unified",
               search_surface: "api",
               query_text: "attention is all you need",
               include_answer: true,
@@ -571,7 +570,6 @@ describe("dashboard API client", () => {
             },
             {
               request_id: "req_legacy_1",
-              search_type: "unified",
               search_surface: null,
               query_text: "legacy row",
               include_answer: false,
@@ -600,7 +598,6 @@ describe("dashboard API client", () => {
       items: [
         {
           requestId: "req_api_1",
-          searchType: "unified",
           searchSurface: "api",
           queryText: "attention is all you need",
           includeAnswer: true,
@@ -613,7 +610,6 @@ describe("dashboard API client", () => {
         },
         {
           requestId: "req_legacy_1",
-          searchType: "unified",
           searchSurface: null,
           queryText: "legacy row",
           includeAnswer: false,
@@ -638,7 +634,6 @@ describe("dashboard API client", () => {
           jobs: [
             {
               id: "job_1",
-              track: "knowledge",
               job_type: "index",
               status: "running",
               attempts: 1,
@@ -664,7 +659,6 @@ describe("dashboard API client", () => {
     await expect(
       jobs.list({
         status: "running",
-        track: "knowledge",
         limit: 25,
         offset: 0,
       }),
@@ -672,7 +666,6 @@ describe("dashboard API client", () => {
       jobs: [
         {
           id: "job_1",
-          track: "knowledge",
           jobType: "index",
           status: "running",
           attempts: 1,
@@ -688,7 +681,7 @@ describe("dashboard API client", () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/console/dashboard/jobs?status=running&track=knowledge&limit=25&offset=0",
+      "/api/console/dashboard/jobs?status=running&limit=25&offset=0",
       expect.objectContaining({
         credentials: "include",
         method: "GET",
@@ -701,7 +694,6 @@ describe("dashboard API client", () => {
       new Response(
         JSON.stringify({
           id: "job_1",
-          track: "broll",
           source_id: null,
           job_type: "index_video",
           status: "failed",
@@ -744,7 +736,6 @@ describe("dashboard API client", () => {
 
     await expect(jobs.get("job_1")).resolves.toEqual({
       id: "job_1",
-      track: "broll",
       sourceId: null,
       jobType: "index_video",
       status: "failed",
@@ -791,11 +782,6 @@ describe("dashboard API client", () => {
           retrying: 1,
           completed: 3,
           failed: 1,
-          tracks: {
-            broll: 5,
-            knowledge: 3,
-            unified: 0,
-          },
         }),
         {
           status: 200,
@@ -813,11 +799,6 @@ describe("dashboard API client", () => {
       retrying: 1,
       completed: 3,
       failed: 1,
-      tracks: {
-        broll: 5,
-        knowledge: 3,
-        unified: 0,
-      },
     });
   });
 });
