@@ -6,16 +6,7 @@ import { SceneRouteSummary } from "./scene-route-summary";
 
 const FAILED_JOBS_PAGE_SIZE = 5;
 
-const BROLL_STEP_ORDER = [
-  "DiscoverAssetStep",
-  "FetchAssetMetadataStep",
-  "DownloadPreviewFrameStep",
-  "GenerateEmbeddingStep",
-  "PersistBrollAssetStep",
-  "MarkJobCompletedStep",
-];
-
-const KNOWLEDGE_STEP_ORDER = [
+const UNIFIED_YOUTUBE_STEP_ORDER = [
   "FetchKnowledgeMetadataStep",
   "FetchKnowledgeCaptionsStep",
   "DownloadKnowledgeVideoStep",
@@ -26,10 +17,6 @@ const KNOWLEDGE_STEP_ORDER = [
   "EmbedKnowledgeSegmentsStep",
   "StoreKnowledgeSegmentsStep",
   "MarkKnowledgeJobCompletedStep",
-];
-
-const UNIFIED_YOUTUBE_STEP_ORDER = [
-  ...KNOWLEDGE_STEP_ORDER,
   "BuildUnifiedRetrievalUnitsStep",
   "PersistUnifiedUnitsStep",
   "MarkUnifiedJobCompletedStep",
@@ -52,7 +39,7 @@ const STEP_LABELS: Record<string, string> = {
   DownloadPreviewFrameStep: "Preview Frames",
   GenerateEmbeddingStep: "Embed Assets",
   PersistBrollAssetStep: "Persist Assets",
-  MarkJobCompletedStep: "B-roll Complete",
+  MarkJobCompletedStep: "Complete",
   FetchKnowledgeMetadataStep: "Metadata",
   FetchKnowledgeCaptionsStep: "Captions",
   DownloadKnowledgeVideoStep: "Download",
@@ -62,7 +49,7 @@ const STEP_LABELS: Record<string, string> = {
   SegmentKnowledgeTranscriptStep: "Segment Transcript",
   EmbedKnowledgeSegmentsStep: "Embed Segments",
   StoreKnowledgeSegmentsStep: "Store Segments",
-  MarkKnowledgeJobCompletedStep: "Knowledge Complete",
+  MarkKnowledgeJobCompletedStep: "Complete",
   FetchUnifiedMetadataStep: "Unified Metadata",
   BuildUnifiedRetrievalUnitsStep: "Build Units",
   EmbedUnifiedUnitsStep: "Embed Units",
@@ -84,7 +71,7 @@ const STEP_HINTS: Record<string, string> = {
   AnalyzeKnowledgeFramesStep: "Running frame analysis to extract on-screen evidence.",
   SegmentKnowledgeTranscriptStep: "Merging transcript and visual context into retrieval segments.",
   EmbedKnowledgeSegmentsStep: "Embedding transcript segments into the shared vector space.",
-  StoreKnowledgeSegmentsStep: "Persisting the knowledge video and its segments.",
+  StoreKnowledgeSegmentsStep: "Persisting the video and its segments.",
   BuildUnifiedRetrievalUnitsStep: "Building summary, speech, and visual units for unified search.",
   EmbedUnifiedUnitsStep: "Embedding unified retrieval units before persistence.",
   PersistUnifiedUnitsStep: "Writing unified retrieval units into the main search index.",
@@ -100,15 +87,11 @@ function stepHint(name: string): string | null {
 }
 
 function getStepOrder(job: AdminWorkerJob): string[] {
-  let baseOrder: string[] = [];
-
-  if (job.track === "broll") {
-    baseOrder = BROLL_STEP_ORDER;
-  } else if (job.track === "knowledge") {
-    baseOrder = KNOWLEDGE_STEP_ORDER;
-  } else if (job.track === "unified") {
-    baseOrder = job.source === "youtube" ? UNIFIED_YOUTUBE_STEP_ORDER : UNIFIED_VISUAL_STEP_ORDER;
-  }
+  const normalizedSource = job.source?.trim().toLowerCase();
+  const baseOrder =
+    normalizedSource === "youtube"
+      ? UNIFIED_YOUTUBE_STEP_ORDER
+      : UNIFIED_VISUAL_STEP_ORDER;
 
   const extraSteps = job.steps
     .map((step) => step.stepName)

@@ -1,7 +1,7 @@
 import { ApiClientError, fetchWithAuth } from "./api";
 
 export type AdminRange = "today" | "7d" | "30d";
-export type AdminTargetScopeType = "global" | "track" | "source";
+export type AdminTargetScopeType = "global" | "source";
 export type AdminTargetComparisonMode = "at_least" | "at_most";
 
 export type AdminWindow = {
@@ -34,9 +34,9 @@ export type AdminSummaryPoint = {
   requests: number;
   creditsUsed: number;
   zeroResultQueries: number;
-  brollAssetsAdded: number;
-  knowledgeVideosAdded: number;
-  knowledgeSegmentsAdded: number;
+  assetsAdded: number;
+  videosAdded: number;
+  segmentsAdded: number;
   jobsCompleted: number;
   jobsFailed: number;
   latencyP95Ms: number | null;
@@ -134,7 +134,6 @@ export type AdminRequestsSummary = {
 };
 
 export type AdminSourceGrowth = {
-  track: string;
   sourceKey: string;
   additions: number;
 };
@@ -143,7 +142,7 @@ export type AdminSourceFreshness = {
   sourceId: string;
   slug: string;
   displayName: string;
-  track: string;
+  sourceType: string | null;
   isActive: boolean;
   lastJobAt: string | null;
   jobsInRange: number;
@@ -154,13 +153,12 @@ export type AdminContentSummary = {
   generatedAt: string;
   window: AdminWindow;
   metrics: {
-    brollAssetsTotal: AdminMetricValue;
-    knowledgeVideosTotal: AdminMetricValue;
-    knowledgeSegmentsTotal: AdminMetricValue;
+    videosTotal: AdminMetricValue;
+    segmentsTotal: AdminMetricValue;
     activeSourcesTotal: AdminMetricValue;
-    brollAssetsAdded: AdminMetricValue;
-    knowledgeVideosAdded: AdminMetricValue;
-    knowledgeSegmentsAdded: AdminMetricValue;
+    assetsAdded: AdminMetricValue;
+    videosAdded: AdminMetricValue;
+    segmentsAdded: AdminMetricValue;
   };
   dailySeries: AdminSummaryPoint[];
   perSourceGrowth: AdminSourceGrowth[];
@@ -171,7 +169,7 @@ export type AdminSourceHealth = {
   sourceId: string;
   slug: string;
   displayName: string;
-  track: string;
+  sourceType: string | null;
   isActive: boolean;
   jobsCreated: number;
   jobsCompleted: number;
@@ -182,7 +180,6 @@ export type AdminSourceHealth = {
 
 export type AdminFailedJob = {
   jobId: string;
-  track: string;
   jobType: string;
   sourceId: string | null;
   sourceName: string | null;
@@ -299,7 +296,6 @@ export type AdminWorkerStep = {
 
 export type AdminWorkerJob = {
   jobId: string;
-  track: string;
   status: string;
   source: string | null;
   videoId: string | null;
@@ -367,7 +363,6 @@ export type AdminIndexedVideosResponse = {
 export type AdminSource = {
   id: string;
   slug: string;
-  track: string;
   sourceType: string | null;
   displayName: string;
   isActive: boolean;
@@ -385,7 +380,6 @@ export type AdminSourcesResponse = {
 
 export type CreateSourceInput = {
   slug: string;
-  track: string;
   sourceType?: string;
   displayName: string;
   isActive?: boolean;
@@ -395,7 +389,6 @@ export type CreateSourceInput = {
 
 export type UpdateSourceInput = {
   slug?: string;
-  track?: string;
   sourceType?: string;
   displayName?: string;
   isActive?: boolean;
@@ -579,14 +572,14 @@ function normalizeSummaryPoint(payload: unknown): AdminSummaryPoint {
     zeroResultQueries: isFiniteNumber(raw.zero_result_queries)
       ? raw.zero_result_queries
       : 0,
-    brollAssetsAdded: isFiniteNumber(raw.broll_assets_added)
-      ? raw.broll_assets_added
+    assetsAdded: isFiniteNumber(raw.assets_added)
+      ? raw.assets_added
       : 0,
-    knowledgeVideosAdded: isFiniteNumber(raw.knowledge_videos_added)
-      ? raw.knowledge_videos_added
+    videosAdded: isFiniteNumber(raw.videos_added)
+      ? raw.videos_added
       : 0,
-    knowledgeSegmentsAdded: isFiniteNumber(raw.knowledge_segments_added)
-      ? raw.knowledge_segments_added
+    segmentsAdded: isFiniteNumber(raw.segments_added)
+      ? raw.segments_added
       : 0,
     jobsCompleted: isFiniteNumber(raw.jobs_completed) ? raw.jobs_completed : 0,
     jobsFailed: isFiniteNumber(raw.jobs_failed) ? raw.jobs_failed : 0,
@@ -752,20 +745,18 @@ export function normalizeAdminContentSummary(payload: unknown): AdminContentSumm
     generatedAt: typeof raw.generated_at === "string" ? raw.generated_at : "",
     window: normalizeWindow(raw.window),
     metrics: {
-      brollAssetsTotal: normalizeMetricValue(metrics.broll_assets_total),
-      knowledgeVideosTotal: normalizeMetricValue(metrics.knowledge_videos_total),
-      knowledgeSegmentsTotal: normalizeMetricValue(metrics.knowledge_segments_total),
+      videosTotal: normalizeMetricValue(metrics.videos_total),
+      segmentsTotal: normalizeMetricValue(metrics.segments_total),
       activeSourcesTotal: normalizeMetricValue(metrics.active_sources_total),
-      brollAssetsAdded: normalizeMetricValue(metrics.broll_assets_added),
-      knowledgeVideosAdded: normalizeMetricValue(metrics.knowledge_videos_added),
-      knowledgeSegmentsAdded: normalizeMetricValue(metrics.knowledge_segments_added),
+      assetsAdded: normalizeMetricValue(metrics.assets_added),
+      videosAdded: normalizeMetricValue(metrics.videos_added),
+      segmentsAdded: normalizeMetricValue(metrics.segments_added),
     },
     dailySeries: normalizeSummaryPoints(raw.daily_series),
     perSourceGrowth: Array.isArray(raw.per_source_growth)
       ? raw.per_source_growth.map((item) => {
           const value = ensureObject(item, "Invalid source growth payload.");
           return {
-            track: typeof value.track === "string" ? value.track : "",
             sourceKey: typeof value.source_key === "string" ? value.source_key : "",
             additions: isFiniteNumber(value.additions) ? value.additions : 0,
           };
@@ -779,7 +770,8 @@ export function normalizeAdminContentSummary(payload: unknown): AdminContentSumm
             slug: typeof value.slug === "string" ? value.slug : "",
             displayName:
               typeof value.display_name === "string" ? value.display_name : "",
-            track: typeof value.track === "string" ? value.track : "",
+            sourceType:
+              typeof value.source_type === "string" ? value.source_type : null,
             isActive: value.is_active === true,
             lastJobAt:
               typeof value.last_job_at === "string" ? value.last_job_at : null,
@@ -826,7 +818,8 @@ export function normalizeAdminWorkersSummary(payload: unknown): AdminWorkersSumm
             slug: typeof value.slug === "string" ? value.slug : "",
             displayName:
               typeof value.display_name === "string" ? value.display_name : "",
-            track: typeof value.track === "string" ? value.track : "",
+            sourceType:
+              typeof value.source_type === "string" ? value.source_type : null,
             isActive: value.is_active === true,
             jobsCreated: isFiniteNumber(value.jobs_created) ? value.jobs_created : 0,
             jobsCompleted: isFiniteNumber(value.jobs_completed)
@@ -844,7 +837,6 @@ export function normalizeAdminWorkersSummary(payload: unknown): AdminWorkersSumm
           const value = ensureObject(item, "Invalid failed job payload.");
           return {
             jobId: typeof value.job_id === "string" ? value.job_id : "",
-            track: typeof value.track === "string" ? value.track : "",
             jobType: typeof value.job_type === "string" ? value.job_type : "",
             sourceId:
               typeof value.source_id === "string" ? value.source_id : null,
@@ -932,7 +924,6 @@ export function normalizeAdminWorkerLive(payload: unknown): AdminWorkerLive {
           const job = ensureObject(item, "Invalid worker job payload.");
           return {
             jobId: typeof job.job_id === "string" ? job.job_id : "",
-            track: typeof job.track === "string" ? job.track : "",
             status: typeof job.status === "string" ? job.status : "",
             source: typeof job.source === "string" ? job.source : null,
             videoId: typeof job.video_id === "string" ? job.video_id : null,
@@ -1010,7 +1001,6 @@ export function normalizeAdminWorkerLive(payload: unknown): AdminWorkerLive {
           const job = ensureObject(item, "Invalid failed worker job payload.");
           return {
             jobId: typeof job.job_id === "string" ? job.job_id : "",
-            track: typeof job.track === "string" ? job.track : "",
             status: typeof job.status === "string" ? job.status : "",
             source: typeof job.source === "string" ? job.source : null,
             videoId: typeof job.video_id === "string" ? job.video_id : null,
@@ -1118,10 +1108,7 @@ export function normalizeAdminTargetsResponse(payload: unknown): AdminTargetsRes
             id: typeof value.id === "string" ? value.id : "",
             metricName:
               typeof value.metric_name === "string" ? value.metric_name : "",
-            scopeType:
-              value.scope_type === "track" || value.scope_type === "source"
-                ? value.scope_type
-                : "global",
+            scopeType: value.scope_type === "source" ? "source" : "global",
             scopeKey: typeof value.scope_key === "string" ? value.scope_key : "",
             rangeKey:
               value.range_key === "today" || value.range_key === "30d"
@@ -1373,13 +1360,12 @@ export const admin = {
       sources: Array.isArray(raw.sources)
         ? raw.sources.map((item) => {
             const value = ensureObject(item, "Invalid admin source payload.");
-            return {
-              id: typeof value.id === "string" ? value.id : "",
-              slug: typeof value.slug === "string" ? value.slug : "",
-              track: typeof value.track === "string" ? value.track : "",
-              sourceType: typeof value.source_type === "string" ? value.source_type : null,
-              displayName: typeof value.display_name === "string" ? value.display_name : "",
-              isActive: value.is_active === true,
+          return {
+            id: typeof value.id === "string" ? value.id : "",
+            slug: typeof value.slug === "string" ? value.slug : "",
+            sourceType: typeof value.source_type === "string" ? value.source_type : null,
+            displayName: typeof value.display_name === "string" ? value.display_name : "",
+            isActive: value.is_active === true,
               config: isPlainObject(value.config) ? value.config : {},
               metadata: isPlainObject(value.metadata) ? value.metadata : {},
               syncCursor: typeof value.sync_cursor === "string" ? value.sync_cursor : null,
@@ -1396,7 +1382,6 @@ export const admin = {
       method: "POST",
       body: {
         slug: input.slug,
-        track: input.track,
         source_type: input.sourceType ?? "youtube",
         display_name: input.displayName,
         is_active: input.isActive ?? true,
@@ -1408,7 +1393,6 @@ export const admin = {
     return {
       id: typeof value.id === "string" ? value.id : "",
       slug: typeof value.slug === "string" ? value.slug : "",
-      track: typeof value.track === "string" ? value.track : "",
       sourceType: typeof value.source_type === "string" ? value.source_type : null,
       displayName: typeof value.display_name === "string" ? value.display_name : "",
       isActive: value.is_active === true,
@@ -1423,7 +1407,6 @@ export const admin = {
   async updateSource(sourceId: string, input: UpdateSourceInput): Promise<AdminSource> {
     const body: Record<string, unknown> = {};
     if (input.slug !== undefined) body.slug = input.slug;
-    if (input.track !== undefined) body.track = input.track;
     if (input.sourceType !== undefined) body.source_type = input.sourceType;
     if (input.displayName !== undefined) body.display_name = input.displayName;
     if (input.isActive !== undefined) body.is_active = input.isActive;
@@ -1439,7 +1422,6 @@ export const admin = {
     return {
       id: typeof value.id === "string" ? value.id : "",
       slug: typeof value.slug === "string" ? value.slug : "",
-      track: typeof value.track === "string" ? value.track : "",
       sourceType: typeof value.source_type === "string" ? value.source_type : null,
       displayName: typeof value.display_name === "string" ? value.display_name : "",
       isActive: value.is_active === true,
@@ -1597,7 +1579,6 @@ export const admin = {
       source: {
         id: typeof rawSource.id === "string" ? rawSource.id : "",
         slug: typeof rawSource.slug === "string" ? rawSource.slug : "",
-        track: typeof rawSource.track === "string" ? rawSource.track : "",
         sourceType: typeof rawSource.source_type === "string" ? rawSource.source_type : null,
         displayName: typeof rawSource.display_name === "string" ? rawSource.display_name : "",
         isActive: rawSource.is_active === true,

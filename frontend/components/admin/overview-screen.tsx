@@ -111,7 +111,7 @@ export function AdminOverviewScreen() {
             />
             <AdminTrendChart
               title="Content growth"
-              data={toAdminChartData(data.contentSeries, "knowledgeSegmentsAdded")}
+              data={toAdminChartData(data.contentSeries, "segmentsAdded")}
               metricLabel="Segments added"
             />
           </div>

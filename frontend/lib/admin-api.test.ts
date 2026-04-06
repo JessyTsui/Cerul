@@ -37,9 +37,9 @@ describe("normalizeAdminSummary", () => {
           requests: 32,
           credits_used: 70,
           zero_result_queries: 3,
-          broll_assets_added: 4,
-          knowledge_videos_added: 1,
-          knowledge_segments_added: 12,
+          assets_added: 4,
+          videos_added: 1,
+          segments_added: 12,
           jobs_completed: 5,
           jobs_failed: 1,
           latency_p95_ms: 620,
@@ -92,9 +92,9 @@ describe("normalizeAdminSummary", () => {
           requests: 32,
           credits_used: 70,
           zero_result_queries: 3,
-          broll_assets_added: 4,
-          knowledge_videos_added: 1,
-          knowledge_segments_added: 12,
+          assets_added: 4,
+          videos_added: 1,
+          segments_added: 12,
           jobs_completed: 5,
           jobs_failed: 1,
           latency_p95_ms: 620,
@@ -345,7 +345,6 @@ describe("normalizeAdminWorkerLive", () => {
       active_jobs: [
         {
           job_id: "job_1",
-          track: "knowledge",
           status: "running",
           source: "youtube",
           video_id: "vid_1",
@@ -397,7 +396,6 @@ describe("normalizeAdminWorkerLive", () => {
       failed_jobs: [
         {
           job_id: "job_failed",
-          track: "unified",
           status: "failed",
           source: "youtube",
           video_id: "vid_failed",

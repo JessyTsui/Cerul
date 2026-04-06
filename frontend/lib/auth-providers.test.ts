@@ -8,7 +8,7 @@ describe("getConfiguredSocialProviders", () => {
         GITHUB_CLIENT_ID: "github-id",
         GITHUB_CLIENT_SECRET: "github-secret",
         GOOGLE_CLIENT_ID: "google-id",
-      } as NodeJS.ProcessEnv),
+      } as unknown as NodeJS.ProcessEnv),
     ).toEqual({
       github: {
         clientId: "github-id",
@@ -22,7 +22,7 @@ describe("getConfiguredSocialProviders", () => {
       getConfiguredSocialProviders({
         GOOGLE_CLIENT_ID: " google-id ",
         GOOGLE_CLIENT_SECRET: " google-secret ",
-      } as NodeJS.ProcessEnv),
+      } as unknown as NodeJS.ProcessEnv),
     ).toEqual({
       google: {
         clientId: "google-id",
@@ -40,7 +40,7 @@ describe("getAuthUiConfig", () => {
         GOOGLE_CLIENT_SECRET: "google-secret",
         GITHUB_CLIENT_ID: "github-id",
         GITHUB_CLIENT_SECRET: "github-secret",
-      } as NodeJS.ProcessEnv),
+      } as unknown as NodeJS.ProcessEnv),
     ).toEqual({
       enabledProviders: ["github", "google"],
       googleOneTapClientId: "google-id",

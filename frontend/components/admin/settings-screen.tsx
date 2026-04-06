@@ -23,9 +23,9 @@ const METRIC_OPTIONS = [
   "active_users",
   "requests_total",
   "credits_used",
-  "broll_assets_added",
-  "knowledge_videos_added",
-  "knowledge_segments_added",
+  "assets_added",
+  "videos_added",
+  "segments_added",
   "jobs_completed",
   "jobs_failed",
 ] as const;
@@ -33,14 +33,14 @@ const METRIC_OPTIONS = [
 const COMPARISON_OPTIONS: AdminTargetComparisonMode[] = ["at_least", "at_most"];
 const METRIC_SCOPE_OPTIONS: Record<(typeof METRIC_OPTIONS)[number], AdminTargetScopeType[]> = {
   new_users: ["global"],
-  active_users: ["global", "track"],
-  requests_total: ["global", "track"],
-  credits_used: ["global", "track"],
-  broll_assets_added: ["global", "track", "source"],
-  knowledge_videos_added: ["global", "track", "source"],
-  knowledge_segments_added: ["global", "track", "source"],
-  jobs_completed: ["global", "track", "source"],
-  jobs_failed: ["global", "track", "source"],
+  active_users: ["global"],
+  requests_total: ["global"],
+  credits_used: ["global"],
+  assets_added: ["global", "source"],
+  videos_added: ["global", "source"],
+  segments_added: ["global", "source"],
+  jobs_completed: ["global", "source"],
+  jobs_failed: ["global", "source"],
 };
 
 function isMetricOption(value: string): value is (typeof METRIC_OPTIONS)[number] {
@@ -72,9 +72,8 @@ function normalizeDraftTarget(target: DraftTarget): DraftTarget {
 
 function scopeKeyHint(target: DraftTarget): string {
   if (target.scopeType === "global") return "Global — no key needed";
-  if (target.scopeType === "track") return "broll, knowledge, or unified";
   if (target.metricName === "jobs_completed" || target.metricName === "jobs_failed") return "Source slug or UUID";
-  return "youtube, pexels, or pixabay";
+  return "youtube, youtube_search, pexels, pixabay, or upload";
 }
 
 export function AdminSettingsScreen() {

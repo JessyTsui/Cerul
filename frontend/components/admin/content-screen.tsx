@@ -52,23 +52,22 @@ export function AdminContentScreen() {
           ) : null}
 
           {/* Inventory totals */}
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <AdminMetricCard label="B-roll assets" metric={data.metrics.brollAssetsTotal} />
-            <AdminMetricCard label="Knowledge videos" metric={data.metrics.knowledgeVideosTotal} />
-            <AdminMetricCard label="Knowledge segments" metric={data.metrics.knowledgeSegmentsTotal} />
+          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <AdminMetricCard label="Videos" metric={data.metrics.videosTotal} />
+            <AdminMetricCard label="Segments" metric={data.metrics.segmentsTotal} />
             <AdminMetricCard label="Active sources" metric={data.metrics.activeSourcesTotal} />
           </section>
 
           {/* Growth this window */}
           <section className="grid gap-3 md:grid-cols-3">
-            <AdminMetricCard label="B-roll added" metric={data.metrics.brollAssetsAdded} />
-            <AdminMetricCard label="Videos added" metric={data.metrics.knowledgeVideosAdded} />
-            <AdminMetricCard label="Segments added" metric={data.metrics.knowledgeSegmentsAdded} />
+            <AdminMetricCard label="Assets added" metric={data.metrics.assetsAdded} />
+            <AdminMetricCard label="Videos added" metric={data.metrics.videosAdded} />
+            <AdminMetricCard label="Segments added" metric={data.metrics.segmentsAdded} />
           </section>
 
           <AdminTrendChart
             title="Segment growth"
-            data={toAdminChartData(data.dailySeries, "knowledgeSegmentsAdded")}
+            data={toAdminChartData(data.dailySeries, "segmentsAdded")}
             metricLabel="Segments added"
           />
 
@@ -82,15 +81,13 @@ export function AdminContentScreen() {
                 <thead>
                   <tr>
                     <th>Source</th>
-                    <th>Track</th>
                     <th>Added</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.perSourceGrowth.map((source) => (
-                    <tr key={`${source.track}-${source.sourceKey}`}>
+                    <tr key={source.sourceKey}>
                       <td className="admin-table-primary">{source.sourceKey}</td>
-                      <td>{source.track}</td>
                       <td>{source.additions}</td>
                     </tr>
                   ))}
@@ -110,7 +107,7 @@ export function AdminContentScreen() {
                   <thead>
                     <tr>
                       <th>Source</th>
-                      <th>Track</th>
+                      <th>Type</th>
                       <th>Jobs</th>
                       <th>Last job</th>
                     </tr>
@@ -126,7 +123,7 @@ export function AdminContentScreen() {
                             </span>
                           ) : null}
                         </td>
-                        <td>{source.track}</td>
+                        <td>{source.sourceType ?? "—"}</td>
                         <td>{source.jobsInRange}</td>
                         <td>{formatAdminDateTime(source.lastJobAt)}</td>
                       </tr>

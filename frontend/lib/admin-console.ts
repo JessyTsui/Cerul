@@ -101,9 +101,9 @@ export function toAdminChartData(
   metricKey:
     | "requests"
     | "creditsUsed"
-    | "brollAssetsAdded"
-    | "knowledgeVideosAdded"
-    | "knowledgeSegmentsAdded"
+    | "assetsAdded"
+    | "videosAdded"
+    | "segmentsAdded"
     | "jobsCompleted"
     | "jobsFailed",
 ) {

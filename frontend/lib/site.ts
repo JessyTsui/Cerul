@@ -49,35 +49,6 @@ export const capabilityHighlights = [
   },
 ] as const;
 
-export const searchTracks = [
-  {
-    badge: "Launch track",
-    name: "B-roll",
-    grain: "asset-level",
-    description:
-      "A lightweight showcase that proves the value of visual search quickly, with lower indexing cost and immediate demo value.",
-    points: [
-      "Semantic search over stock footage sources such as Pexels and Pixabay",
-      "Fast CLIP-based indexing without ASR",
-      "Low-cost lead generation surface",
-      "Ideal for public demos and partner onboarding",
-    ],
-  },
-  {
-    badge: "Core moat",
-    name: "Knowledge",
-    grain: "segment-level",
-    description:
-      "Long-form talks, podcasts, product keynotes, and technical videos indexed into segments that reflect what was said and shown.",
-    points: [
-      "Scene detection and key-frame analysis",
-      "Timestamp-aware retrieval and answer generation",
-      "Built for evidence-backed agent workflows",
-      "Higher-value foundation for enterprise search",
-    ],
-  },
-] as const;
-
 export const benchmarkRows = [
   {
     label: "Slide recall",
@@ -118,18 +89,18 @@ export const dashboardSignals = [
 ] as const;
 
 export const demoModes = {
-  knowledge: {
-    label: "knowledge",
+  search: {
+    label: "search",
     query: "Find the segment where the speaker explains the AGI timeline and shows a roadmap slide.",
     tags: ["timestamp url", "speaker filters", "answer optional"],
-    surface: "Segment retrieval",
+    surface: "Unified retrieval",
     output: "Summary plus time range",
   },
-  broll: {
-    label: "broll",
+  visual: {
+    label: "visual",
     query: "Cinematic close-up of a robotic arm sorting packages in a bright warehouse.",
     tags: ["preview image", "duration filters", "source metadata"],
-    surface: "Asset retrieval",
+    surface: "Visual retrieval",
     output: "Thumbnail, preview, duration",
   },
   agent: {

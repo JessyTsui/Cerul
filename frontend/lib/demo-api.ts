@@ -68,7 +68,7 @@ export type DemoApiKey = {
 
 export type RecentQuery = {
   query: string;
-  track: "broll" | "knowledge";
+  mode: "search" | "visual";
   latency: string;
   status: "OK";
 };
@@ -131,7 +131,7 @@ function timestampLabel(date: Date) {
 }
 
 const templateResults: Record<DemoMode, Omit<DemoSearchResult, "score">[]> = {
-  knowledge: [
+  search: [
     {
       id: "seg_yt_roadmap_1823_1945",
       title: "AGI roadmap slide and timeline discussion",
@@ -149,7 +149,7 @@ const templateResults: Record<DemoMode, Omit<DemoSearchResult, "score">[]> = {
       href: "/docs/search-api",
     },
   ],
-  broll: [
+  visual: [
     {
       id: "pexels_28192743",
       title: "Aerial coastal highway at sunset",
@@ -221,9 +221,9 @@ export function validateDemoSearchRequestBody(
   }
 
   return {
-    ok: true,
-    value: {
-      mode: (mode as DemoMode | undefined) ?? "knowledge",
+      ok: true,
+      value: {
+      mode: (mode as DemoMode | undefined) ?? "search",
       query: query ?? "",
     },
   };
@@ -233,14 +233,14 @@ export function simulateDemoSearch(input: DemoSearchInput): DemoSearchResponse {
   const normalizedQuery = input.query.trim() || demoModes[input.mode].query;
   const seed = hashString(`${input.mode}:${normalizedQuery}`);
   const latencyMs = 120 + (seed % 95);
-  const creditsUsed = input.mode === "knowledge" ? 3 : input.mode === "agent" ? 2 : 1;
+  const creditsUsed = input.mode === "agent" ? 2 : 1;
   const creditsRemaining = 1000 - ((seed % 120) + creditsUsed);
   const requestId = `req_${seed.toString(36).slice(0, 10)}`;
 
   const answerByMode: Record<DemoMode, string | undefined> = {
-    knowledge:
+    search:
       "Cerul would return the segment where the roadmap slide appears, then summarize the speaker's timeline claim with a timestamp URL for citation.",
-    broll: undefined,
+    visual: undefined,
     agent:
       "Cerul would bundle sources, timestamps, and evidence-oriented snippets so the downstream agent can cite the visual material directly.",
   };
@@ -260,7 +260,7 @@ export function simulateDemoSearch(input: DemoSearchInput): DemoSearchResponse {
     ],
     results: templateResults[input.mode].map((result, index) => ({
       ...result,
-      score: scoreFor(seed, index, input.mode === "broll" ? 0.9 : 0.94),
+      score: scoreFor(seed, index, input.mode === "visual" ? 0.9 : 0.94),
     })),
   };
 }
@@ -293,8 +293,8 @@ export function getDashboardSnapshot(): DashboardSnapshot {
       },
     ],
     searchMix: [
-      { label: "B-roll", value: 64 },
-      { label: "Knowledge", value: 86 },
+      { label: "Visual search", value: 64 },
+      { label: "Segment search", value: 86 },
       { label: "Answer generation", value: 42 },
       { label: "Preview fetch", value: 57 },
     ],
@@ -304,7 +304,7 @@ export function getDashboardSnapshot(): DashboardSnapshot {
       activeWorkers: 6,
       queueDepth: 18,
       summary:
-        "Scheduler backlog is within threshold and both product tracks are indexing normally.",
+        "Scheduler backlog is within threshold and the unified indexing flow is healthy.",
       updatedAt: stamp,
     },
     apiKeys: [
@@ -312,14 +312,14 @@ export function getDashboardSnapshot(): DashboardSnapshot {
         name: "Default key",
         prefix: "cer_live_••••f7a1",
         status: "Active",
-        scope: "Knowledge + b-roll",
+        scope: "Unified search",
         lastUsed: "Used 9 minutes ago",
       },
       {
         name: "Demo sandbox",
         prefix: "cer_test_••••2ca9",
         status: "Active",
-        scope: "B-roll demo only",
+        scope: "Visual retrieval demo",
         lastUsed: "Used 43 minutes ago",
       },
       {
@@ -333,19 +333,19 @@ export function getDashboardSnapshot(): DashboardSnapshot {
     recentQueries: [
       {
         query: "coastal highway at sunset",
-        track: "broll",
+        mode: "visual",
         latency: "140 ms",
         status: "OK",
       },
       {
         query: "Sam Altman AGI timeline slide",
-        track: "knowledge",
+        mode: "search",
         latency: "198 ms",
         status: "OK",
       },
       {
         query: "screen demo explaining vector search",
-        track: "knowledge",
+        mode: "search",
         latency: "225 ms",
         status: "OK",
       },
@@ -361,7 +361,7 @@ export function getDashboardSnapshot(): DashboardSnapshot {
         label: "Last 7 days",
         requests: "1,064",
         credits: "36",
-        note: "Most traffic came from knowledge search experiments.",
+        note: "Most traffic came from timestamped search experiments.",
       },
       {
         label: "Peak day",
@@ -393,7 +393,7 @@ export function getDashboardSnapshot(): DashboardSnapshot {
         stage: "Queued",
         progress: 0,
         status: "queued",
-        note: "Awaiting worker availability in the b-roll lane.",
+        note: "Awaiting worker availability in the visual indexing lane.",
       },
       {
         id: "job_12870",
@@ -406,9 +406,9 @@ export function getDashboardSnapshot(): DashboardSnapshot {
     ],
     settingsPanels: [
       {
-        title: "Default search track",
+        title: "Default demo mode",
         description: "Sets the product's default experience for unauthenticated demos.",
-        value: "broll",
+        value: "search",
       },
       {
         title: "Usage alert threshold",
