@@ -20,6 +20,7 @@ export function SiteFooter() {
         { label: "API Reference", href: "/docs/api-reference" },
         { label: "Quickstart", href: "/docs" },
         { label: "GitHub", href: "https://github.com/cerul-ai/cerul" },
+        { label: "Status", href: "https://status.cerul.ai" },
       ],
     },
     {
