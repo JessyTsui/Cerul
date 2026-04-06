@@ -44,11 +44,24 @@ Most video search today is limited to transcripts — what was *said*. Cerul goe
 > [!NOTE]
 > Cerul is in active development. The API is live at [cerul.ai](https://cerul.ai) — sign up to get a free API key.
 
-## Quickstart
+---
+
+## For LLM Agents
+
+> [!TIP]
+> **If you are an AI agent**, skip the rest of this README. Fetch and follow the setup guide directly:
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/cerul-ai/cerul/main/skills/cerul/SKILL.md
+> ```
+> This will tell you how to install the CLI, configure credentials, and start searching videos.
+
+---
+
+## For Humans
 
 ### Use with your AI agent
 
-Copy this and send it to your agent (Claude Code, Codex, Cursor, etc.):
+Send this to your agent (Claude Code, Codex, Cursor, etc.):
 
 > Install the Cerul video search skill by reading and following https://github.com/cerul-ai/cerul/blob/main/skills/cerul/SKILL.md
 
