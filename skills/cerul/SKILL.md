@@ -65,13 +65,13 @@ After showing examples, ask the user: "Want me to try one of these, or ask your 
 
 ```bash
 # Basic search
-cerul search "Sam Altman AGI timeline" --json
+cerul search "Sam Altman AGI timeline" --agent
 
 # With filters
-cerul search "Jensen Huang AI infrastructure" --max-results 5 --source youtube --json
+cerul search "Jensen Huang AI infrastructure" --max-results 5 --source youtube --agent
 
 # Check credits
-cerul usage --json
+cerul usage --agent
 ```
 
 ## Search options
@@ -84,7 +84,7 @@ cerul usage --json
 | `--speaker NAME` | Filter by channel/speaker name (see note below) |
 | `--published-after DATE` | YYYY-MM-DD |
 | `--source SOURCE` | e.g. `youtube` |
-| `--json` | **Always use this.** Structured output for parsing. |
+| `--agent` | **Always use this.** Compact markdown output optimized for agents. |
 
 ### Important: speaker filter
 
@@ -97,13 +97,13 @@ The `speaker` field often contains the **channel name** (e.g. "Sequoia Capital",
 Example — "Compare Sam Altman and Dario Amodei on AI safety":
 
 ```bash
-cerul search "Sam Altman AI safety views" --json
+cerul search "Sam Altman AI safety views" --agent
 # → read transcript, note claims
 
-cerul search "Dario Amodei AI safety approach" --json
+cerul search "Dario Amodei AI safety approach" --agent
 # → read transcript, find contrasts
 
-cerul search "AGI safety debate scaling" --json
+cerul search "AGI safety debate scaling" --agent
 # → deepen with cross-references
 
 # → Synthesize with video citations and timestamps
@@ -117,7 +117,7 @@ cerul search "AGI safety debate scaling" --json
 
 ## Working rules
 
-- **Always use `--json`** for structured output.
+- **Always use `--agent`** for compact markdown output (not `--json`, which gets collapsed in agent UIs).
 - **Always include video URLs** from results in your answer. Every quote needs a source link.
 - **Read the `transcript` field**, not just `snippet`. Transcript has the full context.
 - **Do not guess what someone said.** Search for it.
