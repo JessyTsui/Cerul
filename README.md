@@ -51,7 +51,7 @@ Most video search today is limited to transcripts — what was *said*. Cerul goe
 Copy this and send it to your agent (Claude Code, Codex, Cursor, etc.):
 
 ```
-Install the Cerul video search skill: mkdir -p ~/.claude/skills/cerul && curl -fsSL https://raw.githubusercontent.com/cerul-ai/cerul/main/skills/cerul/SKILL.md -o ~/.claude/skills/cerul/SKILL.md && cat ~/.claude/skills/cerul/SKILL.md
+npx skills add cerul-ai/cerul
 ```
 
 Your agent will install the CLI, set up credentials, and start searching videos as a tool.
