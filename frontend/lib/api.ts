@@ -1390,6 +1390,8 @@ export type PlaygroundSearchResult = {
   duration: number;
   source: string;
   speaker: string | null;
+  publishedAt: string | null;
+  language: string | null;
   timestampStart: number | null;
   timestampEnd: number | null;
 };
@@ -1416,6 +1418,8 @@ function normalizePlaygroundResult(raw: Record<string, unknown>): PlaygroundSear
     duration: Number(raw.duration ?? 0),
     source: String(raw.source ?? ""),
     speaker: typeof raw.speaker === "string" ? raw.speaker : null,
+    publishedAt: typeof raw.published_at === "string" ? raw.published_at : null,
+    language: typeof raw.language === "string" ? raw.language : null,
     timestampStart: typeof raw.timestamp_start === "number" ? raw.timestamp_start : null,
     timestampEnd: typeof raw.timestamp_end === "number" ? raw.timestamp_end : null,
   };
