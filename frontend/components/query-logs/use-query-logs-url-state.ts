@@ -117,11 +117,16 @@ function replaceUrl(
   pathname: string,
   filters: QueryLogFilters,
   selectedRequestId: string | null,
+  historyMode: "replace" | "push" = "replace",
 ) {
   const params = serializeQueryLogFiltersToSearchParams(filters, selectedRequestId);
   const query = params.toString();
   const href = query ? `${pathname}?${query}` : pathname;
   startTransition(() => {
+    if (historyMode === "push") {
+      router.push(href as Route, { scroll: false });
+      return;
+    }
     router.replace(href as Route, { scroll: false });
   });
 }
@@ -142,7 +147,7 @@ export function useQueryLogsUrlState(basePath: string): QueryLogsUrlState {
 
   function selectRequest(requestId: string | null, nextFilters?: Partial<QueryLogFilters>) {
     const merged = nextFilters ? withOffsetReset(urlFilters, nextFilters) : urlFilters;
-    replaceUrl(router, activePath, merged, requestId);
+    replaceUrl(router, activePath, merged, requestId, "push");
   }
 
   function setOffset(offset: number) {
