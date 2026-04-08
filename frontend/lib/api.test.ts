@@ -558,32 +558,33 @@ describe("dashboard API client", () => {
           items: [
             {
               request_id: "req_api_1",
+              user_id: "user_1",
+              user_email: "founder@cerul.ai",
               search_surface: "api",
               query_text: "attention is all you need",
+              client_source: "dashboard",
               include_answer: true,
               result_count: 5,
               latency_ms: 182,
-              credits_used: 2,
               created_at: "2026-04-02T08:00:00Z",
-              answer_text: "summary",
-              results: [],
             },
             {
               request_id: "req_legacy_1",
+              user_id: "user_1",
+              user_email: null,
               search_surface: null,
               query_text: "legacy row",
+              client_source: null,
               include_answer: false,
               result_count: 0,
               latency_ms: null,
-              credits_used: 1,
               created_at: "2026-04-01T08:00:00Z",
-              answer_text: null,
-              results: [],
             },
           ],
           total: 2,
           limit: 50,
           offset: 0,
+          applied_default_window: true,
         }),
         {
           status: 200,
@@ -598,33 +599,120 @@ describe("dashboard API client", () => {
       items: [
         {
           requestId: "req_api_1",
+          userId: "user_1",
+          userEmail: "founder@cerul.ai",
           searchSurface: "api",
           queryText: "attention is all you need",
+          clientSource: "dashboard",
           includeAnswer: true,
           resultCount: 5,
           latencyMs: 182,
-          creditsUsed: 2,
           createdAt: "2026-04-02T08:00:00Z",
-          answerText: "summary",
-          results: [],
         },
         {
           requestId: "req_legacy_1",
+          userId: "user_1",
+          userEmail: null,
           searchSurface: null,
           queryText: "legacy row",
+          clientSource: null,
           includeAnswer: false,
           resultCount: 0,
           latencyMs: null,
-          creditsUsed: 1,
           createdAt: "2026-04-01T08:00:00Z",
-          answerText: null,
-          results: [],
         },
       ],
       total: 2,
       limit: 50,
       offset: 0,
+      appliedDefaultWindow: true,
     });
+  });
+
+  it("normalizes query log detail payloads", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          request_id: "req_api_1",
+          user_id: "user_1",
+          user_email: "founder@cerul.ai",
+          query_text: "attention is all you need",
+          search_surface: "api",
+          client_source: "dashboard",
+          result_count: 5,
+          latency_ms: 182,
+          include_answer: true,
+          created_at: "2026-04-02T08:00:00Z",
+          api_key_id: "key_1",
+          filters: {
+            language: "en",
+          },
+          max_results: 8,
+          answer_text: "summary",
+          credits_used: 2,
+          results_preview: [
+            {
+              rank: 0,
+              result_id: "result_1",
+              short_id: "shr_1",
+              video_id: "video_1",
+              url: "https://example.com/watch?v=1",
+              title: "Attention lecture",
+              source: "YouTube",
+              thumbnail_url: "https://cdn.example.com/thumb-1.jpg",
+              score: 0.92,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(queryLogs.get("req_api_1")).resolves.toEqual({
+      requestId: "req_api_1",
+      userId: "user_1",
+      userEmail: "founder@cerul.ai",
+      queryText: "attention is all you need",
+      searchSurface: "api",
+      clientSource: "dashboard",
+      resultCount: 5,
+      latencyMs: 182,
+      includeAnswer: true,
+      createdAt: "2026-04-02T08:00:00Z",
+      apiKeyId: "key_1",
+      filters: {
+        language: "en",
+      },
+      maxResults: 8,
+      answerText: "summary",
+      creditsUsed: 2,
+      resultsPreview: [
+        {
+          rank: 0,
+          resultId: "result_1",
+          shortId: "shr_1",
+          videoId: "video_1",
+          title: "Attention lecture",
+          source: "YouTube",
+          thumbnailUrl: "https://cdn.example.com/thumb-1.jpg",
+          targetUrl: "https://example.com/watch?v=1",
+          score: 0.92,
+        },
+      ],
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/dashboard/query-logs/req_api_1",
+      expect.objectContaining({
+        credentials: "include",
+        method: "GET",
+      }),
+    );
   });
 
   it("normalizes job list payloads with pagination", async () => {

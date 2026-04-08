@@ -1,4 +1,11 @@
 import { buildConsoleProxyPath } from "./console-api";
+import type {
+  QueryLogDetail,
+  QueryLogFilters,
+  QueryLogListItem,
+  QueryLogListResult,
+  QueryLogPreview,
+} from "@/components/query-logs/types";
 
 type JsonBody =
   | Record<string, unknown>
@@ -254,35 +261,6 @@ export type PaymentMethod = {
   expMonth: number;
   expYear: number;
   isDefault: boolean;
-};
-
-export type QueryLogResult = {
-  rank: number;
-  title: string;
-  source: string;
-  thumbnailUrl: string | null;
-  targetUrl: string | null;
-  score: number | null;
-};
-
-export type QueryLogEntry = {
-  requestId: string;
-  searchSurface: string | null;
-  queryText: string;
-  includeAnswer: boolean;
-  resultCount: number;
-  latencyMs: number | null;
-  creditsUsed: number;
-  createdAt: string;
-  answerText: string | null;
-  results: QueryLogResult[];
-};
-
-export type QueryLogsResponse = {
-  items: QueryLogEntry[];
-  total: number;
-  limit: number;
-  offset: number;
 };
 
 export type BillingRedirect = {
@@ -1091,6 +1069,83 @@ function buildQueryString(
   return queryString ? `?${queryString}` : "";
 }
 
+function normalizeQueryLogPreview(value: Record<string, unknown>): QueryLogPreview {
+  return {
+    rank: Number(value.rank ?? 0),
+    resultId: typeof value.result_id === "string" ? value.result_id : null,
+    shortId: typeof value.short_id === "string" ? value.short_id : null,
+    videoId: typeof value.video_id === "string" ? value.video_id : null,
+    title: typeof value.title === "string" ? value.title : "",
+    source: typeof value.source === "string" ? value.source : "",
+    thumbnailUrl: typeof value.thumbnail_url === "string" ? value.thumbnail_url : null,
+    targetUrl: typeof value.url === "string"
+      ? value.url
+      : typeof value.target_url === "string"
+        ? value.target_url
+        : null,
+    score: isFiniteNumber(value.score) ? value.score : null,
+  };
+}
+
+function normalizeQueryLogListItem(value: Record<string, unknown>): QueryLogListItem {
+  return {
+    requestId: String(value.request_id ?? ""),
+    userId: String(value.user_id ?? ""),
+    userEmail: typeof value.user_email === "string" ? value.user_email : null,
+    queryText: String(value.query_text ?? ""),
+    searchSurface:
+      value.search_surface === "api" || value.search_surface === "playground" || value.search_surface === "mcp"
+        ? value.search_surface
+        : null,
+    clientSource: typeof value.client_source === "string" ? value.client_source : null,
+    resultCount: Number(value.result_count ?? 0),
+    latencyMs: isFiniteNumber(value.latency_ms) ? value.latency_ms : null,
+    includeAnswer: value.include_answer === true,
+    createdAt: String(value.created_at ?? ""),
+  };
+}
+
+export function normalizeQueryLogListResponse(payload: Record<string, unknown>): QueryLogListResult {
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  return {
+    items: items.map((item) => normalizeQueryLogListItem(item as Record<string, unknown>)),
+    total: Number(payload.total ?? 0),
+    limit: Number(payload.limit ?? 50),
+    offset: Number(payload.offset ?? 0),
+    appliedDefaultWindow: payload.applied_default_window === true,
+  };
+}
+
+export function normalizeQueryLogDetailResponse(payload: Record<string, unknown>): QueryLogDetail {
+  const item = normalizeQueryLogListItem(payload);
+  const previews = Array.isArray(payload.results_preview)
+    ? payload.results_preview.map((preview) => normalizeQueryLogPreview(preview as Record<string, unknown>))
+    : [];
+  return {
+    ...item,
+    apiKeyId: typeof payload.api_key_id === "string" ? payload.api_key_id : null,
+    filters: payload.filters ?? {},
+    maxResults: Number(payload.max_results ?? 0),
+    answerText: typeof payload.answer_text === "string" ? payload.answer_text : null,
+    resultsPreview: previews,
+    creditsUsed: isFiniteNumber(payload.credits_used) ? payload.credits_used : null,
+  };
+}
+
+export function buildQueryLogQueryString(filters: Partial<QueryLogFilters>): string {
+  return buildQueryString({
+    requestId: filters.requestId,
+    userId: filters.userId,
+    query: filters.query,
+    surface: filters.surface,
+    clientSource: filters.clientSource,
+    from: filters.from,
+    to: filters.to,
+    limit: filters.limit,
+    offset: filters.offset,
+  });
+}
+
 export async function fetchWithAuth<T>(
   path: string,
   options: FetchWithAuthOptions = {},
@@ -1489,41 +1544,20 @@ export const playground = {
 };
 
 export const queryLogs = {
-  async list(options?: { limit?: number; offset?: number }): Promise<QueryLogsResponse> {
-    const params = new URLSearchParams();
-    if (options?.limit) params.set("limit", String(options.limit));
-    if (options?.offset) params.set("offset", String(options.offset));
-    const qs = params.toString();
+  async list(filters: Partial<QueryLogFilters> = {}): Promise<QueryLogListResult> {
+    const qs = buildQueryLogQueryString(filters);
     const raw = await fetchWithAuth<Record<string, unknown>>(
-      `/dashboard/query-logs${qs ? `?${qs}` : ""}`,
+      `/dashboard/query-logs${qs}`,
       { method: "GET", cache: "no-store" },
     );
-    const items = Array.isArray(raw.items) ? raw.items : [];
-    return {
-      items: items.map((item: Record<string, unknown>) => ({
-        requestId: String(item.request_id ?? ""),
-        searchSurface: typeof item.search_surface === "string" ? item.search_surface : null,
-        queryText: String(item.query_text ?? ""),
-        includeAnswer: item.include_answer === true,
-        resultCount: Number(item.result_count ?? 0),
-        latencyMs: typeof item.latency_ms === "number" ? item.latency_ms : null,
-        creditsUsed: Number(item.credits_used ?? 0),
-        createdAt: String(item.created_at ?? ""),
-        answerText: typeof item.answer_text === "string" ? item.answer_text : null,
-        results: Array.isArray(item.results)
-          ? (item.results as Record<string, unknown>[]).map((r) => ({
-              rank: Number(r.rank ?? 0),
-              title: String(r.title ?? ""),
-              source: String(r.source ?? ""),
-              thumbnailUrl: typeof r.thumbnail_url === "string" ? r.thumbnail_url : null,
-              targetUrl: typeof r.target_url === "string" ? r.target_url : null,
-              score: typeof r.score === "number" ? r.score : null,
-            }))
-          : [],
-      })),
-      total: Number(raw.total ?? 0),
-      limit: Number(raw.limit ?? 50),
-      offset: Number(raw.offset ?? 0),
-    };
+    return normalizeQueryLogListResponse(raw);
+  },
+
+  async get(requestId: string): Promise<QueryLogDetail> {
+    const raw = await fetchWithAuth<Record<string, unknown>>(
+      `/dashboard/query-logs/${encodeURIComponent(requestId)}`,
+      { method: "GET", cache: "no-store" },
+    );
+    return normalizeQueryLogDetailResponse(raw);
   },
 };

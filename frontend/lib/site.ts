@@ -236,15 +236,17 @@ export const dashboardRoutes = [
   { label: "Usage", href: "/dashboard/usage", meta: "03" },
   { label: "Billing", href: "/dashboard/billing", meta: "04" },
   { label: "Settings", href: "/dashboard/settings", meta: "05" },
+  { label: "Query Logs", href: "/dashboard/query-logs", meta: "06" },
 ] as const;
 
 export const adminRoutes = [
   { label: "Overview", href: "/admin", meta: "A1" },
   { label: "Analytics", href: "/admin/analytics", meta: "A2" },
   { label: "Requests", href: "/admin/requests", meta: "A3" },
-  { label: "Workers", href: "/admin/workers", meta: "A4" },
-  { label: "Sources", href: "/admin/sources", meta: "A5" },
-  { label: "Content", href: "/admin/content", meta: "A6" },
+  { label: "Query Logs", href: "/admin/query-logs", meta: "A4" },
+  { label: "Workers", href: "/admin/workers", meta: "A5" },
+  { label: "Sources", href: "/admin/sources", meta: "A6" },
+  { label: "Content", href: "/admin/content", meta: "A7" },
 ] as const;
 
 export function isPrimaryRoute(path: string): boolean {
@@ -263,17 +265,19 @@ export function isPrimaryNavigationActive(
 }
 
 export function isDashboardRouteActive(currentPath: string, href: string): boolean {
+  const pathname = currentPath.split(/[?#]/, 1)[0] ?? currentPath;
   if (href === "/dashboard") {
-    return currentPath === "/dashboard";
+    return pathname === "/dashboard";
   }
 
-  return currentPath === href || currentPath.startsWith(`${href}/`);
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function isAdminRouteActive(currentPath: string, href: string): boolean {
+  const pathname = currentPath.split(/[?#]/, 1)[0] ?? currentPath;
   if (href === "/admin") {
-    return currentPath === "/admin";
+    return pathname === "/admin";
   }
 
-  return currentPath === href || currentPath.startsWith(`${href}/`);
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
