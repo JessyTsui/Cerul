@@ -151,7 +151,8 @@ export default function BrandPage() {
                 <a
                   href="/cerul-press-kit.zip"
                   download
-                  className="inline-flex items-center gap-2 rounded-full bg-[var(--foreground)] px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                  style={{ color: "#ffffff" }}
+                  className="inline-flex items-center gap-2 rounded-full bg-[var(--foreground)] px-6 py-3 text-sm font-semibold transition hover:opacity-90"
                 >
                   <svg
                     width="16"
