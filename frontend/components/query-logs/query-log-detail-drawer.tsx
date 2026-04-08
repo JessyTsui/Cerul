@@ -135,11 +135,21 @@ export function QueryLogDetailDrawer({
   }
 
   return createPortal(
-    // `soft-theme` class must be on the portal root. createPortal escapes
-    // the React ancestry and mounts under <body>, bypassing the soft-theme
-    // wrapper that AdminAppShell / DashboardAppShell apply. Without it the
-    // drawer falls back to the :root dark theme and renders navy-on-white.
-    <div className="soft-theme fixed inset-0 z-[120]">
+    // We use `soft-theme-vars` (NOT the full `soft-theme`) here.
+    //
+    // createPortal escapes the React ancestry and mounts under <body>,
+    // bypassing the `.soft-theme` wrapper that AdminAppShell /
+    // DashboardAppShell apply. Without any light-theme class the CSS
+    // variables fall back to the `:root` dark theme defaults.
+    //
+    // BUT applying full `.soft-theme` to this full-viewport root is
+    // wrong — `.soft-theme` also carries `position: relative`, an opaque
+    // radial-gradient background, and `::before/::after` decorative
+    // layers that would cover the underlying page and fight Tailwind's
+    // `fixed` positioning. `.soft-theme-vars` is a palette-only variant
+    // that only declares the CSS custom properties, so children resolve
+    // to the light tokens without any of the full-screen side effects.
+    <div className="soft-theme-vars fixed inset-0 z-[120]">
       <button
         type="button"
         aria-label="Close query log detail"
