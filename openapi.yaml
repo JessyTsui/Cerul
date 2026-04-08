@@ -576,7 +576,6 @@ components:
                 - not_found
                 - rate_limited
                 - internal_error
-                - api_error
               description: Machine-readable coarse error code.
             subcode:
               type: string
