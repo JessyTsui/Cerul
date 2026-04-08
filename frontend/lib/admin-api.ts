@@ -1,4 +1,15 @@
-import { ApiClientError, fetchWithAuth } from "./api";
+import type {
+  QueryLogDetail,
+  QueryLogFilters,
+  QueryLogListResult,
+} from "@/components/query-logs/types";
+import {
+  ApiClientError,
+  buildQueryLogQueryString,
+  fetchWithAuth,
+  normalizeQueryLogDetailResponse,
+  normalizeQueryLogListResponse,
+} from "./api";
 
 export type AdminRange = "today" | "7d" | "30d";
 export type AdminTargetScopeType = "global" | "source";
@@ -1129,6 +1140,25 @@ export function normalizeAdminTargetsResponse(payload: unknown): AdminTargetsRes
         })
       : [],
   };
+}
+
+export async function listAdminQueryLogs(
+  filters: Partial<QueryLogFilters> = {},
+): Promise<QueryLogListResult> {
+  const query = buildQueryLogQueryString(filters);
+  const payload = await fetchWithAuth<Record<string, unknown>>(
+    `/admin/query-logs${query}`,
+    { method: "GET", cache: "no-store" },
+  );
+  return normalizeQueryLogListResponse(payload);
+}
+
+export async function getAdminQueryLog(requestId: string): Promise<QueryLogDetail> {
+  const payload = await fetchWithAuth<Record<string, unknown>>(
+    `/admin/query-logs/${encodeURIComponent(requestId)}`,
+    { method: "GET", cache: "no-store" },
+  );
+  return normalizeQueryLogDetailResponse(payload);
 }
 
 export const admin = {

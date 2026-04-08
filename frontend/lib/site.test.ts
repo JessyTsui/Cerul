@@ -50,12 +50,14 @@ describe("isDashboardRouteActive", () => {
   it("matches nested dashboard routes", () => {
     expect(isDashboardRouteActive("/dashboard/usage", "/dashboard/usage")).toBe(true);
     expect(isDashboardRouteActive("/dashboard/usage/detail", "/dashboard/usage")).toBe(true);
+    expect(isDashboardRouteActive("/dashboard/query-logs?selected=req_1", "/dashboard/query-logs")).toBe(true);
   });
 });
 
 describe("adminRoutes", () => {
-  it("includes the analytics, workers, and content console entries", () => {
+  it("includes the analytics, query logs, workers, and content console entries", () => {
     expect(adminRoutes.some((item) => item.href === "/admin/analytics")).toBe(true);
+    expect(adminRoutes.some((item) => item.href === "/admin/query-logs")).toBe(true);
     expect(adminRoutes.some((item) => item.href === "/admin/workers")).toBe(true);
     expect(adminRoutes.some((item) => item.href === "/admin/content")).toBe(true);
   });

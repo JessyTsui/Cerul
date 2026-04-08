@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   admin,
+  getAdminQueryLog,
+  listAdminQueryLogs,
   normalizeAdminIndexedVideos,
   normalizeAdminWorkerNodesResponse,
   normalizeAdminWorkerLive,
@@ -764,6 +766,163 @@ describe("admin data clients", () => {
         running: 2,
         backlog: 2,
         jobsCompleted: 4,
+      }),
+    );
+  });
+
+  it("loads admin query logs with normalized filters and pagination", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              request_id: "req_admin_1",
+              user_id: "user_9",
+              user_email: "ops@cerul.ai",
+              query_text: "warehouse robots",
+              search_surface: "playground",
+              client_source: "admin",
+              result_count: 3,
+              latency_ms: 145,
+              include_answer: false,
+              created_at: "2026-04-07T09:30:00Z",
+            },
+          ],
+          total: 1,
+          limit: 25,
+          offset: 50,
+          applied_default_window: false,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(
+      listAdminQueryLogs({
+        userId: "user_9",
+        query: "warehouse",
+        surface: "playground",
+        from: "2026-04-01T00:00:00.000Z",
+        limit: 25,
+        offset: 50,
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          requestId: "req_admin_1",
+          userId: "user_9",
+          userEmail: "ops@cerul.ai",
+          queryText: "warehouse robots",
+          searchSurface: "playground",
+          clientSource: "admin",
+          resultCount: 3,
+          latencyMs: 145,
+          includeAnswer: false,
+          createdAt: "2026-04-07T09:30:00Z",
+        },
+      ],
+      total: 1,
+      limit: 25,
+      offset: 50,
+      appliedDefaultWindow: false,
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/admin/query-logs?userId=user_9&query=warehouse&surface=playground&from=2026-04-01T00%3A00%3A00.000Z&limit=25&offset=50",
+      expect.objectContaining({
+        credentials: "include",
+        method: "GET",
+      }),
+    );
+  });
+
+  it("loads a single admin query log detail", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          request_id: "req_admin_1",
+          user_id: "user_9",
+          user_email: "ops@cerul.ai",
+          query_text: "warehouse robots",
+          search_surface: "playground",
+          client_source: "admin",
+          result_count: 3,
+          latency_ms: 145,
+          include_answer: false,
+          created_at: "2026-04-07T09:30:00Z",
+          api_key_id: null,
+          filters: {
+            source_id: "source_demo",
+          },
+          max_results: 10,
+          answer_text: null,
+          credits_used: 1,
+          results_preview: [
+            {
+              rank: 1,
+              result_id: "result_2",
+              short_id: "shr_2",
+              video_id: "video_2",
+              target_url: "https://example.com/watch?v=2",
+              title: "Robot sorting demo",
+              source: "Vimeo",
+              thumbnail_url: null,
+              score: 0.71,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(getAdminQueryLog("req_admin_1")).resolves.toEqual({
+      requestId: "req_admin_1",
+      userId: "user_9",
+      userEmail: "ops@cerul.ai",
+      queryText: "warehouse robots",
+      searchSurface: "playground",
+      clientSource: "admin",
+      resultCount: 3,
+      latencyMs: 145,
+      includeAnswer: false,
+      createdAt: "2026-04-07T09:30:00Z",
+      apiKeyId: null,
+      filters: {
+        source_id: "source_demo",
+      },
+      maxResults: 10,
+      answerText: null,
+      creditsUsed: 1,
+      resultsPreview: [
+        {
+          rank: 1,
+          resultId: "result_2",
+          shortId: "shr_2",
+          videoId: "video_2",
+          title: "Robot sorting demo",
+          source: "Vimeo",
+          thumbnailUrl: null,
+          targetUrl: "https://example.com/watch?v=2",
+          score: 0.71,
+        },
+      ],
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/console/admin/query-logs/req_admin_1",
+      expect.objectContaining({
+        credentials: "include",
+        method: "GET",
       }),
     );
   });
