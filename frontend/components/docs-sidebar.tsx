@@ -13,6 +13,8 @@ type DocsSidebarProps = {
 export function DocsSidebar({ currentSlug, currentPath }: DocsSidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const panelId = useId();
+  const mobilePanelId = `${panelId}-mobile`;
+  const desktopPanelId = `${panelId}-desktop`;
   const activeKey = currentSlug ?? currentPath ?? "/docs";
 
   useEffect(() => {
@@ -39,7 +41,7 @@ export function DocsSidebar({ currentSlug, currentPath }: DocsSidebarProps) {
   return (
     <>
       <button
-        aria-controls={panelId}
+        aria-controls={mobilePanelId}
         aria-expanded={mobileOpen}
         type="button"
         onClick={() => setMobileOpen(!mobileOpen)}
@@ -61,7 +63,7 @@ export function DocsSidebar({ currentSlug, currentPath }: DocsSidebarProps) {
           />
 
           <aside
-            id={panelId}
+            id={mobilePanelId}
             className="absolute inset-y-0 left-0 w-[min(88vw,360px)] max-w-full overflow-y-auto border-r border-[var(--border)] bg-[rgba(255,252,247,0.98)] p-5 shadow-[0_24px_80px_rgba(36,29,21,0.18)]"
           >
             <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
@@ -156,7 +158,7 @@ export function DocsSidebar({ currentSlug, currentPath }: DocsSidebarProps) {
         </div>
       ) : null}
 
-      <aside id={panelId} className="hidden lg:block">
+      <aside id={desktopPanelId} className="hidden lg:block">
         <div className="sticky top-20 max-h-[calc(100vh-5.5rem)] overflow-y-auto rounded-[24px] border border-[var(--border)] bg-[rgba(255,252,247,0.76)] p-4 shadow-[0_18px_40px_rgba(36,29,21,0.06)] backdrop-blur-xl">
           <div className="border-b border-[var(--border)] pb-4">
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--brand-bright)]">

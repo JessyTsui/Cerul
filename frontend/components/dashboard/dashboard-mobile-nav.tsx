@@ -44,7 +44,7 @@ export function DashboardMobileNav({
 
   return (
     <>
-      <div className="flex items-center gap-3 md:hidden">
+      <div className="flex items-center gap-3 lg:hidden">
         <button
           type="button"
           aria-expanded={open}
